@@ -1,8 +1,8 @@
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { generateContent, parseJsonResponse } from './gemini.js';
 import { cosineSimilarity, embedText } from './embeddings.js';
 import { getMemoriesWithEmbeddings, saveStructuredMemoryAtomic } from './db.js';
 import { logger } from './logger.js';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { readEnvFile } from './env.js';
 import { getScrubbedSdkEnv } from './security.js';
 
@@ -12,6 +12,41 @@ import { getScrubbedSdkEnv } from './security.js';
 // action-item detector can read the full content, not just the summary.
 let onHighImportanceMemory: ((memoryId: number, summary: string, importance: number, rawText: string) => void) | null = null;
 
+// Quota-aware backoff. When Gemini returns 429 RESOURCE_EXHAUSTED we
+// pause ingestion for INGEST_QUOTA_BACKOFF_MS instead of retrying on
+// every turn — otherwise the log fills with the same error and we burn
+// quota the moment it refreshes. After the window we try again; if it
+// still 429s we reset the cooldown. Surface the suspended state via
+// `getIngestionQuotaStatus` so /api/health can show "memory paused".
+const INGEST_QUOTA_BACKOFF_MS = 5 * 60 * 1000; // 5 minutes
+let _ingestSuspendedUntil = 0;
+let _last429At = 0;
+
+function isQuotaError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /429|RESOURCE_EXHAUSTED|quota/i.test(msg);
+}
+
+// Note: the actual extractViaClaude implementation lives lower in this file
+// (exported, with a configurable timeoutMs parameter — used by dashboard.ts
+// for the 120s suggestions path). The cherry-pick's duplicate was removed
+// here in favor of that single canonical version.
+
+export function getIngestionQuotaStatus(): {
+  suspended: boolean;
+  suspendedUntil: number | null;
+  last429At: number | null;
+} {
+  const now = Date.now();
+  return {
+    suspended: now < _ingestSuspendedUntil,
+    suspendedUntil: _ingestSuspendedUntil > now ? _ingestSuspendedUntil : null,
+    last429At: _last429At > 0 ? _last429At : null,
+  };
+}
+
+// Note: 4-param callback (with rawText) is our extension over upstream's
+// 3-param signature — bot.ts uses rawText for the action-item dispatcher.
 export function setHighImportanceCallback(cb: (memoryId: number, summary: string, importance: number, rawText: string) => void): void {
   onHighImportanceMemory = cb;
 }
@@ -98,12 +133,28 @@ export async function ingestConversationTurn(
   // Hard filter: skip very short messages and commands
   if (userMessage.length <= 15 || userMessage.startsWith('/')) return false;
 
+  // If we recently hit a quota wall, don't even try — it'll just spam the
+  // log with the same RESOURCE_EXHAUSTED error every turn. Surface the
+  // suspended state via getIngestionQuotaStatus so /api/health can warn.
+  if (Date.now() < _ingestSuspendedUntil) return false;
+
   try {
     const prompt = EXTRACTION_PROMPT
       .replace('{USER_MESSAGE}', userMessage.slice(0, 2000))
       .replace('{ASSISTANT_RESPONSE}', assistantResponse.slice(0, 2000));
 
-    const raw = await generateContent(prompt);
+    // Primary path: Claude Haiku via OAuth (no API key, no quota wall).
+    // We swapped from Gemini because the free-tier RESOURCE_EXHAUSTED
+    // was hitting on every turn and silently killing memory ingestion.
+    let raw: string;
+    try {
+      raw = await extractViaClaude(prompt);
+    } catch (claudeErr) {
+      // Fallback: try Gemini if it has a key configured. The 429 backoff
+      // path inside the catch below handles quota errors gracefully.
+      logger.warn({ err: claudeErr instanceof Error ? claudeErr.message : claudeErr }, 'Claude extraction failed; falling back to Gemini');
+      raw = await generateContent(prompt);
+    }
     const result = parseJsonResponse<ExtractionResult & { skip?: boolean }>(raw);
 
     if (!result || result.skip) return false;
@@ -169,7 +220,24 @@ export async function ingestConversationTurn(
     );
     return true;
   } catch (err) {
-    // Gemini failure should never block the bot
+    // Gemini failure should never block the bot.
+    // 429 / quota errors deserve a cooldown — otherwise every turn fires
+    // the same failed call and floods the log. Suspend ingestion for the
+    // configured window; subsequent calls return early until the window
+    // expires. Drop the log level on the suspension itself so we don't
+    // re-warn every time the cooldown is hit.
+    if (isQuotaError(err)) {
+      _last429At = Date.now();
+      const wasSuspended = _ingestSuspendedUntil > Date.now();
+      _ingestSuspendedUntil = Date.now() + INGEST_QUOTA_BACKOFF_MS;
+      if (!wasSuspended) {
+        logger.warn(
+          { backoffMs: INGEST_QUOTA_BACKOFF_MS },
+          'Memory ingestion quota exceeded (Gemini 429). Suspending ingestion until cooldown expires.',
+        );
+      }
+      return false;
+    }
     logger.error({ err }, 'Memory ingestion failed (Gemini)');
     return false;
   }
