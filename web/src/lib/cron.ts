@@ -113,6 +113,7 @@ export function buildSchedule(model: SchedModel): { cron: string; warning?: stri
   return { cron: `${m} ${h} * * ${dow}`, warning };
 }
 
+// ── Plain-English description (osrepo 4d06f5e) ──────────────────────
 // Plain-English description of a 5-field cron expression. Covers the
 // shapes ClaudeClaw users actually write: fixed times, comma-lists,
 // step values, weekday ranges. Falls back to the raw cron string when

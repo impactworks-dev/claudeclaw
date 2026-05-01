@@ -122,7 +122,10 @@ export function EditTaskModal({ open, task, onClose, onSaved }: Props) {
             onChange={setSchedule}
             externalError={cronPreview.ok ? null : cronPreview.text}
           />
-          <div class="mt-3 flex flex-wrap gap-1.5">
+          <div class={'mt-1.5 text-[11px] ' + (cronPreview.ok ? 'text-[var(--color-text-faint)]' : 'text-[var(--color-status-failed)]')}>
+            {cronPreview.text}
+          </div>
+          <div class="mt-2 flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (
               <button
                 key={p.cron}
