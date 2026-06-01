@@ -203,7 +203,29 @@ export async function getCashData(force = false): Promise<CashSummary> {
 
   let accountsRaw: any, transactionsRaw: any;
   try {
+    // Pull account metadata (institution, type, subtype, official_name) from
+    // /accounts/get, then overlay LIVE balances from /accounts/balance/get.
+    // Plaid's /accounts/get is internally cached and can lag by hours when
+    // there's no transaction activity — we saw Novo stuck at $4.44 for ~30min
+    // on 2026-06-01 while the real balance was $1,763.35 available. Using
+    // /accounts/balance/get for the headline number guarantees the dashboard
+    // never shows Plaid's stale snapshot.
     accountsRaw = await plaidCall('plaid_list_accounts', {});
+    try {
+      const liveBalances = await plaidCall('plaid_get_balances', {});
+      const balByAccountId = new Map<string, any>();
+      for (const a of (liveBalances.accounts || [])) {
+        if (a.account_id && a.balances) balByAccountId.set(a.account_id, a.balances);
+      }
+      for (const a of (accountsRaw.accounts || [])) {
+        const fresh = balByAccountId.get(a.account_id);
+        if (fresh) a.balances = fresh; // overlay
+      }
+    } catch (balErr) {
+      // Balance refresh is slow and best-effort — if it fails we fall back to
+      // the /accounts/get snapshot rather than showing nothing.
+      logger.warn({ err: String((balErr as Error)?.message || balErr) }, 'cash: live balance refresh failed, using cached');
+    }
   } catch (e) {
     // If Plaid fails but we have manual data, continue with manual only.
     if (manualAccountsRaw.length > 0) {
