@@ -319,12 +319,42 @@ async function sendTyping(api: Api<RawApi>, chatId: number): Promise<void> {
  * If ALLOWED_CHAT_ID is not yet configured, guide the user to set it up.
  * Returns true if the message should be processed.
  */
-function isAuthorised(chatId: number): boolean {
+function isAuthorised(chatId: number | string): boolean {
   if (!ALLOWED_CHAT_ID) {
     // Not yet configured — let every request through but warn in the reply handler
     return true;
   }
-  return chatId.toString() === ALLOWED_CHAT_ID;
+  const ids = ALLOWED_CHAT_ID.split(',').map(s => s.trim());
+  return ids.includes(chatId.toString());
+}
+
+function getAuthId(ctx: any): number | string {
+  // In group chats, authorize by sender ID, not group ID
+  if (ctx.chat && ctx.chat.type !== 'private' && ctx.from?.id) {
+    return ctx.from.id;
+  }
+  return ctx.chat?.id ?? 0;
+}
+
+/**
+ * Return the session/memory/conversation key for the inbound message.
+ *
+ * In private chats this is the chat ID (== the user's ID).
+ * In group chats the key is the SENDER'S user ID, not the group ID. This
+ * way each member of a group has their own conversation history, memory
+ * surfacing, model preference, message queue, and CLAUDE.md context —
+ * without losing the per-user state they had in their DM with the bot.
+ *
+ * Use this everywhere you'd previously have written `ctx.chat!.id.toString()`
+ * as a key. Do NOT use this for Telegram routing (ctx.reply works off the
+ * ctx context; bot.api.sendMessage needs the actual chat ID to deliver to
+ * the right chat).
+ */
+function getSessionId(ctx: any): string {
+  if (ctx.chat && ctx.chat.type !== 'private' && ctx.from?.id) {
+    return ctx.from.id.toString();
+  }
+  return (ctx.chat?.id ?? '').toString();
 }
 
 /**
@@ -332,7 +362,7 @@ function isAuthorised(chatId: number): boolean {
  * Used by command handlers that should be gated behind both auth and PIN lock.
  */
 function securityGate(ctx: Context): string | null {
-  if (!isAuthorised(ctx.chat!.id)) return 'unauthorized';
+  if (!isAuthorised(getAuthId(ctx))) return 'unauthorized';
   if (isLocked()) return 'locked';
   touchActivity();
   return null;
@@ -356,11 +386,17 @@ async function replyIfLocked(ctx: Context): Promise<boolean> {
  */
 async function handleMessage(ctx: Context, message: string, forceVoiceReply = false, skipLog = false): Promise<void> {
   const chatId = ctx.chat!.id;
-  const chatIdStr = chatId.toString();
+  // chatIdStr is the SESSION key — user ID in groups, chat ID in DMs. All
+  // internal lookups (memory, conversation history, session, queue, model
+  // overrides, processing flag, audit) use this so a user keeps their own
+  // context when posting in a shared group.
+  const chatIdStr = getSessionId(ctx);
 
-  // Security gate
-  if (!isAuthorised(chatId)) {
-    logger.warn({ chatId }, 'Rejected message from unauthorised chat');
+  // Security gate. Auth uses getAuthId (sender's user ID in groups), so
+  // adding the bot to a group doesn't require putting the group ID on the
+  // allowlist — only the people authorized to talk to the bot.
+  if (!isAuthorised(getAuthId(ctx))) {
+    logger.warn({ chatId, senderId: ctx.from?.id }, 'Rejected message from unauthorised chat');
     return;
   }
 
@@ -839,13 +875,13 @@ export function createBot(): Bot {
 
   const bot = new Bot(token);
 
-  // Reject group chats. ClaudeClaw only works in private (1-on-1) chats.
-  // This prevents message leakage if the bot is added to a group.
+  // Allow group chats when the sender is an authorised user.
   bot.use(async (ctx, next) => {
     if (ctx.chat && ctx.chat.type !== 'private') {
-      logger.warn({ chatId: ctx.chat.id, type: ctx.chat.type }, 'Rejected non-private chat');
-      await ctx.reply('This bot only works in private chats.').catch(() => {});
-      return;
+      const senderId = ctx.from?.id;
+      if (!senderId || !isAuthorised(senderId)) {
+        return; // silently ignore unauthorised senders in groups
+      }
     }
     await next();
   });
@@ -902,7 +938,7 @@ export function createBot(): Bot {
 
   // /help — list available commands
   bot.command('help', (ctx) => {
-    if (!isAuthorised(ctx.chat!.id)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     return ctx.reply(
       'ClaudeClaw — Commands\n\n' +
       '/newchat — Start a new Claude session\n' +
@@ -934,7 +970,7 @@ export function createBot(): Bot {
 
   // /start — simple greeting (auth-gated after setup)
   bot.command('start', (ctx) => {
-    if (ALLOWED_CHAT_ID && !isAuthorised(ctx.chat!.id)) return;
+    if (ALLOWED_CHAT_ID && !isAuthorised(getAuthId(ctx))) return;
     if (AGENT_ID !== 'main') {
       return ctx.reply(`${AGENT_ID.charAt(0).toUpperCase() + AGENT_ID.slice(1)} agent online.`);
     }
@@ -944,7 +980,7 @@ export function createBot(): Bot {
   // /newchat — clear Claude session, start fresh + auto-commit to hive mind
   bot.command('newchat', async (ctx) => {
     if (await replyIfLocked(ctx)) return;
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
     const oldSessionId = getSession(chatIdStr, AGENT_ID);
 
     // Auto-commit session summary to hive mind (async, don't block the user)
@@ -1000,7 +1036,7 @@ export function createBot(): Bot {
   // /respin — after /newchat, pull recent conversation back as context
   bot.command('respin', async (ctx) => {
     if (await replyIfLocked(ctx)) return;
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
 
     // Pull the last 20 turns (10 back-and-forth exchanges) from conversation_log.
     // Filter by AGENT_ID so /respin in main doesn't bleed in turns from
@@ -1034,7 +1070,7 @@ export function createBot(): Bot {
       await ctx.reply('No TTS provider configured. Add ElevenLabs, Gradium, or install ffmpeg for macOS say fallback.');
       return;
     }
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
     if (voiceEnabledChats.has(chatIdStr)) {
       voiceEnabledChats.delete(chatIdStr);
       await ctx.reply('Voice mode OFF');
@@ -1047,7 +1083,7 @@ export function createBot(): Bot {
   // /model — switch Claude model (opus, sonnet, haiku)
   bot.command('model', async (ctx) => {
     if (await replyIfLocked(ctx)) return;
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
     const arg = ctx.match?.trim().toLowerCase();
 
     if (!arg) {
@@ -1079,7 +1115,7 @@ export function createBot(): Bot {
   // /memory — show recent memories for this chat
   bot.command('memory', async (ctx) => {
     if (await replyIfLocked(ctx)) return;
-    const chatId = ctx.chat!.id.toString();
+    const chatId = getSessionId(ctx);
     const recent = getRecentMemories(chatId, 10, AGENT_ID);
     if (recent.length === 0) {
       await ctx.reply('No memories yet.');
@@ -1121,13 +1157,13 @@ export function createBot(): Bot {
   // /forget — clear session (memory decay handles the rest)
   bot.command('forget', async (ctx) => {
     if (await replyIfLocked(ctx)) return;
-    clearSession(ctx.chat!.id.toString(), AGENT_ID);
+    clearSession(getSessionId(ctx), AGENT_ID);
     await ctx.reply('Session cleared. Memories will fade naturally over time.');
   });
 
   // /wa — pull recent WhatsApp chats on demand
   bot.command('wa', async (ctx) => {
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
     if (await replyIfLocked(ctx)) return;
 
     try {
@@ -1160,7 +1196,7 @@ export function createBot(): Bot {
 
   // /slack — pull recent Slack conversations on demand
   bot.command('slack', async (ctx) => {
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
     if (await replyIfLocked(ctx)) return;
 
     try {
@@ -1201,7 +1237,7 @@ export function createBot(): Bot {
       await ctx.reply('Dashboard not configured. Set DASHBOARD_TOKEN in .env and restart.');
       return;
     }
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
     const base = DASHBOARD_URL || `http://localhost:${DASHBOARD_PORT}`;
     const url = `${base}/?token=${DASHBOARD_TOKEN}&chatId=${chatIdStr}`;
 
@@ -1212,8 +1248,8 @@ export function createBot(): Bot {
 
   // /stop — interrupt the current agent query
   bot.command('stop', async (ctx) => {
-    if (!isAuthorised(ctx.chat!.id)) return;
-    const chatIdStr = ctx.chat!.id.toString();
+    if (!isAuthorised(getAuthId(ctx))) return;
+    const chatIdStr = getSessionId(ctx);
     const aborted = abortActiveQuery(chatIdStr);
     if (aborted) {
       await ctx.reply('Stopped.');
@@ -1224,7 +1260,7 @@ export function createBot(): Bot {
 
   // /agents — list available agents for delegation
   bot.command('agents', async (ctx) => {
-    if (!isAuthorised(ctx.chat!.id)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     const agents = getAvailableAgents();
     if (agents.length === 0) {
       await ctx.reply('No agents configured. Add agent configs under agents/ directory.');
@@ -1239,19 +1275,19 @@ export function createBot(): Bot {
 
   // /lock — manually lock the session
   bot.command('lock', async (ctx) => {
-    if (!isAuthorised(ctx.chat!.id)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     if (!isSecurityEnabled()) {
       await ctx.reply('PIN lock not configured. Set SECURITY_PIN_HASH in .env to enable.');
       return;
     }
     lock();
-    audit({ agentId: AGENT_ID, chatId: ctx.chat!.id.toString(), action: 'lock', detail: 'Manual lock via /lock', blocked: false });
+    audit({ agentId: AGENT_ID, chatId: getSessionId(ctx), action: 'lock', detail: 'Manual lock via /lock', blocked: false });
     await ctx.reply('Session locked. Send your PIN to unlock.');
   });
 
   // /status — show security status
   bot.command('status', async (ctx) => {
-    if (!isAuthorised(ctx.chat!.id)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     const s = getSecurityStatus();
     const lines = [
       `PIN lock: ${s.pinEnabled ? 'enabled' : 'disabled'}`,
@@ -1281,7 +1317,7 @@ export function createBot(): Bot {
       return;
     }
     // Route through message queue to prevent race conditions with concurrent messages
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
     messageQueue.enqueue(chatIdStr, () => handleMessage(ctx, `/delegate ${args}`));
   });
 
@@ -1289,7 +1325,7 @@ export function createBot(): Bot {
   const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/memory', '/forget', '/pin', '/unpin', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/agents', '/delegate', '/lock', '/status']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
-    const chatIdStr = ctx.chat!.id.toString();
+    const chatIdStr = getSessionId(ctx);
 
     if (text.startsWith('/')) {
       const firstToken = text.split(/[\s@]/)[0].toLowerCase();
@@ -1301,7 +1337,7 @@ export function createBot(): Bot {
       // directive instead of hoping the agent loop infers intent.
       const skillName = firstToken.slice(1).split('@')[0];
       if (skillName && userInvocableSkills.has(skillName)) {
-        if (!isAuthorised(ctx.chat!.id)) return;
+        if (!isAuthorised(getAuthId(ctx))) return;
         if (isLocked()) {
           if (unlock(text)) {
             await ctx.reply('Unlocked. Session active.');
@@ -1496,7 +1532,7 @@ export function createBot(): Bot {
   // Voice messages — real transcription via Groq Whisper
   bot.on('message:voice', async (ctx) => {
     const chatId = ctx.chat!.id;
-    if (!isAuthorised(chatId)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     const caps = voiceCapabilities();
     if (!caps.stt) {
       await ctx.reply('Voice transcription not configured. Add GROQ_API_KEY to .env');
@@ -1521,7 +1557,7 @@ export function createBot(): Bot {
       const transcribed = await transcribeAudio(localPath);
       // Only reply with voice if explicitly requested — otherwise execute and respond in text
       const wantsVoiceBack = /\b(respond (with|via|in) voice|send (me )?(a )?voice( note| back)?|voice reply|reply (with|via) voice)\b/i.test(transcribed);
-      const chatIdStr = ctx.chat!.id.toString();
+      const chatIdStr = getSessionId(ctx);
       messageQueue.enqueue(chatIdStr, () => handleMessage(ctx, `[Voice transcribed]: ${transcribed}`, wantsVoiceBack));
     } catch (err) {
       logger.error({ err }, 'Voice transcription failed');
@@ -1538,7 +1574,7 @@ export function createBot(): Bot {
   // voice handler is which Telegram field holds the file_id.
   bot.on('message:audio', async (ctx) => {
     const chatId = ctx.chat!.id;
-    if (!isAuthorised(chatId)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     const caps = voiceCapabilities();
     if (!caps.stt) {
       await ctx.reply('Audio transcription not configured. Add GROQ_API_KEY to .env');
@@ -1562,7 +1598,7 @@ export function createBot(): Bot {
       const localPath = await downloadTelegramFile(activeBotToken, fileId, UPLOADS_DIR);
       const transcribed = await transcribeAudio(localPath);
       const wantsVoiceBack = /\b(respond (with|via|in) voice|send (me )?(a )?voice( note| back)?|voice reply|reply (with|via) voice)\b/i.test(transcribed);
-      const chatIdStr = ctx.chat!.id.toString();
+      const chatIdStr = getSessionId(ctx);
       messageQueue.enqueue(chatIdStr, () => handleMessage(ctx, `[Voice transcribed]: ${transcribed}`, wantsVoiceBack));
     } catch (err) {
       logger.error({ err }, 'Audio transcription failed');
@@ -1573,7 +1609,7 @@ export function createBot(): Bot {
   // Photos — download and pass to Claude
   bot.on('message:photo', async (ctx) => {
     const chatId = ctx.chat!.id;
-    if (!isAuthorised(chatId)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     if (!ALLOWED_CHAT_ID) {
       await ctx.reply(
         `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw OS.`,
@@ -1596,7 +1632,7 @@ export function createBot(): Bot {
   // Documents — download and pass to Claude
   bot.on('message:document', async (ctx) => {
     const chatId = ctx.chat!.id;
-    if (!isAuthorised(chatId)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     if (!ALLOWED_CHAT_ID) {
       await ctx.reply(
         `Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw OS.`,
@@ -1620,7 +1656,7 @@ export function createBot(): Bot {
   // Videos — download and pass to Claude for Gemini analysis
   bot.on('message:video', async (ctx) => {
     const chatId = ctx.chat!.id;
-    if (!isAuthorised(chatId)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     if (!ALLOWED_CHAT_ID) {
       await ctx.reply(`Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw OS.`);
       return;
@@ -1642,7 +1678,7 @@ export function createBot(): Bot {
   // Video notes (circular format) — download and pass to Claude for Gemini analysis
   bot.on('message:video_note', async (ctx) => {
     const chatId = ctx.chat!.id;
-    if (!isAuthorised(chatId)) return;
+    if (!isAuthorised(getAuthId(ctx))) return;
     if (!ALLOWED_CHAT_ID) {
       await ctx.reply(`Your chat ID is ${chatId}.\n\nAdd this to your .env:\n\nALLOWED_CHAT_ID=${chatId}\n\nThen restart ClaudeClaw OS.`);
       return;
