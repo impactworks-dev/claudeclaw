@@ -977,12 +977,17 @@ export function getMemoriesWithEmbeddings(
       'SELECT id, embedding, summary, importance FROM memories WHERE chat_id = ? AND agent_id = ? AND embedding IS NOT NULL AND superseded_by IS NULL',
     )
     .all(chatId, agentId) as Array<{ id: number; embedding: string; summary: string; importance: number }>;
-  return rows.map((r) => ({
-    id: r.id,
-    embedding: JSON.parse(r.embedding) as number[],
-    summary: r.summary,
-    importance: r.importance,
-  }));
+  // Defensive: a single malformed embedding row used to take down every
+  // incoming message because JSON.parse would throw out of buildMemoryContext.
+  // A bad row now degrades to an empty vector (no semantic match for THAT
+  // row) instead of erroring the whole pipeline.
+  return rows
+    .map((r) => {
+      let embedding: number[] = [];
+      try { embedding = JSON.parse(r.embedding) as number[]; } catch { embedding = []; }
+      return { id: r.id, embedding, summary: r.summary, importance: r.importance };
+    })
+    .filter((m) => m.embedding.length > 0); // drop the bad rows from semantic search
 }
 
 export function getRecentHighImportanceMemories(
@@ -1108,7 +1113,15 @@ export function getConsolidationsWithEmbeddings(chatId: string): Array<{ id: num
   const rows = db
     .prepare('SELECT id, embedding, summary, insight FROM consolidations WHERE chat_id = ? AND embedding IS NOT NULL AND embedding_model = ?')
     .all(chatId, 'embedding-001') as Array<{ id: number; embedding: string; summary: string; insight: string }>;
-  return rows.map((r) => ({ ...r, embedding: JSON.parse(r.embedding) as number[] }));
+  // Same defensive pattern as getMemoriesWithEmbeddings — bad rows degrade
+  // to empty vector and get filtered out instead of crashing the caller.
+  return rows
+    .map((r) => {
+      let embedding: number[] = [];
+      try { embedding = JSON.parse(r.embedding) as number[]; } catch { embedding = []; }
+      return { ...r, embedding };
+    })
+    .filter((c) => c.embedding.length > 0);
 }
 
 export function supersedeMemory(oldId: number, newId: number): void {
