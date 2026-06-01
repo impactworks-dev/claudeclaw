@@ -3,7 +3,7 @@ import { RefreshCw, Wallet, TrendingUp, TrendingDown, Link2, AlertTriangle, Exte
 import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
 import { useFetch } from '@/lib/useFetch';
-import { dashboardToken, apiPost } from '@/lib/api';
+import { dashboardToken, apiGet, apiPost } from '@/lib/api';
 
 // The /cash/connect HTML page lives outside the SPA but still needs the
 // dashboard token to call /api/cash/link-token and /api/cash/exchange.
@@ -248,6 +248,25 @@ function UploadStatementModal({ onClose, onImported }: { onClose: () => void; on
 export function Cash() {
   const { data, loading, error, refresh } = useFetch<CashSummary>('/api/cash');
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [forcing, setForcing] = useState(false);
+
+  // The plain refresh() above just re-hits /api/cash, which respects the
+  // server's 5-minute Plaid cache TTL — so within 5 min of any pull, every
+  // click returns the same data. Force=1 bypasses the cache and pulls
+  // fresh balances/transactions from Plaid, then refresh() re-reads the
+  // now-current cache through the usual hook.
+  async function forceRefresh() {
+    if (forcing) return;
+    setForcing(true);
+    try {
+      await apiGet('/api/cash?force=1');
+    } catch {
+      // Swallow — refresh() below will still re-render the stale view.
+    } finally {
+      refresh();
+      setForcing(false);
+    }
+  }
 
   const accountSummary = useMemo(() => {
     if (!data) return null;
@@ -278,9 +297,9 @@ export function Cash() {
             class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]">
             <Upload size={12} /> Upload statement
           </button>
-          <button type="button" onClick={() => refresh()}
-            class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]">
-            <RefreshCw size={12} /> Refresh
+          <button type="button" onClick={forceRefresh} disabled={forcing}
+            class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)] disabled:opacity-50">
+            <RefreshCw size={12} class={forcing ? 'animate-spin' : ''} /> {forcing ? 'Refreshing…' : 'Refresh'}
           </button>
         </>}
       />
