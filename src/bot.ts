@@ -880,7 +880,23 @@ export function createBot(): Bot {
     if (ctx.chat && ctx.chat.type !== 'private') {
       const senderId = ctx.from?.id;
       if (!senderId || !isAuthorised(senderId)) {
-        return; // silently ignore unauthorised senders in groups
+        // Log the rejected sender at info level so a new co-user in a group
+        // (e.g. a spouse you want to authorise) can be identified by
+        // tailing the bot logs: `fly logs | grep group-sender`.
+        // Once their id is added to ALLOWED_CHAT_ID, log lines stop and
+        // their messages start flowing through.
+        logger.info(
+          {
+            event: 'group-sender-rejected',
+            senderId,
+            senderUsername: ctx.from?.username,
+            senderName: ctx.from?.first_name,
+            groupChatId: ctx.chat.id,
+            groupTitle: 'title' in ctx.chat ? ctx.chat.title : undefined,
+          },
+          'Rejected message in group from unauthorised sender',
+        );
+        return;
       }
     }
     await next();
