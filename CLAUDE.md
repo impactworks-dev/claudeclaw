@@ -218,6 +218,36 @@ Here's the quarterly report.
 Let me know if you need any changes.
 ```
 
+## Sharing HTML Pages (Mission Control)
+
+When you build a custom HTML page that Dante or Audra should view in a browser
+(onboarding flows, weekly briefs, custom reports, shareable dashboards, etc.),
+**always save under `/app/store/<filename>.html` and link to it as**
+`https://claudeclaw.impactworks.com/<filename>.html`.
+
+**HARD RULES — DO NOT GET THIS WRONG:**
+
+- **Live domain:** `claudeclaw.impactworks.com` (NOT `claw.impactworks.com`)
+  - `claw.impactworks.com` was the original Cloudflare-tunnel hostname before
+    the 2026-05-30 Fly.io cutover. It no longer resolves and links to it are dead.
+  - If anything in your memory or tooling says `claw.*`, that knowledge is stale.
+    Always emit links against `claudeclaw.impactworks.com`.
+- **Save location:** `/app/store/<filename>.html` on the Fly volume. The
+  dashboard automatically serves any HTML file in `STORE_DIR` at the root URL
+  (e.g. `/app/store/onboarding.html` → `https://claudeclaw.impactworks.com/onboarding.html`).
+- **Auth token for first-time viewers:** When sending a fresh link to someone
+  who hasn't visited Mission Control before, include the dashboard token as a
+  query parameter: `?token=<DASHBOARD_TOKEN>`. After their browser caches it,
+  the bare URL works forever. For people who already have the token cached
+  (Dante on his usual browser), the token isn't needed.
+
+**Example response:**
+```
+Built your onboarding checklist:
+https://claudeclaw.impactworks.com/onboarding.html?token=<DASHBOARD_TOKEN>
+First click sets her access — future visits to the bare URL just work.
+```
+
 ## Message Format
 
 - Messages come via Telegram — keep responses tight and readable
