@@ -455,9 +455,20 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // sit at the root, not under /assets/.
   app.get('/:filename{.+\\.(glb|gltf|bin|ktx2|wasm|svg|png|webp|ico|html)}', (c) => {
     const filename = c.req.param('filename');
-    const filePath = path.join(PROJECT_ROOT, 'dist', 'web', filename);
-    const root = path.join(PROJECT_ROOT, 'dist', 'web');
-    if (!filePath.startsWith(root + path.sep)) return c.text('', 403);
+    const distRoot = path.join(PROJECT_ROOT, 'dist', 'web');
+    const storeRoot = STORE_DIR;
+    // Look in dist/web/ first (built-in assets), then fall back to /app/store/
+    // (Nikki-generated artefacts like onboarding.html, weekly briefs, etc.).
+    // The store fallback is what makes Nikki able to "build a page and send
+    // the link" in chat — she writes the file under STORE_DIR and it's
+    // immediately reachable at /<filename>.
+    let filePath = path.join(distRoot, filename);
+    let allowedRoot = distRoot;
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(storeRoot, filename);
+      allowedRoot = storeRoot;
+    }
+    if (!filePath.startsWith(allowedRoot + path.sep)) return c.text('', 403);
     if (!fs.existsSync(filePath)) return c.text('', 404);
     const data = fs.readFileSync(filePath);
     const ext = path.extname(filePath).toLowerCase();
