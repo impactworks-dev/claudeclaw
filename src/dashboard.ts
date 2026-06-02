@@ -560,32 +560,18 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     });
   });
 
-  // Serve War Room agent avatars. Scans for any of the supported extensions
-  // (png/jpg/jpeg/webp) — previously hardcoded to .png, which broke after a
-  // user uploaded a .jpg via the Mission Control avatar UI (the upload code
-  // removes other-extension variants, so main.png stopped existing).
-  app.get('/warroom-avatar/:id', (c) => {
-    const agentId = c.req.param('id').replace(/[^a-z0-9_-]/g, '');
-    const avatarsDir = path.join(PROJECT_ROOT, 'warroom', 'avatars');
-    let hit: { path: string; ext: string } | null = null;
-    for (const ext of ['png', 'jpg', 'jpeg', 'webp'] as const) {
-      const p = path.join(avatarsDir, `${agentId}.${ext}`);
-      if (fs.existsSync(p)) { hit = { path: p, ext }; break; }
-    }
-    if (!hit) return c.text('', 404);
-    const data = fs.readFileSync(hit.path);
-    const mime = hit.ext === 'jpg' || hit.ext === 'jpeg' ? 'image/jpeg'
-               : hit.ext === 'webp' ? 'image/webp' : 'image/png';
-    return new Response(data, {
-      headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' },
-    });
-  });
-
-  // ── Mission Control agent avatars ───────────────────────────────────
-  // Backing store is warroom/avatars/<id>.<ext>. Same directory the War
-  // Room and Meet flows already read from, so an avatar change here
-  // propagates to those views automatically. Token-guarded because the
-  // GET response embeds an image only the dashboard user should see.
+  // ── Avatar storage ──────────────────────────────────────────────────
+  // Avatars live on the persistent volume at STORE_DIR/avatars so user
+  // uploads survive deploys. The baked-in defaults in /warroom/avatars/
+  // are seeded into the volume the first time the volume is empty (fresh
+  // install / fresh volume) — after that, every change persists.
+  //
+  // Pre-2026-06-01 fix: avatars were stored in PROJECT_ROOT/warroom/avatars
+  // which is part of the Docker image, so every deploy reset Nikki's
+  // (and any other custom) avatar back to the default. The user-visible
+  // bug was "I uploaded a new avatar and it disappeared 4 minutes later."
+  const AVATARS_DIR = path.join(STORE_DIR, 'avatars');
+  const AVATAR_SEED_DIR = path.join(PROJECT_ROOT, 'warroom', 'avatars');
   const AVATAR_EXTS = ['png', 'jpg', 'jpeg', 'webp'] as const;
   const MIME_BY_EXT: Record<string, string> = {
     png: 'image/png',
@@ -593,13 +579,53 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     jpeg: 'image/jpeg',
     webp: 'image/webp',
   };
+  function seedAvatarsIfEmpty(): void {
+    try {
+      fs.mkdirSync(AVATARS_DIR, { recursive: true });
+      const existing = fs.readdirSync(AVATARS_DIR);
+      if (existing.length > 0) return; // already seeded — leave user uploads alone
+      if (!fs.existsSync(AVATAR_SEED_DIR)) return;
+      let copied = 0;
+      for (const f of fs.readdirSync(AVATAR_SEED_DIR)) {
+        const src = path.join(AVATAR_SEED_DIR, f);
+        const dst = path.join(AVATARS_DIR, f);
+        try {
+          if (fs.statSync(src).isFile()) { fs.copyFileSync(src, dst); copied++; }
+        } catch { /* best-effort per file */ }
+      }
+      logger.info({ count: copied, from: AVATAR_SEED_DIR, to: AVATARS_DIR }, 'seeded default avatars onto persistent volume');
+    } catch (err) {
+      logger.warn({ err: String((err as Error)?.message || err) }, 'avatar seed failed');
+    }
+  }
+  seedAvatarsIfEmpty();
+
   function findAvatarFile(agentId: string): { path: string; ext: string } | null {
     for (const ext of AVATAR_EXTS) {
-      const p = path.join(PROJECT_ROOT, 'warroom', 'avatars', `${agentId}.${ext}`);
+      const p = path.join(AVATARS_DIR, `${agentId}.${ext}`);
       if (fs.existsSync(p)) return { path: p, ext };
     }
     return null;
   }
+
+  // Serve War Room agent avatars. Scans for any of the supported extensions
+  // (png/jpg/jpeg/webp) — previously hardcoded to .png, which broke after a
+  // user uploaded a .jpg via the Mission Control avatar UI (the upload code
+  // removes other-extension variants, so main.png stopped existing).
+  app.get('/warroom-avatar/:id', (c) => {
+    const agentId = c.req.param('id').replace(/[^a-z0-9_-]/g, '');
+    const hit = findAvatarFile(agentId);
+    if (!hit) return c.text('', 404);
+    const data = fs.readFileSync(hit.path);
+    return new Response(data, {
+      headers: { 'Content-Type': MIME_BY_EXT[hit.ext] || 'image/png', 'Cache-Control': 'public, max-age=86400' },
+    });
+  });
+
+  // ── Mission Control agent avatars ───────────────────────────────────
+  // Same backing store as the War Room route — change once, see everywhere.
+  // Token-guarded because the GET response embeds an image only the
+  // dashboard user should see.
 
   app.get('/api/agents/:id/avatar', (c) => {
     const auth = requireToken(c); if (auth) return auth;
@@ -653,19 +679,18 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       ext = AVATAR_EXTS.includes(fromName as typeof AVATAR_EXTS[number]) ? fromName : 'png';
     }
 
-    const avatarsDir = path.join(PROJECT_ROOT, 'warroom', 'avatars');
-    fs.mkdirSync(avatarsDir, { recursive: true });
+    fs.mkdirSync(AVATARS_DIR, { recursive: true });
 
     // Remove any other-extension variants so GET never serves a stale file.
     for (const other of AVATAR_EXTS) {
       if (other === ext) continue;
-      const p = path.join(avatarsDir, `${agentId}.${other}`);
+      const p = path.join(AVATARS_DIR, `${agentId}.${other}`);
       if (fs.existsSync(p)) {
         try { fs.unlinkSync(p); } catch { /* best-effort */ }
       }
     }
 
-    const outPath = path.join(avatarsDir, `${agentId}.${ext}`);
+    const outPath = path.join(AVATARS_DIR, `${agentId}.${ext}`);
     fs.writeFileSync(outPath, buf);
     logger.info({ agentId, ext, bytes: buf.length }, 'avatar updated');
     return c.json({ ok: true, ext, bytes: buf.length });
@@ -676,7 +701,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     const agentId = c.req.param('id').replace(/[^a-z0-9_-]/g, '');
     let removed = 0;
     for (const ext of AVATAR_EXTS) {
-      const p = path.join(PROJECT_ROOT, 'warroom', 'avatars', `${agentId}.${ext}`);
+      const p = path.join(AVATARS_DIR, `${agentId}.${ext}`);
       if (fs.existsSync(p)) {
         try { fs.unlinkSync(p); removed++; } catch { /* best-effort */ }
       }
