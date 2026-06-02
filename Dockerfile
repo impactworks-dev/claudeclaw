@@ -23,7 +23,13 @@ RUN npm ci
 COPY tsconfig.json vite.config.ts ./
 COPY src ./src
 COPY web ./web
-RUN npm run build
+# Pipecat WebSocket transport bundle for the browser War Room client.
+# Source is /warroom/client.js; it stitches @pipecat-ai/client-js and
+# @pipecat-ai/websocket-transport into a single IIFE exposed as
+# window.PipecatWarRoom. The runtime stage only ships node_modules from
+# `npm ci --omit=dev` (no esbuild), so the bundle MUST be produced here.
+COPY warroom/client.js ./warroom/client.js
+RUN npm run build && npm run build:warroom-client
 
 # ────────────────────── Stage 2: Python venv builder ────────────────────────
 # Built separately so we can keep heavy build tooling (gcc, libffi-dev, etc.)
@@ -89,6 +95,10 @@ COPY agents ./agents
 # War Room: source files + the pre-built Python venv
 COPY warroom ./warroom
 COPY --from=py-builder /app/warroom/.venv ./warroom/.venv
+# Drop in the Pipecat browser bundle from the node-builder stage. .dockerignore
+# excludes the locally-built copy so we never ship a stale one — this is the
+# only authoritative source.
+COPY --from=node-builder /app/warroom/client.bundle.js ./warroom/client.bundle.js
 
 # Run as non-root user. Claude Code CLI refuses to run with
 # --dangerously-skip-permissions as root, so the bot subprocess fails when

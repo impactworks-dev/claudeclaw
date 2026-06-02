@@ -560,14 +560,24 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     });
   });
 
-  // Serve War Room agent avatars
+  // Serve War Room agent avatars. Scans for any of the supported extensions
+  // (png/jpg/jpeg/webp) — previously hardcoded to .png, which broke after a
+  // user uploaded a .jpg via the Mission Control avatar UI (the upload code
+  // removes other-extension variants, so main.png stopped existing).
   app.get('/warroom-avatar/:id', (c) => {
     const agentId = c.req.param('id').replace(/[^a-z0-9_-]/g, '');
-    const avatarPath = path.join(PROJECT_ROOT, 'warroom', 'avatars', `${agentId}.png`);
-    if (!fs.existsSync(avatarPath)) return c.text('', 404);
-    const data = fs.readFileSync(avatarPath);
+    const avatarsDir = path.join(PROJECT_ROOT, 'warroom', 'avatars');
+    let hit: { path: string; ext: string } | null = null;
+    for (const ext of ['png', 'jpg', 'jpeg', 'webp'] as const) {
+      const p = path.join(avatarsDir, `${agentId}.${ext}`);
+      if (fs.existsSync(p)) { hit = { path: p, ext }; break; }
+    }
+    if (!hit) return c.text('', 404);
+    const data = fs.readFileSync(hit.path);
+    const mime = hit.ext === 'jpg' || hit.ext === 'jpeg' ? 'image/jpeg'
+               : hit.ext === 'webp' ? 'image/webp' : 'image/png';
     return new Response(data, {
-      headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' },
+      headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' },
     });
   });
 
