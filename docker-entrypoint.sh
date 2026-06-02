@@ -33,6 +33,34 @@ if [ -n "${VENDASTA_SERVICE_ACCOUNT_JSON:-}" ]; then
   echo "Restored Vendasta service account → /app/secrets/"
 fi
 
+# ── MCP server config for the Claude Code subprocess ────────────────────
+# The bot's loadMcpServers() reads ~/.claude/settings.json + project
+# .claude/settings.json. Image is ephemeral, so we materialize the file
+# here. Each connector is a stdio MCP server in /app/connectors/.
+# Add new connectors here as we build them (e.g. quickbooks below).
+CLAUDE_HOME="${HOME:-/home/node}/.claude"
+mkdir -p "$CLAUDE_HOME"
+cat > "$CLAUDE_HOME/settings.json" <<'EOF'
+{
+  "mcpServers": {
+    "clickup": {
+      "command": "node",
+      "args": ["/app/connectors/clickup/server.mjs"]
+    },
+    "vendasta-crm": {
+      "command": "node",
+      "args": ["/app/connectors/vendasta/server.mjs"]
+    },
+    "quickbooks": {
+      "command": "node",
+      "args": ["/app/connectors/quickbooks/server.mjs"]
+    }
+  }
+}
+EOF
+chmod 600 "$CLAUDE_HOME/settings.json"
+echo "Wrote MCP server config → $CLAUDE_HOME/settings.json"
+
 # ── Restore Claude Code credentials from persistent volume ───────────────
 # Claude Code CLI reads OAuth creds from $HOME/.claude/.credentials.json.
 # The image filesystem is ephemeral, so we persist the file in /app/store
@@ -43,8 +71,7 @@ CLAUDE_DIR="${HOME:-/home/node}/.claude"
 mkdir -p "$CLAUDE_DIR"
 
 if [ -f /app/store/claude-credentials.json ]; then
-  cp /app/store/claude-credentials.json "$CLAUDE_DIR/.credentials.json"
-  chmod 600 "$CLAUDE_DIR/.credentials.json"
+  ln -sf /app/store/claude-credentials.json "$CLAUDE_DIR/.credentials.json"
   echo "Restored Claude Code credentials → $CLAUDE_DIR/.credentials.json"
 fi
 

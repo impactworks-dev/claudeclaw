@@ -5,8 +5,13 @@ import { serve } from '@hono/node-server';
 
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, DASHBOARD_URL, MESSENGER_TYPE, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT, agentDefaultModel } from './config.js';
+import { readEnvFile } from './env.js';
 import crypto from 'crypto';
+
+const execFileAsync = promisify(execFile);
 import {
   getAllScheduledTasks,
   deleteScheduledTask,
@@ -1214,6 +1219,113 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ ok: true, member: m });
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // ── QuickBooks Online OAuth bootstrap ────────────────────────────────
+  // The user hits /api/qbo/connect once, gets redirected to Intuit, signs
+  // in, picks the company file. Intuit redirects back to /api/qbo/callback
+  // with ?code=...&realmId=... — we exchange the code for refresh + access
+  // tokens via the stdio connector and persist to /app/store/qbo-token.json.
+  // After that, every QBO API call auto-refreshes its access token; the
+  // user never needs to touch this again unless the refresh token expires
+  // (100 days of non-use).
+  const QBO_SERVER = path.join(PROJECT_ROOT, 'connectors', 'quickbooks', 'server.mjs');
+  const QBO_STATE_FILE = path.join(STORE_DIR, 'qbo-oauth-state.json');
+  function readQboState(): { state: string; created_at: number } | null {
+    try { return JSON.parse(fs.readFileSync(QBO_STATE_FILE, 'utf-8')); } catch { return null; }
+  }
+  function writeQboState(state: string): void {
+    fs.mkdirSync(path.dirname(QBO_STATE_FILE), { recursive: true });
+    fs.writeFileSync(QBO_STATE_FILE, JSON.stringify({ state, created_at: Date.now() }));
+  }
+
+  app.get('/api/qbo/connect', (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    const clientId = process.env.QBO_CLIENT_ID
+      || readEnvFile(['QBO_CLIENT_ID']).QBO_CLIENT_ID || '';
+    const redirectUri = process.env.QBO_REDIRECT_URI
+      || readEnvFile(['QBO_REDIRECT_URI']).QBO_REDIRECT_URI
+      || 'https://claudeclaw.impactworks.com/api/qbo/callback';
+    if (!clientId) {
+      return c.json({ error: 'QBO_CLIENT_ID not set. Add it to Fly secrets, then restart.' }, 400);
+    }
+    const state = 'cc-' + Math.random().toString(36).slice(2, 14);
+    writeQboState(state);
+    const url = new URL('https://appcenter.intuit.com/connect/oauth2');
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', 'com.intuit.quickbooks.accounting');
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('state', state);
+    return c.redirect(url.toString());
+  });
+
+  // OAuth callback — hit by Intuit, not the user directly. CAN'T require a
+  // dashboard token here because Intuit doesn't know about our token. The
+  // OAuth `state` parameter (CSRF-style) prevents drive-by abuse.
+  app.get('/api/qbo/callback', async (c) => {
+    const code = c.req.query('code');
+    const realmId = c.req.query('realmId');
+    const state = c.req.query('state');
+    const error = c.req.query('error');
+    if (error) {
+      return c.html(`<h1>QuickBooks authorization failed</h1><pre>${error}</pre>`, 400);
+    }
+    if (!code || !realmId || !state) {
+      return c.html('<h1>Missing code, realmId, or state in callback</h1>', 400);
+    }
+    const saved = readQboState();
+    if (!saved || saved.state !== state) {
+      return c.html('<h1>State mismatch — possible CSRF. Start over from /api/qbo/connect.</h1>', 403);
+    }
+    // Exchange the code via the connector CLI so the token lands in the
+    // same place the MCP server reads from.
+    try {
+      const { stdout, stderr } = await execFileAsync('node', [QBO_SERVER, '--oauth-exchange', code, realmId], {
+        env: { ...process.env },
+        maxBuffer: 1024 * 1024,
+      });
+      logger.info({ realmId, stdout: stdout.slice(0, 200) }, 'qbo oauth exchange success');
+      try { fs.unlinkSync(QBO_STATE_FILE); } catch { /* best-effort */ }
+      return c.html(`
+        <!doctype html><html><head><title>QuickBooks connected</title>
+        <style>body{font:14px -apple-system,sans-serif;max-width:540px;margin:60px auto;padding:0 20px;color:#111}
+        h1{color:#0a8a4f}pre{background:#f4f4f5;padding:12px;border-radius:6px;font-size:12px;overflow:auto}</style></head>
+        <body>
+        <h1>✓ QuickBooks connected</h1>
+        <p>Realm: <code>${realmId}</code></p>
+        <p>Nikki can now query QuickBooks via the <code>quickbooks</code> MCP server. The Cash page will start showing real P&amp;L numbers as soon as it's rebuilt.</p>
+        <p><a href="/cash">← Back to Mission Control</a></p>
+        <pre>${stdout.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]!))}</pre>
+        ${stderr ? `<details><summary>stderr</summary><pre>${stderr.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]!))}</pre></details>` : ''}
+        </body></html>
+      `);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'qbo oauth exchange failed');
+      return c.html(`<h1>Token exchange failed</h1><pre>${String((e as Error)?.message || e)}</pre>`, 500);
+    }
+  });
+
+  // Lightweight status endpoint — does the dashboard show a "Connect QB" CTA
+  // or "QB connected" badge? Reads the token file (existence check only).
+  app.get('/api/qbo/status', (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    const tokenPath = path.join(STORE_DIR, 'qbo-token.json');
+    if (!fs.existsSync(tokenPath)) {
+      return c.json({ connected: false });
+    }
+    try {
+      const t = JSON.parse(fs.readFileSync(tokenPath, 'utf-8'));
+      return c.json({
+        connected: true,
+        realm_id: t.realm_id,
+        last_refreshed_at: t.last_refreshed_at,
+        refresh_token_expires_at: t.refresh_token_expires_at_ms
+          ? new Date(t.refresh_token_expires_at_ms).toISOString() : null,
+      });
+    } catch {
+      return c.json({ connected: false });
     }
   });
 
