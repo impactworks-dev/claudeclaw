@@ -12,9 +12,10 @@ const connectUrl = () => '/cash/connect' + (dashboardToken ? '?token=' + encodeU
 
 interface CashAccount {
   account_id: string; item_id: string; institution: string | null;
-  name: string; official_name: string | null; mask: string | null;
+  name: string; displayName: string | null; official_name: string | null; mask: string | null;
   type: string | null; subtype: string | null;
   balanceCurrent: number | null; balanceAvailable: number | null; currency: string;
+  payUrl: string | null;
 }
 interface CashTx {
   transaction_id: string; account_id: string; date: string; name: string; merchant: string | null;
@@ -378,11 +379,22 @@ export function Cash() {
                     <div class="mt-3 pt-2 border-t border-[var(--color-border)] text-[11px] uppercase tracking-wide text-[var(--color-text-faint)] mb-2">Liabilities</div>
                     {accountSummary.liabilities.map(a => (
                       <div key={a.account_id} class="flex items-center justify-between text-[12px] py-1">
-                        <div>
-                          <div class="text-[var(--color-text)]">{a.name}</div>
-                          <div class="text-[10px] text-[var(--color-text-faint)]">{a.institution} · {a.subtype || a.type}{a.mask ? ' ••' + a.mask : ''}</div>
+                        <div class="min-w-0 pr-2">
+                          <div class="text-[var(--color-text)] truncate">{a.displayName || a.name}</div>
+                          <div class="text-[10px] text-[var(--color-text-faint)] flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                            <span>{a.institution} · {a.subtype || a.type}{a.mask ? ' ••' + a.mask : ''}</span>
+                            {a.payUrl && (
+                              <a
+                                href={a.payUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="text-[var(--color-accent)] hover:underline whitespace-nowrap"
+                                title={`Pay ${a.displayName || a.name} bill`}
+                              >Pay bill →</a>
+                            )}
+                          </div>
                         </div>
-                        <div class="tabular-nums" style={{ color: TONE.bad }}>{money(Math.round((a.balanceCurrent || 0) * 100))}</div>
+                        <div class="tabular-nums shrink-0" style={{ color: TONE.bad }}>{money(Math.round((a.balanceCurrent || 0) * 100))}</div>
                       </div>
                     ))}
                   </>

@@ -34,6 +34,7 @@ export interface CashAccount {
   item_id: string;
   institution: string | null;
   name: string;
+  displayName: string | null; // user-friendly name (e.g. "Capital One Savor Mastercard") — falls back to name
   official_name: string | null;
   mask: string | null;
   type: string | null;
@@ -41,6 +42,26 @@ export interface CashAccount {
   balanceCurrent: number | null;
   balanceAvailable: number | null;
   currency: string;
+  payUrl: string | null;      // bill-pay login URL for credit accounts
+}
+
+// Per-account display overrides, keyed by last-4 mask (stable across re-linking).
+// Plaid doesn't expose card network (Visa/MC/Amex), so we encode it here.
+const ACCOUNT_OVERRIDES: Record<string, { displayName: string; payUrl: string }> = {
+  // Capital One Savor — Mastercard. Pay at the main Capital One sign-in.
+  '1355': { displayName: 'Capital One Savor Mastercard', payUrl: 'https://verified.capitalone.com/auth/signin' },
+  // U.S. Bank — Visa.
+  '8855': { displayName: 'U.S. Bank Visa',              payUrl: 'https://onlinebanking.usbank.com/Auth/Login' },
+  // Credit One Bank — both cards live behind the same login page.
+  '4605': { displayName: 'Credit One Visa',             payUrl: 'https://www.creditonebank.com/' },
+  '7628': { displayName: 'Credit One Amex',             payUrl: 'https://www.creditonebank.com/' },
+  // Apple Card — pays via Wallet app on iPhone, no web pay portal.
+  '9856': { displayName: 'Apple Card',                  payUrl: 'https://wallet.apple.com/' },
+};
+function overrideFor(mask: string | null): { displayName: string | null; payUrl: string | null } {
+  if (!mask) return { displayName: null, payUrl: null };
+  const o = ACCOUNT_OVERRIDES[mask] ?? ACCOUNT_OVERRIDES[mask.slice(-4)];
+  return o ? { displayName: o.displayName, payUrl: o.payUrl } : { displayName: null, payUrl: null };
 }
 
 export interface CashTransaction {
@@ -256,34 +277,44 @@ export async function getCashData(force = false): Promise<CashSummary> {
 
   const plaidAccounts: CashAccount[] = (accountsRaw.accounts || [])
     .filter((a: any) => !a.error)
-    .map((a: any) => ({
-      account_id: a.account_id,
-      item_id: a.item_id,
-      institution: a.institution || null,
-      name: a.name,
-      official_name: a.official_name || null,
-      mask: a.mask || null,
-      type: a.type || null,
-      subtype: a.subtype || null,
-      balanceCurrent: a.balances?.current ?? null,
-      balanceAvailable: a.balances?.available ?? null,
-      currency: a.balances?.iso_currency_code || 'USD',
-    }));
+    .map((a: any) => {
+      const ov = overrideFor(a.mask || null);
+      return {
+        account_id: a.account_id,
+        item_id: a.item_id,
+        institution: a.institution || null,
+        name: a.name,
+        displayName: ov.displayName,
+        official_name: a.official_name || null,
+        mask: a.mask || null,
+        type: a.type || null,
+        subtype: a.subtype || null,
+        balanceCurrent: a.balances?.current ?? null,
+        balanceAvailable: a.balances?.available ?? null,
+        currency: a.balances?.iso_currency_code || 'USD',
+        payUrl: ov.payUrl,
+      };
+    });
 
   // Map manual accounts into the same CashAccount shape.
-  const manualAccounts: CashAccount[] = manualAccountsRaw.map(a => ({
-    account_id: a.account_id,
-    item_id: 'manual',
-    institution: a.institution_name,
-    name: a.name,
-    official_name: a.name,
-    mask: a.mask,
-    type: a.type,
-    subtype: a.subtype,
-    balanceCurrent: a.balance_current,
-    balanceAvailable: a.balance_available,
-    currency: a.currency,
-  }));
+  const manualAccounts: CashAccount[] = manualAccountsRaw.map(a => {
+    const ov = overrideFor(a.mask || null);
+    return {
+      account_id: a.account_id,
+      item_id: 'manual',
+      institution: a.institution_name,
+      name: a.name,
+      displayName: ov.displayName,
+      official_name: a.name,
+      mask: a.mask,
+      type: a.type,
+      subtype: a.subtype,
+      balanceCurrent: a.balance_current,
+      balanceAvailable: a.balance_available,
+      currency: a.currency,
+      payUrl: ov.payUrl,
+    };
+  });
 
   const accounts: CashAccount[] = [...plaidAccounts, ...manualAccounts];
 
