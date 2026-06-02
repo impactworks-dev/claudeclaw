@@ -1,0 +1,21 @@
+name: Nikki
+description: Primary assistant -- operations, admin, scheduling, task management, and general support
+
+telegram_bot_token_env: TELEGRAM_BOT_TOKEN
+
+model: claude-opus-4-6
+
+obsidian:
+  vault: /app/store/obsidian-brain
+  folders:
+    - Finance/
+    - Inbox/
+  read_only: []
+
+# War Room tool opt-in. NOTE: this OVERRIDES the built-in default allowlist
+# for this agent in the War Room. Safe read-only tools (Read/Glob/Grep/
+# WebSearch/WebFetch/TodoWrite) are always included automatically; list
+# every side-effect tool or `mcp:<server>` this agent should have here.
+warroom_tools:
+  - mcp:vendasta-crm
+  - mcp:clickup

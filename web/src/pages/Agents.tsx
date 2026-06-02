@@ -315,7 +315,7 @@ function AgentCard({ agent, onChange, onOpen, suggestions, onOpenSuggestion }: {
             onClick={() => run('stop')}
             disabled={busy !== null || isMain}
             class="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] bg-[var(--color-elevated)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-card)] border border-[var(--color-border)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title={isMain ? 'Main agent cannot be stopped from the dashboard' : 'Stop this agent'}
+            title={isMain ? 'Nikki (primary agent) cannot be stopped from the dashboard' : 'Stop this agent'}
           >
             <Power size={11} /> {busy === 'stop' ? 'Stopping…' : 'Stop'}
           </button>

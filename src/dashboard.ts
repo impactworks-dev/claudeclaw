@@ -1755,7 +1755,10 @@ export function startDashboard(botApi?: Api<RawApi>): void {
           telegramConnected,
         };
       } catch {
-        const fallbackName = id.charAt(0).toUpperCase() + id.slice(1);
+        // Belt-and-suspenders: if loadAgentConfig throws (missing agent.yaml,
+        // missing token, etc.), still surface the user-facing name. 'main' is
+        // Nikki — every other agent capitalizes its id.
+        const fallbackName = id === 'main' ? 'Nikki' : id.charAt(0).toUpperCase() + id.slice(1);
         return { id, name: fallbackName, description: '', model: 'unknown', running: false, todayTurns: 0, todayCost: 0, telegramConnected: false };
       }
     });

@@ -32,6 +32,9 @@ export function AgentFiles() {
   const [, params] = useRoute<{ id: string }>('/agents/:id/files');
   const [, navigate] = useLocation();
   const agentId = params?.id || '';
+  // 'main' has a friendly display name everywhere — Nikki. The id stays 'main'
+  // for routing, API paths, and PID files; only the labels change.
+  const agentDisplay = agentId === 'main' ? 'Nikki' : agentId;
   const [tab, setTab] = useState<TabKey>('persona');
   const [files, setFiles] = useState<FilesResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,7 +113,7 @@ export function AgentFiles() {
   }
 
   async function restart() {
-    if (!confirm(`Restart agent "${agentId}"? This will interrupt any in-flight tasks and reload its config.`)) return;
+    if (!confirm(`Restart agent "${agentDisplay}"? This will interrupt any in-flight tasks and reload its config.`)) return;
     setRestarting(true);
     try {
       await apiPost(`/api/agents/${encodeURIComponent(agentId)}/restart`);
@@ -136,7 +139,7 @@ export function AgentFiles() {
   return (
     <div class="flex flex-col h-full">
       <PageHeader
-        title={`Agent files · ${agentId}`}
+        title={`Agent files · ${agentDisplay}`}
         breadcrumb="Agents"
         tabs={
           <>
@@ -262,7 +265,7 @@ export function AgentFiles() {
         </>
       )}
 
-      <Drawer open={historyOpen} onClose={() => setHistoryOpen(false)} title={`History · ${agentId} · ${tab === 'persona' ? 'CLAUDE.md' : 'agent.yaml'}`}>
+      <Drawer open={historyOpen} onClose={() => setHistoryOpen(false)} title={`History · ${agentDisplay} · ${tab === 'persona' ? 'CLAUDE.md' : 'agent.yaml'}`}>
         {/* Remount on each open so the version list is fresh — and so a
             previous error doesn't leave the drawer stuck on stale data. */}
         {historyOpen && (
