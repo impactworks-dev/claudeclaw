@@ -1371,6 +1371,25 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     }
   });
 
+  // DEBUG: fetch raw Stooq response from Fly to diagnose stocks failures.
+  // Remove after stocks tile is verified working in production.
+  app.get('/api/stocks/debug', async (c) => {
+    const symParam = ['nvda.us', 'msft.us', 'aapl.us'].join('%2B');
+    const url = `https://stooq.com/q/l/?s=${symParam}&f=sd2t2cp&h&e=csv`;
+    try {
+      const r = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15',
+          'Accept': 'text/csv, */*',
+        },
+      });
+      const body = await r.text();
+      return c.json({ url, status: r.status, contentType: r.headers.get('content-type'), bodyLength: body.length, body: body.slice(0, 2000) });
+    } catch (e) {
+      return c.json({ url, error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   // AI news, past 24 hours (Google News RSS).
   // Cache: 10min. ?force=1 bypasses.
   app.get('/api/ai-news', async (c) => {
