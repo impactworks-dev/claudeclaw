@@ -135,7 +135,12 @@ export async function getStocksData(opts: { force?: boolean } = {}): Promise<Sto
   // `,` separator produces a malformed single-row response when `f=` has
   // multiple fields — `+` gives one CSV row per ticker. f=sd2t2cp keeps
   // it minimal: Symbol, Date, Time, Close, Prev.
-  const symParam = tickers.map(t => t.toLowerCase() + '.us').join('+');
+  //
+  // IMPORTANT: use literal `%2B` (URL-encoded `+`) for the separator. A
+  // raw `+` in a query string is decoded to space by RFC 3986, and Node's
+  // fetch reserializes the URL through WHATWG URL which can rewrite it
+  // unpredictably. Encoding ensures the byte stays `+` on the wire.
+  const symParam = tickers.map(t => t.toLowerCase() + '.us').join('%2B');
   const url = `https://stooq.com/q/l/?s=${symParam}&f=sd2t2cp&h&e=csv`;
 
   let parsed: Record<string, Partial<StockQuote>> = {};
