@@ -18,11 +18,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { STORE_DIR } from './config.js';
 import { logger } from './logger.js';
+import { loadTickers } from './stocks-tickers.js';
 
 const CACHE_FILE = path.join(STORE_DIR, 'stocks-cache.json');
 const TTL_MS = 5 * 60 * 1000;
-
-const DEFAULT_TICKERS = ['NVDA', 'MSFT', 'GOOGL', 'META', 'AAPL', 'AMZN', 'TSLA', 'PLTR'];
 
 export interface StockQuote {
   symbol: string;
@@ -60,11 +59,15 @@ function writeCache(data: StocksSummary): void {
 }
 
 function getTickerList(): string[] {
-  const env = process.env.STOCK_TICKERS;
-  if (env && env.trim()) {
-    return env.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-  }
-  return DEFAULT_TICKERS;
+  // Source of truth is the persisted watchlist on the Fly volume.
+  // The stocks-tickers module handles fall-through to env / defaults.
+  return loadTickers();
+}
+
+/** Bust the price cache. Called whenever the watchlist changes so the
+ *  next /api/stocks read returns fresh data for the new list. */
+export function invalidateStocksCache(): void {
+  try { fs.unlinkSync(CACHE_FILE); } catch { /* ignore */ }
 }
 
 // Stooq returns CSV with a header row. Fields requested via `f=`:

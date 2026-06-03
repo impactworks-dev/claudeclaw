@@ -108,7 +108,9 @@ import { getWebinarsData, setWebinarDisposition } from './webinars-data.js';
 import { getMembersData, addMember, updateMember } from './members-data.js';
 import { getCashData, createLinkToken, exchangePublicToken } from './cash-data.js';
 import { getQbData } from './qb-data.js';
-import { getStocksData } from './stocks-data.js';
+import { getStocksData, invalidateStocksCache } from './stocks-data.js';
+import { loadTickers, addTicker, removeTicker } from './stocks-tickers.js';
+import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
@@ -1367,6 +1369,45 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json(data);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'stocks endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Watchlist CRUD — persistent ticker list on Fly volume.
+  app.get('/api/stocks/tickers', (c) => {
+    return c.json({ tickers: loadTickers() });
+  });
+  app.post('/api/stocks/tickers', async (c) => {
+    try {
+      const body = await c.req.json();
+      const r = addTicker(String(body?.symbol || ''));
+      if (r.ok) invalidateStocksCache();
+      return c.json(r, r.ok ? 200 : 400);
+    } catch (e) {
+      return c.json({ ok: false, tickers: loadTickers(), reason: String((e as Error)?.message || e) }, 400);
+    }
+  });
+  app.delete('/api/stocks/tickers/:symbol', (c) => {
+    const r = removeTicker(c.req.param('symbol') || '');
+    if (r.ok) invalidateStocksCache();
+    return c.json(r, r.ok ? 200 : 400);
+  });
+
+  // Stock OHLC history (Yahoo v8 chart). Cache: 15min per (symbol,period).
+  // period = 1D | 1W | 1M | 3M | 1Y
+  app.get('/api/stocks/history/:symbol', async (c) => {
+    try {
+      const symbol = c.req.param('symbol') || '';
+      const period = (c.req.query('period') || '1M') as Period;
+      const valid: Period[] = ['1D', '1W', '1M', '3M', '1Y'];
+      if (!valid.includes(period)) {
+        return c.json({ error: `period must be one of ${valid.join(',')}` }, 400);
+      }
+      const force = c.req.query('force') === '1';
+      const data = await getStockHistory({ symbol, period, force });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'stocks-history endpoint failed');
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });

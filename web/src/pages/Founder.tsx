@@ -1,9 +1,11 @@
-import { useMemo } from 'preact/hooks';
-import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper } from 'lucide-preact';
+import { useMemo, useState } from 'preact/hooks';
+import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper, Plus, X } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
 import { useFetch } from '@/lib/useFetch';
+import { apiPost, apiDelete } from '@/lib/api';
+import { StockChart } from '@/components/StockChart';
 
 interface Section<T> { ok: boolean; error: string | null; data: T | null; }
 interface AttentionItem { severity: 'critical' | 'warn' | 'info'; source: 'cash' | 'pipeline' | 'outreach' | 'members'; title: string; detail: string; href: string; }
@@ -80,13 +82,31 @@ function Stat({ label, value, tone, sub }: { label: string; value: any; tone?: s
   );
 }
 
-function StockRow({ q }: { q: StockQuote }) {
+function StockRow({
+  q, expanded, onToggle, onRemove,
+}: {
+  q: StockQuote;
+  expanded: boolean;
+  onToggle: () => void;
+  onRemove: () => void;
+}) {
   const pct = q.changePct;
   const tone = pct == null ? 'faint' : pct > 0 ? 'good' : pct < 0 ? 'bad' : 'faint';
   const arrow = pct == null ? '' : pct > 0 ? '▲' : pct < 0 ? '▼' : '·';
   return (
-    <div class="flex items-center justify-between text-[11px] py-1 border-b border-[var(--color-border)] last:border-b-0">
-      <div class="min-w-0 flex-1">
+    <div
+      onClick={onToggle}
+      class={`group flex items-center justify-between text-[11px] py-1.5 px-1 -mx-1 rounded cursor-pointer hover:bg-[var(--color-elevated)] border-b border-[var(--color-border)] last:border-b-0 ${expanded ? 'bg-[var(--color-elevated)]' : ''}`}
+    >
+      <div class="min-w-0 flex-1 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          class="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-faint)] hover:text-[var(--color-text)] mr-1"
+          aria-label={`Remove ${q.symbol}`}
+        >
+          <X size={11} />
+        </button>
         <span class="text-[var(--color-text)] font-semibold tabular-nums">{q.symbol}</span>
         {q.shortName && <span class="text-[var(--color-text-faint)] ml-1 truncate">· {q.shortName}</span>}
       </div>
@@ -179,6 +199,38 @@ export function Founder() {
   const runwayTone = displayRunwayDays == null ? 'good'
     : displayRunwayDays > 90 ? 'good'
       : displayRunwayDays > 30 ? 'warn' : 'bad';
+
+  // Stocks tile state — expanded row (chart open) + add-ticker input
+  const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
+  const [addingTicker, setAddingTicker] = useState(false);
+  const [newTicker, setNewTicker] = useState('');
+  const [tickerError, setTickerError] = useState<string | null>(null);
+
+  async function handleAddTicker() {
+    const sym = newTicker.trim().toUpperCase();
+    if (!sym) return;
+    try {
+      await apiPost('/api/stocks/tickers', { symbol: sym });
+      setNewTicker('');
+      setAddingTicker(false);
+      setTickerError(null);
+      stocksFetch.refresh();
+    } catch (e: any) {
+      // ApiError stores the server JSON in body
+      const reason = e?.body?.reason || e?.message || 'Add failed';
+      setTickerError(String(reason));
+    }
+  }
+
+  async function handleRemoveTicker(symbol: string) {
+    try {
+      await apiDelete(`/api/stocks/tickers/${encodeURIComponent(symbol)}`);
+      if (expandedTicker === symbol) setExpandedTicker(null);
+      stocksFetch.refresh();
+    } catch (e: any) {
+      setTickerError(String(e?.body?.reason || e?.message || 'Remove failed'));
+    }
+  }
 
   return (
     <div class="flex h-full flex-col">
@@ -298,25 +350,87 @@ export function Founder() {
                 <LineChart size={14} class="text-[var(--color-text-faint)]" />
                 <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">Stocks</div>
               </div>
-              {stocksFetch.data && (
-                <span class="text-[10px] text-[var(--color-text-faint)]">
-                  as of {new Date(stocksFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
+              <div class="flex items-center gap-2">
+                {stocksFetch.data && (
+                  <span class="text-[10px] text-[var(--color-text-faint)]">
+                    as of {new Date(stocksFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setAddingTicker(v => !v); setTickerError(null); }}
+                  class="inline-flex items-center justify-center w-5 h-5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]"
+                  aria-label="Add ticker"
+                  title="Add ticker"
+                >
+                  <Plus size={12} />
+                </button>
+              </div>
             </div>
+
+            {addingTicker && (
+              <div class="mb-2 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newTicker}
+                  onInput={(e: any) => setNewTicker(e.target.value.toUpperCase())}
+                  onKeyDown={(e: any) => {
+                    if (e.key === 'Enter') handleAddTicker();
+                    if (e.key === 'Escape') { setAddingTicker(false); setNewTicker(''); setTickerError(null); }
+                  }}
+                  placeholder="e.g. ANTH"
+                  maxLength={6}
+                  autoFocus
+                  class="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded px-2 py-1 text-[12px] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTicker}
+                  class="px-2 py-1 rounded text-[11px] bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAddingTicker(false); setNewTicker(''); setTickerError(null); }}
+                  class="px-2 py-1 rounded text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {tickerError && (
+              <div class="mb-2 text-[10px] text-[#dc2626]">{tickerError}</div>
+            )}
+
             {stocksFetch.loading && !stocksFetch.data ? (
               <div class="text-[11px] text-[var(--color-text-faint)]">Loading quotes…</div>
             ) : stocksFetch.error ? (
               <div class="text-[11px] text-[var(--color-text-faint)]">Stocks unavailable ({String(stocksFetch.error)})</div>
             ) : stocksFetch.data && stocksFetch.data.quotes.length > 0 ? (
               <div class="space-y-0">
-                {stocksFetch.data.quotes.map(q => <StockRow key={q.symbol} q={q} />)}
+                {stocksFetch.data.quotes.map(q => (
+                  <div key={q.symbol}>
+                    <StockRow
+                      q={q}
+                      expanded={expandedTicker === q.symbol}
+                      onToggle={() => setExpandedTicker(expandedTicker === q.symbol ? null : q.symbol)}
+                      onRemove={() => handleRemoveTicker(q.symbol)}
+                    />
+                    {expandedTicker === q.symbol && (
+                      <StockChart
+                        symbol={q.symbol}
+                        onClose={() => setExpandedTicker(null)}
+                      />
+                    )}
+                  </div>
+                ))}
               </div>
             ) : (
-              <div class="text-[11px] text-[var(--color-text-faint)]">No quote data.</div>
+              <div class="text-[11px] text-[var(--color-text-faint)]">No tickers in your watchlist. Click + to add.</div>
             )}
             <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
-              Source: Yahoo Finance · Edit STOCK_TICKERS in Fly secrets to change list.
+              Quotes from Stooq · Candles from Yahoo · Click a row to view candles · Edits persist on the Fly volume.
             </div>
           </div>
 
