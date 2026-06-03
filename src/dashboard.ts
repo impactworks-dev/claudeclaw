@@ -1393,7 +1393,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     return c.json(r, r.ok ? 200 : 400);
   });
 
-  // Stock OHLC history (Yahoo v8 chart). Cache: 15min per (symbol,period).
+  // Stock OHLC history. Cache: 15min per (symbol,period).
   // period = 1D | 1W | 1M | 3M | 1Y
   app.get('/api/stocks/history/:symbol', async (c) => {
     try {
