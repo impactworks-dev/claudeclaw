@@ -31,6 +31,23 @@ interface CashSummary {
   configured: boolean; connectionStatus: 'ok' | 'no-credentials' | 'no-items' | 'error'; connectionMessage: string | null;
 }
 
+// QuickBooks P&L data — replaces the Plaid heuristic numbers in the top
+// stats band when QBO is connected. The Plaid numbers (Vendasta-aware
+// categorization rules) stay as a fallback if QBO isn't connected.
+interface QbPeriod { revenueCents: number; cogsCents: number; opexCents: number; netCents: number; }
+interface QbLineItem { account: string; amountCents: number; type: 'revenue' | 'cogs' | 'opex' | 'other'; }
+interface QbSummary {
+  asOf: number;
+  configured: boolean;
+  connectionStatus: 'ok' | 'not-connected' | 'no-credentials' | 'error';
+  connectionMessage: string | null;
+  company: { name: string | null; realmId: string | null };
+  mtd: QbPeriod;
+  last30: QbPeriod;
+  lineItems: QbLineItem[];
+  runwayDays: number | null;
+}
+
 const TONE: Record<string, string> = { good: '#16a34a', warn: '#ca8a04', bad: '#dc2626', faint: 'var(--color-text-faint)' };
 const money = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const moneySigned = (c: number) => (c >= 0 ? '+' : '') + '$' + Math.abs(c / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -248,6 +265,7 @@ function UploadStatementModal({ onClose, onImported }: { onClose: () => void; on
 
 export function Cash() {
   const { data, loading, error, refresh } = useFetch<CashSummary>('/api/cash');
+  const { data: qbData, refresh: refreshQb } = useFetch<QbSummary>('/api/qb');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [forcing, setForcing] = useState(false);
 
@@ -260,14 +278,21 @@ export function Cash() {
     if (forcing) return;
     setForcing(true);
     try {
-      await apiGet('/api/cash?force=1');
+      await Promise.all([apiGet('/api/cash?force=1'), apiGet('/api/qb?force=1').catch(() => null)]);
     } catch {
       // Swallow — refresh() below will still re-render the stale view.
     } finally {
       refresh();
+      refreshQb();
       setForcing(false);
     }
   }
+
+  // When QB is connected, surface real accounting numbers; otherwise fall
+  // back to the Plaid-heuristic categorization. The credit-card liabilities
+  // section below ALWAYS comes from Plaid — QBO doesn't know about your
+  // bank/CC realtime balances, only the GL trial balance after reconciliation.
+  const qbConnected = qbData?.connectionStatus === 'ok';
 
   const accountSummary = useMemo(() => {
     if (!data) return null;
@@ -281,8 +306,30 @@ export function Cash() {
   if (error) return <PageState>Error: {String(error)}</PageState>;
   if (!data) return null;
 
-  const netMtdTone = data.mtd.netCents >= 0 ? 'good' : 'bad';
-  const netLast30Tone = data.last30.netCents >= 0 ? 'good' : 'bad';
+  // Resolve which numbers to show in the tiles. When QBO is connected,
+  // the real P&L wins; otherwise the Plaid heuristics from cash-data.ts
+  // are the fallback. Note: QBO doesn't break out a SaaS bucket, so when
+  // QBO is the source we collapse SaaS into OpEx.
+  const mtdRevCents   = qbConnected ? qbData!.mtd.revenueCents : data.mtd.revenueCents;
+  const mtdCogsCents  = qbConnected ? qbData!.mtd.cogsCents    : data.mtd.cogsCents;
+  const mtdOpexCents  = qbConnected ? qbData!.mtd.opexCents    : (data.mtd.saasCents + data.mtd.otherSpendCents);
+  const mtdNetCents   = qbConnected ? qbData!.mtd.netCents     : data.mtd.netCents;
+  const l30RevCents   = qbConnected ? qbData!.last30.revenueCents : data.last30.revenueCents;
+  const l30CogsCents  = qbConnected ? qbData!.last30.cogsCents    : data.last30.cogsCents;
+  const l30OpexCents  = qbConnected ? qbData!.last30.opexCents    : (data.last30.saasCents + data.last30.otherSpendCents);
+  const l30NetCents   = qbConnected ? qbData!.last30.netCents     : data.last30.netCents;
+
+  const netMtdTone = mtdNetCents >= 0 ? 'good' : 'bad';
+  const netLast30Tone = l30NetCents >= 0 ? 'good' : 'bad';
+
+  // Runway: cash / (last30 burn / 30). Always compute client-side from
+  // whichever source is active so the number is consistent with the tiles
+  // above it.
+  let displayRunwayDays: number | null = null;
+  const burnPerDayCents = -l30NetCents / 30;
+  if (burnPerDayCents > 0 && data.totalCashCents > 0) {
+    displayRunwayDays = Math.floor(data.totalCashCents / burnPerDayCents);
+  }
 
   return (
     <div class="flex h-full flex-col">
@@ -317,33 +364,31 @@ export function Cash() {
               <div class="text-[10px] text-[var(--color-text-faint)]">Across {accountSummary?.cash.length || 0} account{(accountSummary?.cash.length || 0) === 1 ? '' : 's'}</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">MTD Revenue</div>
-              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE.good }}>{money(data.mtd.revenueCents)}</div>
+              <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">
+                MTD Revenue {qbConnected && <span class="text-[var(--color-accent)]">·QB</span>}
+              </div>
+              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE.good }}>{money(mtdRevCents)}</div>
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">MTD COGS</div>
-              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE.warn }}>{money(data.mtd.cogsCents)}</div>
+              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE.warn }}>{money(mtdCogsCents)}</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">MTD SaaS</div>
-              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE.warn }}>{money(data.mtd.saasCents)}</div>
-            </div>
-            <div>
-              <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">MTD Other Spend</div>
-              <div class="text-[15px] font-semibold tabular-nums text-[var(--color-text-muted)]">{money(data.mtd.otherSpendCents)}</div>
+              <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">MTD OpEx</div>
+              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE.warn }}>{money(mtdOpexCents)}</div>
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">MTD Net</div>
-              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE[netMtdTone] }}>{moneySigned(data.mtd.netCents)}</div>
+              <div class="text-[15px] font-semibold tabular-nums" style={{ color: TONE[netMtdTone] }}>{moneySigned(mtdNetCents)}</div>
             </div>
             <div>
               <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">Runway</div>
               <div class="text-[15px] font-semibold tabular-nums">
-                {data.runwayDays == null
+                {displayRunwayDays == null
                   ? <span style={{ color: TONE.good }}>Cash flow positive</span>
-                  : data.runwayDays > 90 ? <span style={{ color: TONE.good }}>{data.runwayDays}d</span>
-                    : data.runwayDays > 30 ? <span style={{ color: TONE.warn }}>{data.runwayDays}d</span>
-                      : <span style={{ color: TONE.bad }}>{data.runwayDays}d</span>}
+                  : displayRunwayDays > 90 ? <span style={{ color: TONE.good }}>{displayRunwayDays}d</span>
+                    : displayRunwayDays > 30 ? <span style={{ color: TONE.warn }}>{displayRunwayDays}d</span>
+                      : <span style={{ color: TONE.bad }}>{displayRunwayDays}d</span>}
               </div>
               <div class="text-[10px] text-[var(--color-text-faint)]">at 30-day burn rate</div>
             </div>
@@ -351,12 +396,13 @@ export function Cash() {
 
           {/* Last 30 strip */}
           <div class="px-4 py-2 border-b border-[var(--color-border)] flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] text-[var(--color-text-muted)]">
-            <span class="font-semibold text-[var(--color-text-faint)] uppercase text-[10px]">Last 30 days:</span>
-            <span><span class="text-[var(--color-text-faint)]">Revenue</span> <span style={{ color: TONE.good }} class="font-medium tabular-nums">{money(data.last30.revenueCents)}</span></span>
-            <span><span class="text-[var(--color-text-faint)]">COGS</span> <span style={{ color: TONE.warn }} class="font-medium tabular-nums">{money(data.last30.cogsCents)}</span></span>
-            <span><span class="text-[var(--color-text-faint)]">SaaS</span> <span style={{ color: TONE.warn }} class="font-medium tabular-nums">{money(data.last30.saasCents)}</span></span>
-            <span><span class="text-[var(--color-text-faint)]">Other</span> <span class="font-medium tabular-nums">{money(data.last30.otherSpendCents)}</span></span>
-            <span><span class="text-[var(--color-text-faint)]">Net</span> <span style={{ color: TONE[netLast30Tone] }} class="font-medium tabular-nums">{moneySigned(data.last30.netCents)}</span></span>
+            <span class="font-semibold text-[var(--color-text-faint)] uppercase text-[10px]">
+              Last 30 days{qbConnected && <span class="text-[var(--color-accent)] normal-case"> · from QuickBooks{qbData?.company?.name ? ' (' + qbData!.company!.name + ')' : ''}</span>}:
+            </span>
+            <span><span class="text-[var(--color-text-faint)]">Revenue</span> <span style={{ color: TONE.good }} class="font-medium tabular-nums">{money(l30RevCents)}</span></span>
+            <span><span class="text-[var(--color-text-faint)]">COGS</span> <span style={{ color: TONE.warn }} class="font-medium tabular-nums">{money(l30CogsCents)}</span></span>
+            <span><span class="text-[var(--color-text-faint)]">OpEx</span> <span style={{ color: TONE.warn }} class="font-medium tabular-nums">{money(l30OpexCents)}</span></span>
+            <span><span class="text-[var(--color-text-faint)]">Net</span> <span style={{ color: TONE[netLast30Tone] }} class="font-medium tabular-nums">{moneySigned(l30NetCents)}</span></span>
           </div>
 
           {/* Body: two columns */}
@@ -402,23 +448,37 @@ export function Cash() {
               </div>
 
               <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
-                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)] mb-2">30-day breakdown by category</div>
+                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)] mb-2">
+                  30-day breakdown by {qbConnected ? 'QB account' : 'category'}
+                </div>
                 <table class="w-full text-[11px]">
                   <tbody>
-                    {data.bucketBreakdown.map(b => {
-                      const tone = BucketTone(b.bucket);
-                      const net = b.inflowCents - b.outflowCents;
-                      return (
-                        <tr key={b.bucket} class="border-t border-[var(--color-border)]/40 first:border-t-0">
-                          <td class="py-1 text-[var(--color-text)]" style={{ color: TONE[tone] }}>{b.bucket}</td>
-                          <td class="py-1 text-right tabular-nums text-[var(--color-text-muted)]">{b.count}</td>
-                          <td class="py-1 text-right tabular-nums" style={{ color: TONE[tone] }}>
-                            {b.inflowCents > 0 && money(b.inflowCents)}
-                            {b.outflowCents > 0 && (b.inflowCents > 0 ? ' / ' : '') + money(b.outflowCents)}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {qbConnected && qbData?.lineItems && qbData.lineItems.length > 0 ? (
+                      qbData.lineItems.map(line => {
+                        const tone = line.type === 'revenue' ? 'good' : line.type === 'cogs' ? 'warn' : 'warn';
+                        return (
+                          <tr key={line.account} class="border-t border-[var(--color-border)]/40 first:border-t-0">
+                            <td class="py-1 text-[var(--color-text)]" style={{ color: TONE[tone] }}>{line.account}</td>
+                            <td class="py-1 text-right tabular-nums text-[var(--color-text-faint)] text-[10px] uppercase">{line.type}</td>
+                            <td class="py-1 text-right tabular-nums" style={{ color: TONE[tone] }}>{money(line.amountCents)}</td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      data.bucketBreakdown.map(b => {
+                        const tone = BucketTone(b.bucket);
+                        return (
+                          <tr key={b.bucket} class="border-t border-[var(--color-border)]/40 first:border-t-0">
+                            <td class="py-1 text-[var(--color-text)]" style={{ color: TONE[tone] }}>{b.bucket}</td>
+                            <td class="py-1 text-right tabular-nums text-[var(--color-text-muted)]">{b.count}</td>
+                            <td class="py-1 text-right tabular-nums" style={{ color: TONE[tone] }}>
+                              {b.inflowCents > 0 && money(b.inflowCents)}
+                              {b.outflowCents > 0 && (b.inflowCents > 0 ? ' / ' : '') + money(b.outflowCents)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>

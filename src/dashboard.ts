@@ -107,6 +107,7 @@ import { getOutreachData, setOutreachStatus } from './outreach-data.js';
 import { getWebinarsData, setWebinarDisposition } from './webinars-data.js';
 import { getMembersData, addMember, updateMember } from './members-data.js';
 import { getCashData, createLinkToken, exchangePublicToken } from './cash-data.js';
+import { getQbData } from './qb-data.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
 import { getWarRoomHtml } from './warroom-html.js';
@@ -1337,6 +1338,21 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json(data);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'cash endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // QuickBooks P&L (production accounting numbers).
+  // Cache: 1hr. ?force=1 bypasses. Optional ?cashCents= for accurate runway.
+  app.get('/api/qb', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const cashStr = c.req.query('cashCents');
+      const totalCashCents = cashStr ? parseInt(cashStr, 10) : undefined;
+      const data = await getQbData({ force, totalCashCents });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'qb endpoint failed');
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
