@@ -1,5 +1,5 @@
 import { useMemo } from 'preact/hooks';
-import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store } from 'lucide-preact';
+import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
@@ -7,6 +7,35 @@ import { useFetch } from '@/lib/useFetch';
 
 interface Section<T> { ok: boolean; error: string | null; data: T | null; }
 interface AttentionItem { severity: 'critical' | 'warn' | 'info'; source: 'cash' | 'pipeline' | 'outreach' | 'members'; title: string; detail: string; href: string; }
+
+// QB summary (mirror of src/qb-data.ts QbSummary shape — only the fields the Founder page consumes)
+interface QbPeriod { revenueCents: number; cogsCents: number; opexCents: number; netCents: number; }
+interface QbSummary {
+  configured: boolean;
+  connectionStatus: 'ok' | 'not-connected' | 'no-credentials' | 'error';
+  company: { name: string | null; realmId: string | null };
+  mtd: QbPeriod;
+  last30: QbPeriod;
+  runwayDays: number | null;
+}
+
+// Stocks
+interface StockQuote {
+  symbol: string;
+  shortName: string | null;
+  price: number | null;
+  changeAbs: number | null;
+  changePct: number | null;
+  currency: string | null;
+  marketState: string | null;
+  error?: string;
+}
+interface StocksSummary { asOf: number; tickers: string[]; quotes: StockQuote[]; }
+
+// AI news
+interface NewsItem { title: string; link: string; source: string | null; pubDate: number | null; description: string | null; }
+interface NewsSummary { asOf: number; query: string; items: NewsItem[]; error?: string | null; }
+
 interface FounderData {
   generatedAt: number;
   cash: Section<{ totalCashCents: number; mtdRevenueCents: number; mtdNetCents: number; runwayDays: number | null; last30NetCents: number; connectionStatus: string }>;
@@ -51,6 +80,49 @@ function Stat({ label, value, tone, sub }: { label: string; value: any; tone?: s
   );
 }
 
+function StockRow({ q }: { q: StockQuote }) {
+  const pct = q.changePct;
+  const tone = pct == null ? 'faint' : pct > 0 ? 'good' : pct < 0 ? 'bad' : 'faint';
+  const arrow = pct == null ? '' : pct > 0 ? '▲' : pct < 0 ? '▼' : '·';
+  return (
+    <div class="flex items-center justify-between text-[11px] py-1 border-b border-[var(--color-border)] last:border-b-0">
+      <div class="min-w-0 flex-1">
+        <span class="text-[var(--color-text)] font-semibold tabular-nums">{q.symbol}</span>
+        {q.shortName && <span class="text-[var(--color-text-faint)] ml-1 truncate">· {q.shortName}</span>}
+      </div>
+      <div class="text-right shrink-0 ml-2 tabular-nums">
+        <span class="text-[var(--color-text)]">{q.price != null ? '$' + q.price.toFixed(2) : '—'}</span>
+        <span class="ml-2" style={{ color: TONE[tone] }}>
+          {pct != null ? `${arrow} ${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function timeAgo(ms: number | null): string {
+  if (ms == null) return '';
+  const delta = Math.max(0, Date.now() - ms);
+  const m = Math.floor(delta / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+
+function NewsRow({ n }: { n: NewsItem }) {
+  return (
+    <a href={n.link} target="_blank" rel="noopener noreferrer" class="block py-1.5 hover:bg-[var(--color-elevated)] px-1 -mx-1 rounded border-b border-[var(--color-border)] last:border-b-0">
+      <div class="text-[12px] text-[var(--color-text)] font-medium leading-snug line-clamp-2">{n.title}</div>
+      <div class="text-[10px] text-[var(--color-text-faint)] mt-0.5">
+        {n.source ?? 'Source unknown'}
+        {n.pubDate ? <span> · {timeAgo(n.pubDate)}</span> : null}
+      </div>
+    </a>
+  );
+}
+
 function AttentionRow({ item }: { item: AttentionItem }) {
   const Icon = SEV_ICON[item.severity];
   const tone = SEV_TONE[item.severity];
@@ -70,6 +142,11 @@ function AttentionRow({ item }: { item: AttentionItem }) {
 
 export function Founder() {
   const { data, loading, refreshing, error, refresh } = useFetch<FounderData>('/api/founder');
+  // QB, Stocks, AI News run in parallel — they don't block the page if /api/founder
+  // resolves first. Each degrades independently (matches the existing pattern).
+  const qbFetch = useFetch<QbSummary>('/api/qb');
+  const stocksFetch = useFetch<StocksSummary>('/api/stocks');
+  const newsFetch = useFetch<NewsSummary>('/api/ai-news');
 
   const today = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }), [data]);
 
@@ -81,11 +158,27 @@ export function Founder() {
   const pipe = data.pipeline.data;
   const outr = data.outreach.data;
   const memb = data.members.data;
+  const qb = qbFetch.data;
+  const qbConnected = !!(qb && qb.connectionStatus === 'ok');
 
-  const netMTDTone = cash && cash.mtdNetCents >= 0 ? 'good' : 'bad';
-  const runwayTone = !cash || cash.runwayDays == null ? 'good'
-    : cash.runwayDays > 90 ? 'good'
-      : cash.runwayDays > 30 ? 'warn' : 'bad';
+  // QB-derived runway: compute locally so we don't need a second /api/qb call
+  // with cashCents in the URL. burn = -last30.netCents / 30; if profitable,
+  // runway is null ("Cash+").
+  let qbRunwayDays: number | null = null;
+  if (qbConnected && cash && cash.totalCashCents > 0 && qb!.last30.netCents < 0) {
+    qbRunwayDays = Math.floor(cash.totalCashCents / (-qb!.last30.netCents / 30));
+  }
+
+  // Overlay: when QB connected, use QB numbers for MTD revenue/net + runway.
+  // Total cash always comes from Plaid (QB doesn't see bank balances).
+  const displayMtdRevenueCents = qbConnected ? qb!.mtd.revenueCents : (cash?.mtdRevenueCents ?? 0);
+  const displayMtdNetCents = qbConnected ? qb!.mtd.netCents : (cash?.mtdNetCents ?? 0);
+  const displayRunwayDays = qbConnected ? qbRunwayDays : (cash?.runwayDays ?? null);
+
+  const netMTDTone = displayMtdNetCents >= 0 ? 'good' : 'bad';
+  const runwayTone = displayRunwayDays == null ? 'good'
+    : displayRunwayDays > 90 ? 'good'
+      : displayRunwayDays > 30 ? 'warn' : 'bad';
 
   return (
     <div class="flex h-full flex-col">
@@ -117,7 +210,7 @@ export function Founder() {
 
         {/* Top row: Cash + Pipeline */}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Tile icon={Wallet} title="Cash" href="/cash">
+          <Tile icon={Wallet} title={qbConnected ? `Cash · QB (${qb!.company.name || 'ImpactWorks'})` : 'Cash'} href="/cash">
             {data.cash.ok && cash ? (
               cash.connectionStatus !== 'ok' ? (
                 <div class="text-[12px] text-[var(--color-text-muted)]">
@@ -126,9 +219,9 @@ export function Founder() {
               ) : (
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <Stat label="Total Cash" value={money(cash.totalCashCents)} tone="good" />
-                  <Stat label="MTD Revenue" value={money(cash.mtdRevenueCents)} tone="good" />
-                  <Stat label="MTD Net" value={moneySigned(cash.mtdNetCents)} tone={netMTDTone} />
-                  <Stat label="Runway" value={cash.runwayDays == null ? 'Cash+' : cash.runwayDays + 'd'} tone={runwayTone} sub="at 30d burn" />
+                  <Stat label={qbConnected ? 'MTD Revenue · QB' : 'MTD Revenue'} value={money(displayMtdRevenueCents)} tone="good" />
+                  <Stat label={qbConnected ? 'MTD Net · QB' : 'MTD Net'} value={moneySigned(displayMtdNetCents)} tone={netMTDTone} />
+                  <Stat label="Runway" value={displayRunwayDays == null ? 'Cash+' : displayRunwayDays + 'd'} tone={runwayTone} sub={qbConnected ? 'QB 30d burn' : 'at 30d burn'} />
                 </div>
               )
             ) : (
@@ -195,6 +288,65 @@ export function Founder() {
               <div class="text-[12px] text-[var(--color-text-faint)]">Members data unavailable {data.members.error ? '(' + data.members.error + ')' : ''}</div>
             )}
           </Tile>
+        </div>
+
+        {/* Stocks + AI News, side-by-side */}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <LineChart size={14} class="text-[var(--color-text-faint)]" />
+                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">Stocks</div>
+              </div>
+              {stocksFetch.data && (
+                <span class="text-[10px] text-[var(--color-text-faint)]">
+                  as of {new Date(stocksFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+            {stocksFetch.loading && !stocksFetch.data ? (
+              <div class="text-[11px] text-[var(--color-text-faint)]">Loading quotes…</div>
+            ) : stocksFetch.error ? (
+              <div class="text-[11px] text-[var(--color-text-faint)]">Stocks unavailable ({String(stocksFetch.error)})</div>
+            ) : stocksFetch.data && stocksFetch.data.quotes.length > 0 ? (
+              <div class="space-y-0">
+                {stocksFetch.data.quotes.map(q => <StockRow key={q.symbol} q={q} />)}
+              </div>
+            ) : (
+              <div class="text-[11px] text-[var(--color-text-faint)]">No quote data.</div>
+            )}
+            <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
+              Source: Yahoo Finance · Edit STOCK_TICKERS in Fly secrets to change list.
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <Newspaper size={14} class="text-[var(--color-text-faint)]" />
+                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">AI News · Past 24h</div>
+              </div>
+              {newsFetch.data && (
+                <span class="text-[10px] text-[var(--color-text-faint)]">
+                  refreshed {new Date(newsFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+            {newsFetch.loading && !newsFetch.data ? (
+              <div class="text-[11px] text-[var(--color-text-faint)]">Loading news…</div>
+            ) : newsFetch.error ? (
+              <div class="text-[11px] text-[var(--color-text-faint)]">News unavailable ({String(newsFetch.error)})</div>
+            ) : newsFetch.data && newsFetch.data.items.length > 0 ? (
+              <div class="space-y-0 max-h-[260px] overflow-auto">
+                {newsFetch.data.items.slice(0, 8).map((n, i) => <NewsRow key={i} n={n} />)}
+              </div>
+            ) : (
+              <div class="text-[11px] text-[var(--color-text-faint)]">No news in the last 24h.</div>
+            )}
+            <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
+              Source: Google News · Query: "artificial intelligence" OR "AI", last 24 hours.
+            </div>
+          </div>
         </div>
 
         {/* Full attention list (excluding the primary, which is already prominent) */}

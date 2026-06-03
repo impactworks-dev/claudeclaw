@@ -108,6 +108,8 @@ import { getWebinarsData, setWebinarDisposition } from './webinars-data.js';
 import { getMembersData, addMember, updateMember } from './members-data.js';
 import { getCashData, createLinkToken, exchangePublicToken } from './cash-data.js';
 import { getQbData } from './qb-data.js';
+import { getStocksData } from './stocks-data.js';
+import { getNewsData } from './news-data.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
 import { getWarRoomHtml } from './warroom-html.js';
@@ -1356,6 +1358,34 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
+  // Stocks watchlist (Yahoo Finance v8 chart endpoint, no auth).
+  // Cache: 5min. ?force=1 bypasses.
+  app.get('/api/stocks', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const data = await getStocksData({ force });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'stocks endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // AI news, past 24 hours (Google News RSS).
+  // Cache: 10min. ?force=1 bypasses.
+  app.get('/api/ai-news', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const limitStr = c.req.query('limit');
+      const limit = limitStr ? parseInt(limitStr, 10) : undefined;
+      const data = await getNewsData({ force, limit });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'ai-news endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   app.post('/api/cash/link-token', async (c) => {
     try {
       // Accept redirect_uri in the JSON body so the connect page can pass
