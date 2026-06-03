@@ -1,12 +1,15 @@
 // Stocks watchlist data layer.
 //
-// Pulls live quotes from Yahoo Finance's v8 chart endpoint. No API key
-// required — it's the public endpoint that powers the consumer Yahoo
-// Finance site. We hit one URL per ticker in parallel.
+// Pulls quotes from Stooq's free public CSV endpoint. One HTTP call
+// fetches all tickers at once, no auth, no API key, no rate-limiting
+// issues from datacenter IPs (Yahoo Finance throttles Fly's outbound
+// IPs hard — 429s every request — so we route around it).
 //
-// Cache: 5 minutes on the persistent volume. Quotes do move intraday so
-// keep it tight but not so tight that a dashboard refresh blasts Yahoo
-// on every click.
+// Quotes are EOD or ~15min delayed during market hours, which is fine
+// for a founder-dashboard sidebar where we care about the day's move,
+// not tick-by-tick precision.
+//
+// Cache: 5 minutes on the persistent volume.
 //
 // Default tickers can be overridden by setting STOCK_TICKERS=NVDA,AAPL,...
 // in /app/.env (Fly secret). Per Dante: defaults until told otherwise.
@@ -64,47 +67,58 @@ function getTickerList(): string[] {
   return DEFAULT_TICKERS;
 }
 
-async function fetchOne(symbol: string): Promise<StockQuote> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-  try {
-    const r = await fetch(url, {
-      headers: {
-        // Yahoo's edge sometimes blocks default node UA. Pose as a browser.
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-        'Accept': 'application/json',
-      },
-    });
-    if (!r.ok) {
-      return { symbol, shortName: null, price: null, previousClose: null, changeAbs: null, changePct: null, currency: null, marketState: null, error: `HTTP ${r.status}` };
-    }
-    const j: any = await r.json();
-    const result = j?.chart?.result?.[0];
-    const meta = result?.meta;
-    if (!meta) {
-      return { symbol, shortName: null, price: null, previousClose: null, changeAbs: null, changePct: null, currency: null, marketState: null, error: 'no meta in response' };
-    }
-    const price: number | null = (typeof meta.regularMarketPrice === 'number') ? meta.regularMarketPrice : null;
-    const prev: number | null = (typeof meta.chartPreviousClose === 'number') ? meta.chartPreviousClose
-      : (typeof meta.previousClose === 'number') ? meta.previousClose : null;
+// Stooq returns CSV with header row. Fields requested via the `f=` param:
+//   s = symbol, d2 = date, t2 = time, o/h/l/c = OHLC, v = volume,
+//   n = name, p = previous close.
+// Sample response:
+//   Symbol,Date,Time,Open,High,Low,Close,Volume,Name,PrevClose
+//   NVDA.US,2026-06-03,15:30:00,1234.50,1245.00,1230.00,1240.75,1234567,NVIDIA Corp,1200.00
+//
+// "N/D" appears for missing fields (e.g. after-hours when intraday data
+// isn't ready). We treat any non-numeric value as null.
+
+function parseStooqNum(s: string | undefined): number | null {
+  if (!s) return null;
+  const trimmed = s.trim();
+  if (!trimmed || trimmed === 'N/D' || trimmed.toUpperCase() === 'N/A') return null;
+  const n = parseFloat(trimmed);
+  return isFinite(n) ? n : null;
+}
+
+function parseStooqCsv(csv: string): Record<string, Partial<StockQuote>> {
+  const lines = csv.trim().split(/\r?\n/);
+  if (lines.length < 2) return {};
+  const header = lines[0].split(',').map(h => h.trim());
+  const idx = (name: string) => header.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const iSym = idx('Symbol');
+  const iClose = idx('Close');
+  const iPrev = idx('PrevClose');
+  const iName = idx('Name');
+
+  const out: Record<string, Partial<StockQuote>> = {};
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    const stooqSym = cols[iSym]?.trim() || '';
+    if (!stooqSym) continue;
+    // Strip the `.US` suffix to match user-facing ticker
+    const sym = stooqSym.replace(/\.US$/i, '').toUpperCase();
+    const price = parseStooqNum(cols[iClose]);
+    const prev = parseStooqNum(cols[iPrev]);
     const changeAbs = (price != null && prev != null) ? +(price - prev).toFixed(4) : null;
     const changePct = (price != null && prev != null && prev !== 0) ? +(((price - prev) / prev) * 100).toFixed(2) : null;
-    return {
-      symbol: meta.symbol || symbol,
-      shortName: meta.shortName || meta.longName || null,
+    out[sym] = {
+      symbol: sym,
+      shortName: (iName >= 0 ? cols[iName]?.trim() : null) || null,
       price,
       previousClose: prev,
       changeAbs,
       changePct,
-      currency: meta.currency || null,
-      marketState: meta.marketState || null,
+      currency: 'USD',
+      marketState: null,
     };
-  } catch (e) {
-    return { symbol, shortName: null, price: null, previousClose: null, changeAbs: null, changePct: null, currency: null, marketState: null, error: String((e as Error)?.message || e) };
   }
+  return out;
 }
-
-// Sleep helper for serialized fetch (Yahoo throttles aggressive parallelism).
-const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 export async function getStocksData(opts: { force?: boolean } = {}): Promise<StocksSummary> {
   if (!opts.force) {
@@ -112,24 +126,64 @@ export async function getStocksData(opts: { force?: boolean } = {}): Promise<Sto
     if (c) return c;
   }
   const tickers = getTickerList();
-  // Serialize the fetches with a small jitter — Yahoo's edge returns
-  // HTTP 429 on bursts of 8+ parallel requests to the chart endpoint.
-  // 150ms gap × 8 tickers = ~1.2s end-to-end, which is fine since we
-  // cache for 5min. One quick retry on 429 with a short backoff.
-  const quotes: StockQuote[] = [];
-  for (const t of tickers) {
-    let q = await fetchOne(t);
-    if (q.error && q.error.includes('429')) {
-      await sleep(800);
-      q = await fetchOne(t);
+
+  // Stooq multi-ticker URL: all symbols, lowercase, .us suffix, comma-joined.
+  // f=sd2t2ohlcvnp requests Symbol,Date,Time,OHLC,Volume,Name,PrevClose.
+  // h header line, e=csv format.
+  const symParam = tickers.map(t => t.toLowerCase() + '.us').join(',');
+  const url = `https://stooq.com/q/l/?s=${symParam}&f=sd2t2ohlcvnp&h&e=csv`;
+
+  let parsed: Record<string, Partial<StockQuote>> = {};
+  let fetchError: string | null = null;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        'Accept': 'text/csv, */*',
+      },
+    });
+    if (!r.ok) {
+      fetchError = `HTTP ${r.status}`;
+    } else {
+      const csv = await r.text();
+      parsed = parseStooqCsv(csv);
     }
-    quotes.push(q);
-    await sleep(150);
+  } catch (e) {
+    fetchError = String((e as Error)?.message || e);
   }
+
+  // Assemble in the requested ticker order. Tickers we couldn't fetch get
+  // an error stub so the UI shows them with a "—" rather than dropping.
+  const quotes: StockQuote[] = tickers.map(t => {
+    const p = parsed[t.toUpperCase()];
+    if (p && p.price != null) {
+      return {
+        symbol: p.symbol || t,
+        shortName: p.shortName || null,
+        price: p.price ?? null,
+        previousClose: p.previousClose ?? null,
+        changeAbs: p.changeAbs ?? null,
+        changePct: p.changePct ?? null,
+        currency: p.currency || 'USD',
+        marketState: p.marketState || null,
+      };
+    }
+    return {
+      symbol: t,
+      shortName: null,
+      price: null,
+      previousClose: null,
+      changeAbs: null,
+      changePct: null,
+      currency: null,
+      marketState: null,
+      error: fetchError || 'no data in feed',
+    };
+  });
+
   const result: StocksSummary = { asOf: Date.now(), tickers, quotes };
 
   // Don't write a totally-broken result to cache (would lock us out for 5min).
-  // If at least one quote succeeded, cache it; otherwise let the next call retry.
   const anyGood = quotes.some(q => q.price != null);
   if (anyGood) writeCache(result);
   return result;
