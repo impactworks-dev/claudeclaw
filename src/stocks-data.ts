@@ -131,16 +131,18 @@ export async function getStocksData(opts: { force?: boolean } = {}): Promise<Sto
   }
   const tickers = getTickerList();
 
-  // Stooq multi-ticker URL: all symbols, lowercase, .us suffix, PLUS-joined.
-  // `,` separator produces a malformed single-row response when `f=` has
-  // multiple fields — `+` gives one CSV row per ticker. f=sd2t2cp keeps
-  // it minimal: Symbol, Date, Time, Close, Prev.
+  // Stooq multi-ticker URL: symbols separated by URL-encoded SPACE (%20).
   //
-  // IMPORTANT: use literal `%2B` (URL-encoded `+`) for the separator. A
-  // raw `+` in a query string is decoded to space by RFC 3986, and Node's
-  // fetch reserializes the URL through WHATWG URL which can rewrite it
-  // unpredictably. Encoding ensures the byte stays `+` on the wire.
-  const symParam = tickers.map(t => t.toLowerCase() + '.us').join('%2B');
+  // Stooq's multi-ticker separator is the space character. When curl sends
+  // a raw `+` in the query string, it travels as `+` but Stooq's RFC-3986
+  // parser decodes it to space → multi-ticker works. When we use Node's
+  // fetch, the `+` either survives literally (treated as a one-character
+  // symbol "+", concatenating tickers into one bogus symbol) or gets
+  // re-encoded as `%2B` (literal `+`, same problem). Sending `%20` (encoded
+  // space) is unambiguous — Stooq decodes it to space and splits cleanly.
+  //
+  // f=sd2t2cp keeps the field set minimal: Symbol, Date, Time, Close, Prev.
+  const symParam = tickers.map(t => t.toLowerCase() + '.us').join('%20');
   const url = `https://stooq.com/q/l/?s=${symParam}&f=sd2t2cp&h&e=csv`;
 
   let parsed: Record<string, Partial<StockQuote>> = {};
