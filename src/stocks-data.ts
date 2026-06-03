@@ -67,12 +67,16 @@ function getTickerList(): string[] {
   return DEFAULT_TICKERS;
 }
 
-// Stooq returns CSV with header row. Fields requested via the `f=` param:
-//   s = symbol, d2 = date, t2 = time, o/h/l/c = OHLC, v = volume,
-//   n = name, p = previous close.
+// Stooq returns CSV with a header row. Fields requested via `f=`:
+//   s = symbol, d2 = date, t2 = time, c = close, p = previous close.
+// IMPORTANT: multi-ticker requests must separate symbols with `+`, NOT
+// `,`. Using `,` with a multi-field `f=` results in a malformed single
+// concatenated row. With `+` we get one clean row per ticker.
+//
 // Sample response:
-//   Symbol,Date,Time,Open,High,Low,Close,Volume,Name,PrevClose
-//   NVDA.US,2026-06-03,15:30:00,1234.50,1245.00,1230.00,1240.75,1234567,NVIDIA Corp,1200.00
+//   Symbol,Date,Time,Close,Prev
+//   NVDA.US,2026-06-03,15:56:55,217.325,222.82
+//   MSFT.US,2026-06-03,15:56:55,432.275,441.31
 //
 // "N/D" appears for missing fields (e.g. after-hours when intraday data
 // isn't ready). We treat any non-numeric value as null.
@@ -92,8 +96,8 @@ function parseStooqCsv(csv: string): Record<string, Partial<StockQuote>> {
   const idx = (name: string) => header.findIndex(h => h.toLowerCase() === name.toLowerCase());
   const iSym = idx('Symbol');
   const iClose = idx('Close');
-  const iPrev = idx('PrevClose');
-  const iName = idx('Name');
+  // Header name for previous close is "Prev" (Stooq) — accept "PrevClose" too just in case.
+  const iPrev = idx('Prev') >= 0 ? idx('Prev') : idx('PrevClose');
 
   const out: Record<string, Partial<StockQuote>> = {};
   for (let i = 1; i < lines.length; i++) {
@@ -103,12 +107,12 @@ function parseStooqCsv(csv: string): Record<string, Partial<StockQuote>> {
     // Strip the `.US` suffix to match user-facing ticker
     const sym = stooqSym.replace(/\.US$/i, '').toUpperCase();
     const price = parseStooqNum(cols[iClose]);
-    const prev = parseStooqNum(cols[iPrev]);
+    const prev = iPrev >= 0 ? parseStooqNum(cols[iPrev]) : null;
     const changeAbs = (price != null && prev != null) ? +(price - prev).toFixed(4) : null;
     const changePct = (price != null && prev != null && prev !== 0) ? +(((price - prev) / prev) * 100).toFixed(2) : null;
     out[sym] = {
       symbol: sym,
-      shortName: (iName >= 0 ? cols[iName]?.trim() : null) || null,
+      shortName: null,  // Stooq's name field doesn't play well with multi-ticker URLs; omit
       price,
       previousClose: prev,
       changeAbs,
@@ -127,11 +131,12 @@ export async function getStocksData(opts: { force?: boolean } = {}): Promise<Sto
   }
   const tickers = getTickerList();
 
-  // Stooq multi-ticker URL: all symbols, lowercase, .us suffix, comma-joined.
-  // f=sd2t2ohlcvnp requests Symbol,Date,Time,OHLC,Volume,Name,PrevClose.
-  // h header line, e=csv format.
-  const symParam = tickers.map(t => t.toLowerCase() + '.us').join(',');
-  const url = `https://stooq.com/q/l/?s=${symParam}&f=sd2t2ohlcvnp&h&e=csv`;
+  // Stooq multi-ticker URL: all symbols, lowercase, .us suffix, PLUS-joined.
+  // `,` separator produces a malformed single-row response when `f=` has
+  // multiple fields — `+` gives one CSV row per ticker. f=sd2t2cp keeps
+  // it minimal: Symbol, Date, Time, Close, Prev.
+  const symParam = tickers.map(t => t.toLowerCase() + '.us').join('+');
+  const url = `https://stooq.com/q/l/?s=${symParam}&f=sd2t2cp&h&e=csv`;
 
   let parsed: Record<string, Partial<StockQuote>> = {};
   let fetchError: string | null = null;
