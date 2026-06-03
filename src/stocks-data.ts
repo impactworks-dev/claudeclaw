@@ -103,14 +103,34 @@ async function fetchOne(symbol: string): Promise<StockQuote> {
   }
 }
 
+// Sleep helper for serialized fetch (Yahoo throttles aggressive parallelism).
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
 export async function getStocksData(opts: { force?: boolean } = {}): Promise<StocksSummary> {
   if (!opts.force) {
     const c = readCache();
     if (c) return c;
   }
   const tickers = getTickerList();
-  const quotes = await Promise.all(tickers.map(fetchOne));
+  // Serialize the fetches with a small jitter — Yahoo's edge returns
+  // HTTP 429 on bursts of 8+ parallel requests to the chart endpoint.
+  // 150ms gap × 8 tickers = ~1.2s end-to-end, which is fine since we
+  // cache for 5min. One quick retry on 429 with a short backoff.
+  const quotes: StockQuote[] = [];
+  for (const t of tickers) {
+    let q = await fetchOne(t);
+    if (q.error && q.error.includes('429')) {
+      await sleep(800);
+      q = await fetchOne(t);
+    }
+    quotes.push(q);
+    await sleep(150);
+  }
   const result: StocksSummary = { asOf: Date.now(), tickers, quotes };
-  writeCache(result);
+
+  // Don't write a totally-broken result to cache (would lock us out for 5min).
+  // If at least one quote succeeded, cache it; otherwise let the next call retry.
+  const anyGood = quotes.some(q => q.price != null);
+  if (anyGood) writeCache(result);
   return result;
 }
