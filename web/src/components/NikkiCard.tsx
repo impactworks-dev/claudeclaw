@@ -5,16 +5,22 @@
 // and a one-line input that fires a /api/chat/send and watches for her
 // reply on the existing chat SSE stream.
 //
-// Reuses the same auth + chat plumbing as the Mission Control page —
-// nothing new server-side. Stats come from /api/agents (turns, model,
-// running, telegramConnected) and /api/health (contextPct).
+// Voice mode (toggle in the header):
+//   • mic button — tap to start, tap to stop. Uses the browser's Web
+//     Speech API (SpeechRecognition / webkitSpeechRecognition). Final
+//     transcript fills the input box; user can review and hit send,
+//     or auto-send when the recogniser closes (we let the user decide
+//     by pressing the send button — keeps voice friendly without
+//     surprises).
+//   • speaker toggle — when on, Nikki's replies are read aloud via
+//     SpeechSynthesisUtterance. State persists in localStorage.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { Send, RotateCcw, ExternalLink, Loader2 } from 'lucide-preact';
+import { Send, RotateCcw, ExternalLink, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { AgentAvatar } from '@/components/AgentAvatar';
 import { useFetch } from '@/lib/useFetch';
-import { apiPost, dashboardToken } from '@/lib/api';
+import { apiPost, apiGet, chatId } from '@/lib/api';
 import { subscribeChatStream } from '@/lib/chat-stream';
 
 interface Agent {
@@ -28,16 +34,19 @@ interface Agent {
 }
 interface Health { contextPct: number; turns: number; }
 
+interface HistoryTurn { role: 'user' | 'assistant'; content: string; source?: string; created_at?: number; }
+
 interface ChatMsg {
-  id: string;            // local id for keying
+  id: string;            // local id for keying + de-dupe
   role: 'user' | 'assistant';
   text: string;
   ts: number;            // epoch ms
 }
 
 const NIKKI_ID = 'main';
+const LS_SPEAKER = 'claudeclaw.nikki.speaker';
 
-// Short model label for the status strip.
+// Short model label for the stats strip.
 function shortModel(m: string): string {
   if (!m) return '—';
   return m
@@ -46,6 +55,23 @@ function shortModel(m: string): string {
     .replace(/^opus/, 'Opus')
     .replace(/^sonnet/, 'Sonnet')
     .replace(/^haiku/, 'Haiku');
+}
+
+// Strip markdown that doesn't read well aloud (links, code fences, bold/italic/code).
+function plainForSpeech(s: string): string {
+  return s
+    .replace(/```[\s\S]*?```/g, ' code block ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_~]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Lazily resolve the SpeechRecognition constructor with a webkit fallback.
+function getSpeechRecognition(): any | null {
+  if (typeof window === 'undefined') return null;
+  return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
 }
 
 export function NikkiCard() {
@@ -62,48 +88,124 @@ export function NikkiCard() {
   const [sending, setSending] = useState(false);
   const [processing, setProcessing] = useState(false);
 
+  // Voice state
+  const [speakerOn, setSpeakerOn] = useState<boolean>(() => {
+    try { return localStorage.getItem(LS_SPEAKER) === '1'; } catch { return false; }
+  });
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+  // Track the last assistant message we've already spoken so a re-render
+  // (or history hydration) doesn't replay everything.
+  const lastSpokenIdRef = useRef<string | null>(null);
+
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  // Subscribe to the global chat SSE stream
+  // -------- History hydration (so a page refresh keeps the convo) --------
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<{ turns: HistoryTurn[] }>(`/api/chat/history?chatId=${encodeURIComponent(chatId)}&limit=20`)
+      .then((d) => {
+        if (cancelled) return;
+        const seeded: ChatMsg[] = (d.turns || []).map((t, i) => ({
+          id: `h-${i}-${t.created_at ?? i}`,
+          role: t.role,
+          text: t.content,
+          ts: (t.created_at ?? Date.now() / 1000) * 1000,
+        }));
+        setMessages(seeded);
+        // Mark the most recent assistant message as "already spoken" so
+        // turning the speaker on later doesn't replay history.
+        const lastAssistant = [...seeded].reverse().find(m => m.role === 'assistant');
+        if (lastAssistant) lastSpokenIdRef.current = lastAssistant.id;
+      })
+      .catch(() => { /* non-fatal */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // -------- Live chat SSE stream --------
   useEffect(() => {
     const unsubscribe = subscribeChatStream((eventName, data) => {
       if (eventName === 'processing') {
-        setProcessing(!!data?.processing);
+        if (data?.processing !== undefined) setProcessing(!!data.processing);
       } else if (eventName === 'user_message') {
-        const text = String(data?.message || data?.text || '').trim();
+        const text = String(data?.content || '').trim();
         if (!text) return;
         setMessages(prev => [
           ...prev,
           { id: `u-${Date.now()}-${Math.random()}`, role: 'user', text, ts: Date.now() },
         ]);
       } else if (eventName === 'assistant_message') {
-        const text = String(data?.message || data?.text || '').trim();
+        const text = String(data?.content || '').trim();
         if (!text) return;
-        setMessages(prev => [
-          ...prev,
-          { id: `a-${Date.now()}-${Math.random()}`, role: 'assistant', text, ts: Date.now() },
-        ]);
+        const msg: ChatMsg = {
+          id: `a-${Date.now()}-${Math.random()}`,
+          role: 'assistant',
+          text,
+          ts: Date.now(),
+        };
+        setMessages(prev => [...prev, msg]);
+        setProcessing(false);
+        // Refresh stats after a reply (turn count and context %).
+        agents.refresh();
+        health.refresh();
       }
     });
     return unsubscribe;
   }, []);
 
-  // Auto-scroll on new messages or processing flip
+  // -------- TTS: speak new assistant messages when speakerOn --------
+  useEffect(() => {
+    if (!speakerOn) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    if (!lastAssistant) return;
+    if (lastSpokenIdRef.current === lastAssistant.id) return;
+    lastSpokenIdRef.current = lastAssistant.id;
+    try {
+      const utter = new SpeechSynthesisUtterance(plainForSpeech(lastAssistant.text));
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
+      // Prefer an English voice if one's available.
+      const voices = window.speechSynthesis.getVoices();
+      const en = voices.find(v => /en/i.test(v.lang));
+      if (en) utter.voice = en;
+      window.speechSynthesis.cancel();   // stop anything in flight
+      window.speechSynthesis.speak(utter);
+    } catch (e) {
+      console.warn('TTS failed', e);
+    }
+  }, [messages, speakerOn]);
+
+  // Cancel any in-flight speech when toggling speaker off or unmounting
+  useEffect(() => {
+    if (!speakerOn && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [speakerOn]);
+
+  // Auto-scroll when new messages arrive
   useEffect(() => {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
   }, [messages.length, processing]);
 
-  async function handleSend() {
-    const text = draft.trim();
+  // -------- Send message --------
+  async function handleSend(textOverride?: string) {
+    const text = (textOverride ?? draft).trim();
     if (!text || sending) return;
     setSending(true);
-    // Optimistic append — the SSE user_message event will also fire,
-    // but we want instant feedback. The de-dupe below catches the echo.
-    const localId = `u-local-${Date.now()}`;
-    setMessages(prev => [...prev, { id: localId, role: 'user', text, ts: Date.now() }]);
-    setDraft('');
+    setMessages(prev => [
+      ...prev,
+      { id: `u-local-${Date.now()}`, role: 'user', text, ts: Date.now() },
+    ]);
+    if (!textOverride) setDraft('');
     try {
       await apiPost('/api/chat/send', { message: text, agent_id: NIKKI_ID });
     } catch (e: any) {
@@ -116,23 +218,82 @@ export function NikkiCard() {
     }
   }
 
-  // De-dupe consecutive identical user messages (optimistic + SSE echo)
+  // -------- Voice input via Web Speech API --------
+  function toggleSpeaker() {
+    setSpeakerOn(v => {
+      const next = !v;
+      try { localStorage.setItem(LS_SPEAKER, next ? '1' : '0'); } catch {}
+      return next;
+    });
+  }
+
+  function startListening() {
+    setVoiceError(null);
+    const SR = getSpeechRecognition();
+    if (!SR) {
+      setVoiceError('Voice input not supported in this browser. Try Chrome or Safari.');
+      return;
+    }
+    try {
+      const rec = new SR();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+      let finalText = '';
+      rec.onresult = (ev: any) => {
+        let interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const r = ev.results[i];
+          if (r.isFinal) finalText += r[0].transcript;
+          else interim += r[0].transcript;
+        }
+        setDraft((finalText + interim).trim());
+      };
+      rec.onerror = (ev: any) => {
+        setVoiceError(ev?.error ? `Voice: ${ev.error}` : 'Voice error');
+        setListening(false);
+      };
+      rec.onend = () => {
+        setListening(false);
+        // If we got a final transcript, auto-send to feel like Telegram voice.
+        const t = finalText.trim();
+        if (t) {
+          handleSend(t);
+          setDraft('');
+        }
+      };
+      recognitionRef.current = rec;
+      rec.start();
+      setListening(true);
+    } catch (e: any) {
+      setVoiceError(e?.message || 'Could not start voice input');
+      setListening(false);
+    }
+  }
+  function stopListening() {
+    try { recognitionRef.current?.stop(); } catch {}
+    setListening(false);
+  }
+
+  // De-dupe consecutive identical messages from the same role (optimistic + SSE echo)
   const visibleMessages = useMemo(() => {
     const out: ChatMsg[] = [];
     for (const m of messages) {
       const last = out[out.length - 1];
-      if (last && last.role === m.role && last.text === m.text && Math.abs(m.ts - last.ts) < 5_000) continue;
+      if (last && last.role === m.role && last.text === m.text && Math.abs(m.ts - last.ts) < 10_000) continue;
       out.push(m);
     }
-    return out.slice(-20);
+    return out.slice(-30);
   }, [messages]);
 
   const running = !!nikki?.running;
   const online = running && (nikki?.telegramConnected ?? true);
+  const voiceSupported = getSpeechRecognition() != null;
+  const ttsSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   return (
-    <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4 flex flex-col" style={{ minHeight: '420px' }}>
-      {/* Header: avatar + name + online dot */}
+    <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4 flex flex-col" style={{ minHeight: '440px' }}>
+      {/* Header: avatar + name + online dot + speaker toggle + ext link */}
       <div class="flex items-start gap-3 mb-3">
         <AgentAvatar agentId={NIKKI_ID} name={nikki?.name || 'Nikki'} size={44} running={running} />
         <div class="flex-1 min-w-0">
@@ -149,8 +310,23 @@ export function NikkiCard() {
           </div>
           <div class="text-[10px] text-[var(--color-text-faint)] mt-0.5 truncate">Personal AI · Telegram + dashboard</div>
         </div>
+        {ttsSupported && (
+          <button
+            type="button"
+            onClick={toggleSpeaker}
+            class={`inline-flex items-center justify-center w-7 h-7 rounded transition-colors ${
+              speakerOn
+                ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
+                : 'text-[var(--color-text-faint)] hover:text-[var(--color-text)]'
+            }`}
+            title={speakerOn ? 'Voice replies ON — Nikki will speak' : 'Voice replies OFF — text only'}
+            aria-label={speakerOn ? 'Disable voice replies' : 'Enable voice replies'}
+          >
+            {speakerOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          </button>
+        )}
         <Link href="/chat">
-          <a class="text-[var(--color-text-faint)] hover:text-[var(--color-text)]" title="Open full chat">
+          <a class="text-[var(--color-text-faint)] hover:text-[var(--color-text)] inline-flex items-center" title="Open full chat">
             <ExternalLink size={14} />
           </a>
         </Link>
@@ -207,8 +383,29 @@ export function NikkiCard() {
         )}
       </div>
 
-      {/* Input */}
+      {/* Voice error banner */}
+      {voiceError && (
+        <div class="text-[10px] text-[#dc2626] mb-1">{voiceError}</div>
+      )}
+
+      {/* Input row: mic + text + send */}
       <div class="flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
+        {voiceSupported && (
+          <button
+            type="button"
+            onClick={listening ? stopListening : startListening}
+            disabled={!running || sending}
+            class={`inline-flex items-center justify-center w-7 h-7 rounded transition-colors ${
+              listening
+                ? 'bg-[#dc2626] text-white animate-pulse'
+                : 'bg-[var(--color-elevated)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
+            title={listening ? 'Stop listening' : 'Start voice input'}
+            aria-label={listening ? 'Stop listening' : 'Start voice input'}
+          >
+            {listening ? <MicOff size={13} /> : <Mic size={13} />}
+          </button>
+        )}
         <input
           type="text"
           value={draft}
@@ -219,13 +416,13 @@ export function NikkiCard() {
               handleSend();
             }
           }}
-          placeholder={running ? 'Ask Nikki…' : 'Nikki is offline'}
+          placeholder={listening ? 'Listening…' : running ? 'Ask Nikki…' : 'Nikki is offline'}
           disabled={!running || sending}
           class="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded px-2 py-1.5 text-[12px] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50"
         />
         <button
           type="button"
-          onClick={handleSend}
+          onClick={() => handleSend()}
           disabled={!running || sending || !draft.trim()}
           class="inline-flex items-center justify-center w-7 h-7 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
           aria-label="Send"
