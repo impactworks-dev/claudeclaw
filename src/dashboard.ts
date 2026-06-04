@@ -114,6 +114,7 @@ import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
+import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
 import { getWarRoomHtml } from './warroom-html.js';
@@ -2448,6 +2449,65 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
+  });
+
+  // ── Second brain / Obsidian vault ────────────────────────────────────
+  // Reads the Syncthing-synced vault at /app/store/obsidian-brain and
+  // exposes it as the new Brain page in Mission Control.
+
+  app.get('/api/brain/stats', (c) => {
+    try { return c.json(getBrainStats()); }
+    catch (e) { return c.json({ error: String((e as Error)?.message || e) }, 500); }
+  });
+
+  app.get('/api/brain/notes', (c) => {
+    try {
+      const folder = c.req.query('folder') || undefined;
+      const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
+      const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : undefined;
+      return c.json(listNotes({ folder, limit, offset }));
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Single note — path is everything after /api/brain/note/ so folders work
+  app.get('/api/brain/note', (c) => {
+    try {
+      const p = c.req.query('path') || '';
+      if (!p) return c.json({ error: 'path query required' }, 400);
+      const detail = getNote(p);
+      if (!detail) return c.json({ error: 'not found', path: p }, 404);
+      return c.json(detail);
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.get('/api/brain/search', (c) => {
+    try {
+      const q = c.req.query('q') || '';
+      const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
+      return c.json(searchNotes(q, limit));
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.get('/api/brain/graph', (c) => {
+    try {
+      const center = c.req.query('center') || undefined;
+      const hops = c.req.query('hops') ? parseInt(c.req.query('hops')!, 10) : undefined;
+      return c.json(getGraph({ center, hops }));
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Force-rebuild the in-memory index. Useful after a big vault edit.
+  app.post('/api/brain/reindex', (c) => {
+    invalidateBrainCache();
+    return c.json({ ok: true, stats: getBrainStats() });
   });
 
   // Abort current processing
