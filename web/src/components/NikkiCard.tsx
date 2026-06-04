@@ -109,7 +109,16 @@ export function NikkiCard() {
 
   const lastSpokenIdRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = useRef<boolean>(false);
+  const pendingAudioUrlRef = useRef<string | null>(null);  // queued play when autoplay was blocked
+  const [needsTapToPlay, setNeedsTapToPlay] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // Silent 1-sample WAV — used during the speaker-toggle click gesture
+  // to "unlock" the <audio> element. After this resolves, the browser
+  // remembers the element was user-activated and future programmatic
+  // .play() calls from SSE event handlers go through.
+  const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAVFYAAFRWAAABAAgAZGF0YQAAAAA=';
 
   // -------- History hydration --------
   useEffect(() => {
@@ -158,17 +167,40 @@ export function NikkiCard() {
     return unsubscribe;
   }, []);
 
+  // Get-or-create the shared audio element. Created lazily so the FIRST
+  // .play() can happen inside a user gesture (toggleSpeaker).
+  function getAudio(): HTMLAudioElement {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.preload = 'auto';
+    }
+    return audioRef.current;
+  }
+
+  // Prime the audio element with a silent buffer during a user gesture.
+  // After this succeeds, the browser remembers this <audio> element was
+  // user-activated and subsequent programmatic play() calls (from SSE
+  // event handlers) are allowed without autoplay blocking.
+  async function unlockAudio() {
+    if (audioUnlockedRef.current) return;
+    const audio = getAudio();
+    try {
+      audio.src = SILENT_WAV;
+      audio.muted = false;
+      await audio.play();
+      audioUnlockedRef.current = true;
+    } catch (e) {
+      // Some browsers reject the silent buffer too; we'll fall back to
+      // the tap-to-play overlay when a real TTS play later gets blocked.
+      console.warn('Audio unlock failed', e);
+    }
+  }
+
   // -------- TTS playback via /api/chat/tts --------
   async function speak(text: string) {
     if (typeof window === 'undefined') return;
+    setVoiceError(null);
     try {
-      // Stop any in-flight audio + reuse the same element
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      } else {
-        audioRef.current = new Audio();
-      }
       const r = await fetch(`/api/chat/tts?token=${encodeURIComponent(dashboardToken)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -181,13 +213,57 @@ export function NikkiCard() {
       }
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
-      const audio = audioRef.current!;
+      const audio = getAudio();
+      // Stop any in-flight playback before swapping the source
+      try { audio.pause(); } catch {}
       audio.src = url;
-      audio.onended = () => URL.revokeObjectURL(url);
-      audio.onerror = () => { URL.revokeObjectURL(url); setVoiceError('Audio playback failed'); };
-      await audio.play();
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        setNeedsTapToPlay(false);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        const code = audio.error?.code;
+        const codeStr = code === 1 ? 'aborted' : code === 2 ? 'network' : code === 3 ? 'decode' : code === 4 ? 'src not supported' : 'unknown';
+        setVoiceError(`Audio playback failed (${codeStr})`);
+      };
+      try {
+        await audio.play();
+        setNeedsTapToPlay(false);
+      } catch (playErr: any) {
+        // Most common: NotAllowedError from autoplay block.
+        // Stash the URL and surface a tap-to-play button so the user
+        // can complete playback with a click (which re-establishes gesture).
+        if (playErr?.name === 'NotAllowedError') {
+          pendingAudioUrlRef.current = url;
+          setNeedsTapToPlay(true);
+          setVoiceError('Click the speaker again to allow audio (browser blocked autoplay)');
+        } else {
+          URL.revokeObjectURL(url);
+          setVoiceError(`Audio playback failed: ${playErr?.message || playErr}`);
+        }
+      }
     } catch (e: any) {
       setVoiceError(`Voice playback error: ${e?.message || e}`);
+    }
+  }
+
+  // Tap-to-play handler. When autoplay was blocked, surface a click
+  // anywhere on the speaker icon to push play(); this gesture marks the
+  // audio element as user-activated for the rest of the session.
+  async function resumeAudio() {
+    const url = pendingAudioUrlRef.current;
+    if (!url) return;
+    const audio = getAudio();
+    audio.src = url;
+    try {
+      await audio.play();
+      audioUnlockedRef.current = true;
+      setNeedsTapToPlay(false);
+      setVoiceError(null);
+      pendingAudioUrlRef.current = null;
+    } catch (e: any) {
+      setVoiceError(`Still blocked: ${e?.message || e}`);
     }
   }
 
@@ -240,12 +316,23 @@ export function NikkiCard() {
   }
 
   // -------- Voice input --------
-  function toggleSpeaker() {
-    setSpeakerOn(v => {
-      const next = !v;
-      try { localStorage.setItem(LS_SPEAKER, next ? '1' : '0'); } catch {}
-      return next;
-    });
+  async function toggleSpeaker() {
+    const wasOn = speakerOn;
+    const next = !wasOn;
+    try { localStorage.setItem(LS_SPEAKER, next ? '1' : '0'); } catch {}
+    setSpeakerOn(next);
+    if (next) {
+      // Turning ON happens via user click → unlock audio for future
+      // SSE-driven plays. Also handle any audio queued by a prior block.
+      await unlockAudio();
+      if (pendingAudioUrlRef.current) {
+        await resumeAudio();
+      }
+    } else {
+      try { audioRef.current?.pause(); } catch {}
+      pendingAudioUrlRef.current = null;
+      setNeedsTapToPlay(false);
+    }
   }
   function startListening() {
     setVoiceError(null);
@@ -497,7 +584,16 @@ export function NikkiCard() {
         )}
       </div>
 
-      {voiceError && <div class="text-[10px] text-[#dc2626] mb-1">{voiceError}</div>}
+      {needsTapToPlay && (
+        <button
+          type="button"
+          onClick={resumeAudio}
+          class="mb-1 w-full inline-flex items-center justify-center gap-1.5 px-2 py-1 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] text-[11px] font-medium hover:opacity-80"
+        >
+          <Play size={11} /> Tap to play Nikki's reply
+        </button>
+      )}
+      {voiceError && !needsTapToPlay && <div class="text-[10px] text-[#dc2626] mb-1">{voiceError}</div>}
 
       {/* Input row */}
       <div class="flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
