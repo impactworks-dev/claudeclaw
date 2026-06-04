@@ -292,12 +292,22 @@ async function synthesizeSpeechElevenLabs(text: string): Promise<Buffer> {
   if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
   if (!voiceId) throw new Error('ELEVENLABS_VOICE_ID not set');
 
+  // Voice tuning for Nikki — slower and more sultry per Dante 2026-06-03.
+  //   stability    0.35 — lower = more emotional/expressive (was 0.5)
+  //   similarity   0.88 — closer to original voice character (was 0.75)
+  //   style        0.55 — adds expressive stylization (multilingual_v2 supports
+  //                       style; turbo silently ignores, falling back to base)
+  //   speed        0.92 — ~8% slower delivery (ElevenLabs API speed param)
+  //   speaker_boost true — clarity at lower stability
   const payload = JSON.stringify({
     text,
-    model_id: 'eleven_turbo_v2_5',
+    model_id: 'eleven_multilingual_v2',
     voice_settings: {
-      stability: 0.5,
-      similarity_boost: 0.75,
+      stability: 0.35,
+      similarity_boost: 0.88,
+      style: 0.55,
+      use_speaker_boost: true,
+      speed: 0.92,
     },
   });
 
