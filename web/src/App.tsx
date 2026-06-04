@@ -12,6 +12,7 @@ import { DEFAULT_ROUTE } from '@/lib/routes';
 // becomes its own chunk and is fetched on first navigation.
 const MissionControl = lazy(() => import('@/pages/MissionControl').then(m => ({ default: m.MissionControl })));
 const Memories       = lazy(() => import('@/pages/Memories').then(m => ({ default: m.Memories })));
+const Brain          = lazy(() => import('@/pages/Brain').then(m => ({ default: m.Brain })));
 const HiveMind       = lazy(() => import('@/pages/HiveMind').then(m => ({ default: m.HiveMind })));
 const Agents         = lazy(() => import('@/pages/Agents').then(m => ({ default: m.Agents })));
 const Pipeline       = lazy(() => import('@/pages/Pipeline').then(m => ({ default: m.Pipeline })));
@@ -68,6 +69,7 @@ export function App() {
           <Route path="/cash"><Cash /></Route>
           <Route path="/chat"><Chat /></Route>
           <Route path="/memories"><Memories /></Route>
+          <Route path="/brain"><Brain /></Route>
           <Route path="/hive"><HiveMind /></Route>
           <Route path="/usage"><Usage /></Route>
           <Route path="/audit"><Audit /></Route>
