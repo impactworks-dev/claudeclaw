@@ -292,21 +292,23 @@ async function synthesizeSpeechElevenLabs(text: string): Promise<Buffer> {
   if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
   if (!voiceId) throw new Error('ELEVENLABS_VOICE_ID not set');
 
-  // Voice tuning for Nikki — slower, sultry, warm. Iterated 2026-06-03.
-  //   stability    0.25 — low = breathy/emotional, more inflection
-  //   similarity   0.90 — clings tight to Amelia's natural warmth
-  //   style        0.65 — expressive stylization
-  //   speed        0.90 — ~10% slower than default
-  //   speaker_boost true — clarity at low stability
+  // Voice tuning for Nikki — ElevenLabs balanced defaults.
+  // The earlier sultry/warm tuning made her sound mechanical; Dante
+  // reverted to natural delivery 2026-06-03.
+  //   stability    0.5  — balanced (vs 0.25 which over-emoted)
+  //   similarity   0.75 — natural voice character
+  //   style        0    — no stylization (most natural)
+  //   speed        1.0  — normal pace
+  //   speaker_boost true — clarity
   const payload = JSON.stringify({
     text,
     model_id: 'eleven_multilingual_v2',
     voice_settings: {
-      stability: 0.25,
-      similarity_boost: 0.9,
-      style: 0.65,
+      stability: 0.5,
+      similarity_boost: 0.75,
+      style: 0,
       use_speaker_boost: true,
-      speed: 0.9,
+      speed: 1.0,
     },
   });
 
