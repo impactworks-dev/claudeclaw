@@ -112,6 +112,8 @@ import { getStocksData, invalidateStocksCache } from './stocks-data.js';
 import { loadTickers, addTicker, removeTicker } from './stocks-tickers.js';
 import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
+import { synthesizeSpeech } from './voice.js';
+import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
 import { getWarRoomHtml } from './warroom-html.js';
@@ -2337,6 +2339,115 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       dispatchDashboardChatToAgent(message, targetAgent);
     }
     return c.json({ ok: true, agent_id: targetAgent });
+  });
+
+  // Text-to-speech for the dashboard chat. Returns MP3 bytes via the
+  // existing voice cascade (ElevenLabs → Gradium → Kokoro → say). The
+  // dashboard's NikkiCard plays the response in an <audio> element, so
+  // Nikki sounds identical across Telegram, WarRoom, and dashboard.
+  app.post('/api/chat/tts', async (c) => {
+    try {
+      const body = await c.req.json<{ text?: string }>();
+      const text = (body?.text || '').trim();
+      if (!text) return c.json({ error: 'text required' }, 400);
+      if (text.length > 5000) return c.json({ error: 'text too long (max 5000 chars)' }, 400);
+      const audio = await synthesizeSpeech(text);
+      return new Response(audio, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': String(audio.length),
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, '/api/chat/tts failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // List the user's ElevenLabs voices, filtered to female, plus the
+  // currently-selected voice ID (from volume override, env fallback).
+  // The selected voice is always included at the head of the list even
+  // if it's a public-library voice not in the user's account — that way
+  // the picker can render it as "current" without a 404.
+  app.get('/api/voices/elevenlabs', async (c) => {
+    try {
+      const env = readEnvFile(['ELEVENLABS_API_KEY']);
+      const apiKey = env.ELEVENLABS_API_KEY;
+      if (!apiKey) return c.json({ error: 'ELEVENLABS_API_KEY not set', voices: [], selectedVoiceId: '' }, 400);
+      const selectedVoiceId = getElevenLabsVoiceId();
+
+      // Fetch the user's account voices
+      const r = await fetch('https://api.elevenlabs.io/v1/voices', {
+        headers: { 'xi-api-key': apiKey, 'Accept': 'application/json' },
+      });
+      if (!r.ok) {
+        return c.json({ error: `ElevenLabs HTTP ${r.status}`, voices: [], selectedVoiceId }, r.status as 500);
+      }
+      const j: any = await r.json();
+      const all: any[] = j?.voices || [];
+      const female = all
+        .filter(v => v?.labels?.gender?.toLowerCase() === 'female')
+        .map(v => ({
+          voiceId: v.voice_id,
+          name: v.name,
+          category: v.category,
+          labels: v.labels,
+          previewUrl: v.preview_url || null,
+          description: (v.description || '').slice(0, 200),
+        }));
+
+      // If the selected voice isn't in the female list, fetch its details
+      // separately (works for public-library voices used by direct TTS).
+      let needsPin = !!selectedVoiceId && !female.find(v => v.voiceId === selectedVoiceId);
+      if (needsPin) {
+        try {
+          const detail = await fetch(`https://api.elevenlabs.io/v1/voices/${encodeURIComponent(selectedVoiceId)}`, {
+            headers: { 'xi-api-key': apiKey, 'Accept': 'application/json' },
+          });
+          if (detail.ok) {
+            const dj: any = await detail.json();
+            female.unshift({
+              voiceId: dj.voice_id || selectedVoiceId,
+              name: dj.name || 'Current voice',
+              category: dj.category || 'library',
+              labels: dj.labels || {},
+              previewUrl: dj.preview_url || null,
+              description: (dj.description || '').slice(0, 200),
+            });
+          } else {
+            // Voice not in account — render a placeholder so the user can see it's set.
+            female.unshift({
+              voiceId: selectedVoiceId,
+              name: `Custom voice (${selectedVoiceId.slice(0, 6)}…)`,
+              category: 'custom',
+              labels: { gender: 'female' },
+              previewUrl: null,
+              description: '',
+            });
+          }
+        } catch { /* ignore */ }
+      }
+
+      return c.json({ voices: female, selectedVoiceId });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e), voices: [], selectedVoiceId: '' }, 500);
+    }
+  });
+
+  // Persist a new selected ElevenLabs voice ID. Applies instantly to all
+  // channels (Telegram, WarRoom, dashboard) — no restart, no redeploy.
+  app.post('/api/voices/elevenlabs/selected', async (c) => {
+    try {
+      const body = await c.req.json<{ voiceId?: string }>();
+      const id = (body?.voiceId || '').trim();
+      if (!id) return c.json({ error: 'voiceId required' }, 400);
+      setElevenLabsVoiceId(id);
+      return c.json({ ok: true, selectedVoiceId: id });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
   });
 
   // Abort current processing

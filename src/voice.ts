@@ -281,9 +281,13 @@ export async function transcribeAudio(filePath: string): Promise<string> {
  * Convert text to speech using ElevenLabs and return the audio as a Buffer.
  */
 async function synthesizeSpeechElevenLabs(text: string): Promise<Buffer> {
-  const env = readEnvFile(['ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID']);
+  const env = readEnvFile(['ELEVENLABS_API_KEY']);
   const apiKey = env.ELEVENLABS_API_KEY;
-  const voiceId = env.ELEVENLABS_VOICE_ID;
+  // Voice ID priority: volume-stored override (dashboard picker) > env var.
+  // Imported lazily to avoid a startup-time circular dependency between
+  // voice.ts and voice-config.ts.
+  const { getElevenLabsVoiceId } = await import('./voice-config.js');
+  const voiceId = getElevenLabsVoiceId();
 
   if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
   if (!voiceId) throw new Error('ELEVENLABS_VOICE_ID not set');
@@ -447,7 +451,11 @@ export async function synthesizeSpeech(text: string): Promise<Buffer> {
     'KOKORO_URL',
   ]);
 
-  const hasElevenLabs = !!(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
+  // ElevenLabs voice ID may come from /app/store/voice-config.json (dashboard
+  // override) — so check both the env var AND the volume-stored override.
+  const { getElevenLabsVoiceId } = await import('./voice-config.js');
+  const elevenLabsVoiceId = getElevenLabsVoiceId();
+  const hasElevenLabs = !!(env.ELEVENLABS_API_KEY && elevenLabsVoiceId);
   const hasGradium = !!(env.GRADIUM_API_KEY && env.GRADIUM_VOICE_ID);
 
   if (hasElevenLabs) {

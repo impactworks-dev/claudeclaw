@@ -1,26 +1,23 @@
 // Inline Nikki chat card for the Founder Dashboard.
 //
-// Sits beside the Stocks + News tiles in the same row. Shows her avatar,
-// online status, headline stats, the last few exchanges in this chat,
-// and a one-line input that fires a /api/chat/send and watches for her
-// reply on the existing chat SSE stream.
+// Now wired to the same ElevenLabs cascade Telegram and WarRoom use, so
+// Nikki sounds the same on every channel. The voice picker lists the
+// user's ElevenLabs female voices (plus the currently-selected one even
+// if it lives in the public library). Picking a voice updates the
+// stored selection on the Fly volume — applies instantly to Telegram
+// and WarRoom too.
 //
-// Voice mode (toggle in the header):
-//   • mic button — tap to start, tap to stop. Uses the browser's Web
-//     Speech API (SpeechRecognition / webkitSpeechRecognition). Final
-//     transcript fills the input box; user can review and hit send,
-//     or auto-send when the recogniser closes (we let the user decide
-//     by pressing the send button — keeps voice friendly without
-//     surprises).
-//   • speaker toggle — when on, Nikki's replies are read aloud via
-//     SpeechSynthesisUtterance. State persists in localStorage.
+// Voice flow:
+//   • mic button — Web Speech API, transcribes locally, auto-sends on stop.
+//   • speaker toggle — when on, /api/chat/tts converts her latest reply to
+//     MP3 via the cascade and plays it through an <audio> element.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Send, RotateCcw, ExternalLink, Loader2, Mic, MicOff, Volume2, VolumeX, Settings, Play } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { AgentAvatar } from '@/components/AgentAvatar';
 import { useFetch } from '@/lib/useFetch';
-import { apiPost, apiGet, chatId } from '@/lib/api';
+import { apiPost, apiGet, chatId, dashboardToken } from '@/lib/api';
 import { subscribeChatStream } from '@/lib/chat-stream';
 
 interface Agent {
@@ -37,38 +34,29 @@ interface Health { contextPct: number; turns: number; }
 interface HistoryTurn { role: 'user' | 'assistant'; content: string; source?: string; created_at?: number; }
 
 interface ChatMsg {
-  id: string;            // local id for keying + de-dupe
+  id: string;
   role: 'user' | 'assistant';
   text: string;
-  ts: number;            // epoch ms
+  ts: number;
+}
+
+interface ElevenVoice {
+  voiceId: string;
+  name: string;
+  category: string;
+  labels: Record<string, string>;
+  previewUrl: string | null;
+  description: string;
+}
+interface VoiceListResp {
+  voices: ElevenVoice[];
+  selectedVoiceId: string;
+  error?: string;
 }
 
 const NIKKI_ID = 'main';
 const LS_SPEAKER = 'claudeclaw.nikki.speaker';
-const LS_VOICE = 'claudeclaw.nikki.voice';
 
-// Try to pick a sensible default voice. Strategy:
-//   1. macOS "Premium" / "Enhanced" voices sound dramatically better than the
-//      defaults and are usually pre-installed (or one-tap downloaded). Prefer
-//      them when available.
-//   2. Known-good named voices (Samantha, Ava, Karen, Daniel) — Apple ships
-//      these as quality defaults.
-//   3. Any other English voice.
-//   4. Whatever the browser thinks is default.
-function pickDefaultVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
-  if (!voices.length) return null;
-  const en = voices.filter(v => /^en/i.test(v.lang));
-  const pool = en.length ? en : voices;
-  const premium = pool.find(v => /\b(premium|enhanced|neural)\b/i.test(v.name));
-  if (premium) return premium;
-  const named = pool.find(v => /(Samantha|Ava|Karen|Daniel|Alex|Serena|Moira)/i.test(v.name));
-  if (named) return named;
-  const def = pool.find(v => v.default);
-  if (def) return def;
-  return pool[0];
-}
-
-// Short model label for the stats strip.
 function shortModel(m: string): string {
   if (!m) return '—';
   return m
@@ -79,7 +67,6 @@ function shortModel(m: string): string {
     .replace(/^haiku/, 'Haiku');
 }
 
-// Strip markdown that doesn't read well aloud (links, code fences, bold/italic/code).
 function plainForSpeech(s: string): string {
   return s
     .replace(/```[\s\S]*?```/g, ' code block ')
@@ -90,7 +77,6 @@ function plainForSpeech(s: string): string {
     .trim();
 }
 
-// Lazily resolve the SpeechRecognition constructor with a webkit fallback.
 function getSpeechRecognition(): any | null {
   if (typeof window === 'undefined') return null;
   return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
@@ -99,6 +85,7 @@ function getSpeechRecognition(): any | null {
 export function NikkiCard() {
   const agents = useFetch<{ agents: Agent[] }>('/api/agents', 30_000);
   const health = useFetch<Health>('/api/health', 30_000);
+  const voiceList = useFetch<VoiceListResp>('/api/voices/elevenlabs', 0);
 
   const nikki = useMemo(
     () => agents.data?.agents.find(a => a.id === NIKKI_ID),
@@ -110,7 +97,6 @@ export function NikkiCard() {
   const [sending, setSending] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  // Voice state
   const [speakerOn, setSpeakerOn] = useState<boolean>(() => {
     try { return localStorage.getItem(LS_SPEAKER) === '1'; } catch { return false; }
   });
@@ -118,19 +104,14 @@ export function NikkiCard() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
 
-  // TTS voice picker
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(() => {
-    try { return localStorage.getItem(LS_VOICE); } catch { return null; }
-  });
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
-  // Track the last assistant message we've already spoken so a re-render
-  // (or history hydration) doesn't replay everything.
-  const lastSpokenIdRef = useRef<string | null>(null);
+  const [voiceSwitching, setVoiceSwitching] = useState(false);
 
+  const lastSpokenIdRef = useRef<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  // -------- History hydration (so a page refresh keeps the convo) --------
+  // -------- History hydration --------
   useEffect(() => {
     let cancelled = false;
     apiGet<{ turns: HistoryTurn[] }>(`/api/chat/history?chatId=${encodeURIComponent(chatId)}&limit=20`)
@@ -143,8 +124,6 @@ export function NikkiCard() {
           ts: (t.created_at ?? Date.now() / 1000) * 1000,
         }));
         setMessages(seeded);
-        // Mark the most recent assistant message as "already spoken" so
-        // turning the speaker on later doesn't replay history.
         const lastAssistant = [...seeded].reverse().find(m => m.role === 'assistant');
         if (lastAssistant) lastSpokenIdRef.current = lastAssistant.id;
       })
@@ -152,7 +131,7 @@ export function NikkiCard() {
     return () => { cancelled = true; };
   }, []);
 
-  // -------- Live chat SSE stream --------
+  // -------- Live SSE --------
   useEffect(() => {
     const unsubscribe = subscribeChatStream((eventName, data) => {
       if (eventName === 'processing') {
@@ -167,15 +146,11 @@ export function NikkiCard() {
       } else if (eventName === 'assistant_message') {
         const text = String(data?.content || '').trim();
         if (!text) return;
-        const msg: ChatMsg = {
-          id: `a-${Date.now()}-${Math.random()}`,
-          role: 'assistant',
-          text,
-          ts: Date.now(),
-        };
-        setMessages(prev => [...prev, msg]);
+        setMessages(prev => [
+          ...prev,
+          { id: `a-${Date.now()}-${Math.random()}`, role: 'assistant', text, ts: Date.now() },
+        ]);
         setProcessing(false);
-        // Refresh stats after a reply (turn count and context %).
         agents.refresh();
         health.refresh();
       }
@@ -183,110 +158,66 @@ export function NikkiCard() {
     return unsubscribe;
   }, []);
 
-  // -------- Voice list loading --------
-  //
-  // SpeechSynthesis.getVoices() returns [] synchronously on Chrome before
-  // the voiceschanged event fires. Safari populates immediately. We listen
-  // for both cases so the dropdown is correct as soon as voices arrive.
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    function refreshVoices() {
-      const list = window.speechSynthesis.getVoices() || [];
-      setVoices(list);
-      // If no saved choice yet, seed with a sensible default
-      if (list.length && !selectedVoiceURI) {
-        const def = pickDefaultVoice(list);
-        if (def) {
-          setSelectedVoiceURI(def.voiceURI);
-          try { localStorage.setItem(LS_VOICE, def.voiceURI); } catch {}
-        }
-      }
-    }
-    refreshVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', refreshVoices);
-    return () => window.speechSynthesis.removeEventListener('voiceschanged', refreshVoices);
-  }, []);
-
-  // Resolve the SpeechSynthesisVoice for the user's saved selection
-  const selectedVoice = useMemo(() => {
-    if (!voices.length) return null;
-    if (selectedVoiceURI) {
-      const hit = voices.find(v => v.voiceURI === selectedVoiceURI);
-      if (hit) return hit;
-    }
-    return pickDefaultVoice(voices);
-  }, [voices, selectedVoiceURI]);
-
-  // English-only voice list for the picker (most voices on a Mac are non-English)
-  const englishVoices = useMemo(() => {
-    const en = voices.filter(v => /^en/i.test(v.lang));
-    // Sort: enhanced/premium first, then alphabetical
-    return en.sort((a, b) => {
-      const aP = /\b(premium|enhanced|neural)\b/i.test(a.name) ? 0 : 1;
-      const bP = /\b(premium|enhanced|neural)\b/i.test(b.name) ? 0 : 1;
-      if (aP !== bP) return aP - bP;
-      return a.name.localeCompare(b.name);
-    });
-  }, [voices]);
-
-  function speak(text: string) {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  // -------- TTS playback via /api/chat/tts --------
+  async function speak(text: string) {
+    if (typeof window === 'undefined') return;
     try {
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
-      if (selectedVoice) utter.voice = selectedVoice;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utter);
-    } catch (e) {
-      console.warn('TTS failed', e);
+      // Stop any in-flight audio + reuse the same element
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      } else {
+        audioRef.current = new Audio();
+      }
+      const r = await fetch(`/api/chat/tts?token=${encodeURIComponent(dashboardToken)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!r.ok) {
+        const err = await r.text().catch(() => `HTTP ${r.status}`);
+        setVoiceError(`TTS failed: ${err.slice(0, 120)}`);
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = audioRef.current!;
+      audio.src = url;
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.onerror = () => { URL.revokeObjectURL(url); setVoiceError('Audio playback failed'); };
+      await audio.play();
+    } catch (e: any) {
+      setVoiceError(`Voice playback error: ${e?.message || e}`);
     }
   }
 
-  function pickVoice(voiceURI: string) {
-    setSelectedVoiceURI(voiceURI);
-    try { localStorage.setItem(LS_VOICE, voiceURI); } catch {}
-    // Preview the newly-picked voice immediately
-    const v = voices.find(x => x.voiceURI === voiceURI);
-    if (v && speakerOn) {
-      const utter = new SpeechSynthesisUtterance(`Hi, I'm Nikki. ${v.name.split(' ')[0]} speaking.`);
-      utter.voice = v;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utter);
-    }
-  }
-
-  // -------- TTS: speak new assistant messages when speakerOn --------
+  // Auto-speak new assistant messages when speaker is on
   useEffect(() => {
     if (!speakerOn) return;
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistant) return;
     if (lastSpokenIdRef.current === lastAssistant.id) return;
     lastSpokenIdRef.current = lastAssistant.id;
     speak(plainForSpeech(lastAssistant.text));
-  }, [messages, speakerOn, selectedVoice]);
+  }, [messages, speakerOn]);
 
-  // Cancel any in-flight speech when toggling speaker off or unmounting
+  // Stop any audio when speaker is turned off / unmount
   useEffect(() => {
-    if (!speakerOn && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+    if (!speakerOn && audioRef.current) {
+      audioRef.current.pause();
     }
     return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; }
     };
   }, [speakerOn]);
 
-  // Auto-scroll when new messages arrive
   useEffect(() => {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
   }, [messages.length, processing]);
 
-  // -------- Send message --------
+  // -------- Send --------
   async function handleSend(textOverride?: string) {
     const text = (textOverride ?? draft).trim();
     if (!text || sending) return;
@@ -308,7 +239,7 @@ export function NikkiCard() {
     }
   }
 
-  // -------- Voice input via Web Speech API --------
+  // -------- Voice input --------
   function toggleSpeaker() {
     setSpeakerOn(v => {
       const next = !v;
@@ -316,7 +247,6 @@ export function NikkiCard() {
       return next;
     });
   }
-
   function startListening() {
     setVoiceError(null);
     const SR = getSpeechRecognition();
@@ -345,7 +275,6 @@ export function NikkiCard() {
       };
       rec.onend = () => {
         setListening(false);
-        // If we got a final transcript, auto-send to feel like Telegram voice.
         const t = finalText.trim();
         if (t) {
           handleSend(t);
@@ -365,7 +294,31 @@ export function NikkiCard() {
     setListening(false);
   }
 
-  // De-dupe consecutive identical messages from the same role (optimistic + SSE echo)
+  // -------- Voice picker actions --------
+  async function selectVoice(voiceId: string) {
+    setVoiceSwitching(true);
+    setVoiceError(null);
+    try {
+      await apiPost('/api/voices/elevenlabs/selected', { voiceId });
+      voiceList.refresh();
+      // Preview the new voice immediately if speaker is on
+      if (speakerOn) {
+        const v = voiceList.data?.voices.find(x => x.voiceId === voiceId);
+        const name = v?.name?.split(' ')[0] || 'this voice';
+        await speak(`Hi, I'm Nikki, now using ${name}.`);
+      }
+    } catch (e: any) {
+      setVoiceError(`Could not switch voice: ${e?.message || e}`);
+    } finally {
+      setVoiceSwitching(false);
+    }
+  }
+
+  async function previewVoice(voiceId: string) {
+    // Optimistically switch + speak; user can switch back if they don't like it
+    await selectVoice(voiceId);
+  }
+
   const visibleMessages = useMemo(() => {
     const out: ChatMsg[] = [];
     for (const m of messages) {
@@ -379,11 +332,13 @@ export function NikkiCard() {
   const running = !!nikki?.running;
   const online = running && (nikki?.telegramConnected ?? true);
   const voiceSupported = getSpeechRecognition() != null;
-  const ttsSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const voices = voiceList.data?.voices || [];
+  const selectedVoiceId = voiceList.data?.selectedVoiceId || '';
+  const selectedVoice = voices.find(v => v.voiceId === selectedVoiceId);
 
   return (
     <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4 flex flex-col" style={{ minHeight: '440px' }}>
-      {/* Header: avatar + name + online dot + speaker toggle + ext link */}
+      {/* Header */}
       <div class="flex items-start gap-3 mb-3">
         <AgentAvatar agentId={NIKKI_ID} name={nikki?.name || 'Nikki'} size={44} running={running} />
         <div class="flex-1 min-w-0">
@@ -398,37 +353,35 @@ export function NikkiCard() {
               {online ? 'online' : running ? 'partial' : 'offline'}
             </span>
           </div>
-          <div class="text-[10px] text-[var(--color-text-faint)] mt-0.5 truncate">Personal AI · Telegram + dashboard</div>
-        </div>
-        {ttsSupported && (
-          <div class="relative">
-            <button
-              type="button"
-              onClick={toggleSpeaker}
-              onContextMenu={(e: any) => { e.preventDefault(); setVoicePickerOpen(v => !v); }}
-              class={`inline-flex items-center justify-center w-7 h-7 rounded transition-colors ${
-                speakerOn
-                  ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
-                  : 'text-[var(--color-text-faint)] hover:text-[var(--color-text)]'
-              }`}
-              title={`${speakerOn ? 'Voice ON' : 'Voice OFF'} (right-click to choose voice)`}
-              aria-label={speakerOn ? 'Disable voice replies' : 'Enable voice replies'}
-            >
-              {speakerOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
-            </button>
-            {speakerOn && (
-              <button
-                type="button"
-                onClick={() => setVoicePickerOpen(v => !v)}
-                class="ml-1 inline-flex items-center justify-center w-5 h-7 rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)] align-middle"
-                title="Choose voice"
-                aria-label="Choose voice"
-              >
-                <Settings size={11} />
-              </button>
-            )}
+          <div class="text-[10px] text-[var(--color-text-faint)] mt-0.5 truncate">
+            Personal AI · {selectedVoice ? `voice: ${selectedVoice.name}` : 'Telegram + dashboard'}
           </div>
-        )}
+        </div>
+        <div class="relative inline-flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={toggleSpeaker}
+            onContextMenu={(e: any) => { e.preventDefault(); setVoicePickerOpen(v => !v); }}
+            class={`inline-flex items-center justify-center w-7 h-7 rounded transition-colors ${
+              speakerOn
+                ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
+                : 'text-[var(--color-text-faint)] hover:text-[var(--color-text)]'
+            }`}
+            title={`${speakerOn ? 'Voice ON' : 'Voice OFF'} (right-click for voice picker)`}
+            aria-label={speakerOn ? 'Disable voice replies' : 'Enable voice replies'}
+          >
+            {speakerOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setVoicePickerOpen(v => !v)}
+            class="inline-flex items-center justify-center w-5 h-7 rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)]"
+            title="Choose voice"
+            aria-label="Choose voice"
+          >
+            <Settings size={11} />
+          </button>
+        </div>
         <Link href="/chat">
           <a class="text-[var(--color-text-faint)] hover:text-[var(--color-text)] inline-flex items-center" title="Open full chat">
             <ExternalLink size={14} />
@@ -436,12 +389,12 @@ export function NikkiCard() {
         </Link>
       </div>
 
-      {/* Voice picker — opens when user clicks the settings cog next to the speaker */}
-      {voicePickerOpen && ttsSupported && (
+      {/* Voice picker (ElevenLabs female voices) */}
+      {voicePickerOpen && (
         <div class="mb-3 rounded border border-[var(--color-border)] bg-[var(--color-elevated)] p-2">
           <div class="flex items-center justify-between mb-1.5">
             <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">
-              Voice ({englishVoices.length} available)
+              ElevenLabs · female voices ({voices.length})
             </div>
             <button
               type="button"
@@ -451,43 +404,51 @@ export function NikkiCard() {
               close
             </button>
           </div>
-          {englishVoices.length === 0 ? (
+          {voiceList.loading && !voiceList.data ? (
             <div class="text-[11px] text-[var(--color-text-faint)]">Loading voices…</div>
+          ) : voiceList.error ? (
+            <div class="text-[11px] text-[#dc2626]">Voice list unavailable ({String(voiceList.error)})</div>
+          ) : voices.length === 0 ? (
+            <div class="text-[11px] text-[var(--color-text-faint)]">
+              No female voices in your ElevenLabs library. Add some at elevenlabs.io → Voices → Library.
+            </div>
           ) : (
             <div class="flex items-center gap-1.5">
               <select
-                value={selectedVoiceURI || ''}
-                onChange={(e: any) => pickVoice(e.target.value)}
-                class="flex-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded px-1.5 py-1 text-[11px] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
+                value={selectedVoiceId}
+                onChange={(e: any) => selectVoice(e.target.value)}
+                disabled={voiceSwitching}
+                class="flex-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded px-1.5 py-1 text-[11px] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50"
               >
-                {englishVoices.map(v => {
-                  const enhanced = /\b(premium|enhanced|neural)\b/i.test(v.name);
+                {voices.map(v => {
+                  const accent = v.labels?.accent ? ` · ${v.labels.accent}` : '';
+                  const age = v.labels?.age ? ` · ${v.labels.age}` : '';
                   return (
-                    <option key={v.voiceURI} value={v.voiceURI}>
-                      {enhanced ? '✨ ' : ''}{v.name} ({v.lang})
+                    <option key={v.voiceId} value={v.voiceId}>
+                      {v.name}{accent}{age}{v.category === 'custom' ? ' (current)' : ''}
                     </option>
                   );
                 })}
               </select>
               <button
                 type="button"
-                onClick={() => selectedVoice && speak(`Hi, I'm Nikki. ${selectedVoice.name.split(' ')[0]} speaking.`)}
-                disabled={!selectedVoice}
+                onClick={() => selectedVoiceId && previewVoice(selectedVoiceId)}
+                disabled={!selectedVoiceId || voiceSwitching}
                 class="inline-flex items-center justify-center w-6 h-6 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 disabled:opacity-40"
-                title="Preview"
-                aria-label="Preview voice"
+                title="Preview & lock in"
+                aria-label="Preview"
               >
-                <Play size={11} />
+                {voiceSwitching ? <Loader2 size={11} class="animate-spin" /> : <Play size={11} />}
               </button>
             </div>
           )}
           <div class="text-[10px] text-[var(--color-text-faint)] mt-1.5">
-            ✨ = system-enhanced voice. macOS users: System Settings → Accessibility → Spoken Content → System Voice → Manage Voices to download more.
+            Change applies instantly to Telegram, WarRoom, and dashboard chat.
           </div>
         </div>
       )}
 
-      {/* Stats strip */}
+      {/* Stats */}
       <div class="grid grid-cols-3 gap-2 mb-3 text-center">
         <div>
           <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)]">Model</div>
@@ -514,9 +475,7 @@ export function NikkiCard() {
         style={{ minHeight: '120px', maxHeight: '260px' }}
       >
         {visibleMessages.length === 0 ? (
-          <div class="text-[11px] text-[var(--color-text-faint)] italic">
-            No recent exchange. Say hi 👋
-          </div>
+          <div class="text-[11px] text-[var(--color-text-faint)] italic">No recent exchange. Say hi 👋</div>
         ) : (
           visibleMessages.map(m => (
             <div
@@ -538,12 +497,9 @@ export function NikkiCard() {
         )}
       </div>
 
-      {/* Voice error banner */}
-      {voiceError && (
-        <div class="text-[10px] text-[#dc2626] mb-1">{voiceError}</div>
-      )}
+      {voiceError && <div class="text-[10px] text-[#dc2626] mb-1">{voiceError}</div>}
 
-      {/* Input row: mic + text + send */}
+      {/* Input row */}
       <div class="flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
         {voiceSupported && (
           <button
@@ -589,7 +545,7 @@ export function NikkiCard() {
         <span>{nikki?.telegramConnected ? 'Telegram connected' : 'Telegram offline'}</span>
         <button
           type="button"
-          onClick={() => { setMessages([]); agents.refresh(); health.refresh(); }}
+          onClick={() => { setMessages([]); agents.refresh(); health.refresh(); voiceList.refresh(); }}
           class="text-[var(--color-text-faint)] hover:text-[var(--color-text)] inline-flex items-center gap-1"
           title="Clear & refresh"
         >
