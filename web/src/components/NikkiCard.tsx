@@ -108,17 +108,15 @@ export function NikkiCard() {
   const [voiceSwitching, setVoiceSwitching] = useState(false);
 
   const lastSpokenIdRef = useRef<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUnlockedRef = useRef<boolean>(false);
-  const pendingAudioUrlRef = useRef<string | null>(null);  // queued play when autoplay was blocked
+  // Web Audio API — much more reliable than <audio>.play() for autoplay
+  // after async SSE events. Once AudioContext.resume() runs in a user
+  // gesture, the context stays active for the page lifetime and future
+  // plays go through regardless of how long since the gesture.
+  const ctxRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const pendingAudioBufRef = useRef<AudioBuffer | null>(null);  // queued when ctx still suspended
   const [needsTapToPlay, setNeedsTapToPlay] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
-
-  // Silent 1-sample WAV — used during the speaker-toggle click gesture
-  // to "unlock" the <audio> element. After this resolves, the browser
-  // remembers the element was user-activated and future programmatic
-  // .play() calls from SSE event handlers go through.
-  const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAVFYAAFRWAAABAAgAZGF0YQAAAAA=';
 
   // -------- History hydration --------
   useEffect(() => {
@@ -167,33 +165,53 @@ export function NikkiCard() {
     return unsubscribe;
   }, []);
 
-  // Get-or-create the shared audio element. Created lazily so the FIRST
-  // .play() can happen inside a user gesture (toggleSpeaker).
-  function getAudio(): HTMLAudioElement {
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.preload = 'auto';
+  // Get-or-create the AudioContext. Created lazily so the FIRST resume()
+  // happens inside a user gesture (toggleSpeaker).
+  function getAudioContext(): AudioContext {
+    if (!ctxRef.current) {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      ctxRef.current = new Ctx();
     }
-    return audioRef.current;
+    return ctxRef.current!;
   }
 
-  // Prime the audio element with a silent buffer during a user gesture.
-  // After this succeeds, the browser remembers this <audio> element was
-  // user-activated and subsequent programmatic play() calls (from SSE
-  // event handlers) are allowed without autoplay blocking.
+  // Activate the AudioContext during the user gesture. After resume()
+  // succeeds here, the context stays in the 'running' state for the
+  // entire page lifetime — async SSE-driven plays work without any
+  // further gesture.
   async function unlockAudio() {
-    if (audioUnlockedRef.current) return;
-    const audio = getAudio();
     try {
-      audio.src = SILENT_WAV;
-      audio.muted = false;
-      await audio.play();
-      audioUnlockedRef.current = true;
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
     } catch (e) {
-      // Some browsers reject the silent buffer too; we'll fall back to
-      // the tap-to-play overlay when a real TTS play later gets blocked.
-      console.warn('Audio unlock failed', e);
+      console.warn('AudioContext resume failed', e);
     }
+  }
+
+  function stopCurrent() {
+    if (currentSourceRef.current) {
+      try { currentSourceRef.current.stop(); } catch {}
+      try { currentSourceRef.current.disconnect(); } catch {}
+      currentSourceRef.current = null;
+    }
+  }
+
+  // Actually play a decoded AudioBuffer through the context.
+  function playBuffer(buffer: AudioBuffer) {
+    const ctx = getAudioContext();
+    stopCurrent();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.onended = () => {
+      if (currentSourceRef.current === source) {
+        currentSourceRef.current = null;
+      }
+    };
+    source.start();
+    currentSourceRef.current = source;
   }
 
   // -------- TTS playback via /api/chat/tts --------
@@ -211,57 +229,45 @@ export function NikkiCard() {
         setVoiceError(`TTS failed: ${err.slice(0, 120)}`);
         return;
       }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = getAudio();
-      // Stop any in-flight playback before swapping the source
-      try { audio.pause(); } catch {}
-      audio.src = url;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        setNeedsTapToPlay(false);
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        const code = audio.error?.code;
-        const codeStr = code === 1 ? 'aborted' : code === 2 ? 'network' : code === 3 ? 'decode' : code === 4 ? 'src not supported' : 'unknown';
-        setVoiceError(`Audio playback failed (${codeStr})`);
-      };
-      try {
-        await audio.play();
-        setNeedsTapToPlay(false);
-      } catch (playErr: any) {
-        // Most common: NotAllowedError from autoplay block.
-        // Stash the URL and surface a tap-to-play button so the user
-        // can complete playback with a click (which re-establishes gesture).
-        if (playErr?.name === 'NotAllowedError') {
-          pendingAudioUrlRef.current = url;
-          setNeedsTapToPlay(true);
-          setVoiceError('Click the speaker again to allow audio (browser blocked autoplay)');
-        } else {
-          URL.revokeObjectURL(url);
-          setVoiceError(`Audio playback failed: ${playErr?.message || playErr}`);
-        }
+      const arrayBuf = await r.arrayBuffer();
+      const ctx = getAudioContext();
+      // Decode the MP3 into raw PCM AudioBuffer
+      const audioBuf = await new Promise<AudioBuffer>((resolve, reject) => {
+        // decodeAudioData supports promise + callback forms; use callback for
+        // best Safari compatibility (Safari only added promise form recently).
+        ctx.decodeAudioData(arrayBuf.slice(0), resolve, reject);
+      });
+
+      // If the context is somehow still suspended (rare — only if user
+      // never clicked speaker), queue and surface tap-to-play.
+      if (ctx.state !== 'running') {
+        pendingAudioBufRef.current = audioBuf;
+        setNeedsTapToPlay(true);
+        setVoiceError(null);
+        return;
       }
+
+      playBuffer(audioBuf);
+      setNeedsTapToPlay(false);
     } catch (e: any) {
       setVoiceError(`Voice playback error: ${e?.message || e}`);
     }
   }
 
-  // Tap-to-play handler. When autoplay was blocked, surface a click
-  // anywhere on the speaker icon to push play(); this gesture marks the
-  // audio element as user-activated for the rest of the session.
+  // Tap-to-play fallback: resume context and play any queued buffer.
   async function resumeAudio() {
-    const url = pendingAudioUrlRef.current;
-    if (!url) return;
-    const audio = getAudio();
-    audio.src = url;
     try {
-      await audio.play();
-      audioUnlockedRef.current = true;
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      const buf = pendingAudioBufRef.current;
+      if (buf) {
+        playBuffer(buf);
+        pendingAudioBufRef.current = null;
+      }
       setNeedsTapToPlay(false);
       setVoiceError(null);
-      pendingAudioUrlRef.current = null;
     } catch (e: any) {
       setVoiceError(`Still blocked: ${e?.message || e}`);
     }
@@ -279,11 +285,11 @@ export function NikkiCard() {
 
   // Stop any audio when speaker is turned off / unmount
   useEffect(() => {
-    if (!speakerOn && audioRef.current) {
-      audioRef.current.pause();
-    }
+    if (!speakerOn) stopCurrent();
     return () => {
-      if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; }
+      stopCurrent();
+      // Don't close the AudioContext on speaker-off — we want to keep it
+      // running so the next speaker-on doesn't require a fresh gesture.
     };
   }, [speakerOn]);
 
@@ -322,15 +328,15 @@ export function NikkiCard() {
     try { localStorage.setItem(LS_SPEAKER, next ? '1' : '0'); } catch {}
     setSpeakerOn(next);
     if (next) {
-      // Turning ON happens via user click → unlock audio for future
-      // SSE-driven plays. Also handle any audio queued by a prior block.
+      // Turning ON happens via user click → resume the AudioContext.
+      // After this, future SSE-driven plays go through without issues.
       await unlockAudio();
-      if (pendingAudioUrlRef.current) {
+      if (pendingAudioBufRef.current) {
         await resumeAudio();
       }
     } else {
-      try { audioRef.current?.pause(); } catch {}
-      pendingAudioUrlRef.current = null;
+      stopCurrent();
+      pendingAudioBufRef.current = null;
       setNeedsTapToPlay(false);
     }
   }
