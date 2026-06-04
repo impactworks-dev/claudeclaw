@@ -6,6 +6,7 @@ import { PageState } from '@/components/PageState';
 import { useFetch } from '@/lib/useFetch';
 import { apiPost, apiDelete } from '@/lib/api';
 import { StockChart } from '@/components/StockChart';
+import { NikkiCard } from '@/components/NikkiCard';
 
 interface Section<T> { ok: boolean; error: string | null; data: T | null; }
 interface AttentionItem { severity: 'critical' | 'warn' | 'info'; source: 'cash' | 'pipeline' | 'outreach' | 'members'; title: string; detail: string; href: string; }
@@ -342,9 +343,9 @@ export function Founder() {
           </Tile>
         </div>
 
-        {/* Stocks + AI News, side-by-side */}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+        {/* Stocks + AI News + Nikki — 3/3/2 split on lg+ (stocks gets chart width it needs) */}
+        <div class="grid grid-cols-1 lg:grid-cols-8 gap-4">
+          <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
             <div class="flex items-center justify-between mb-3">
               <div class="flex items-center gap-2">
                 <LineChart size={14} class="text-[var(--color-text-faint)]" />
@@ -434,7 +435,7 @@ export function Founder() {
             </div>
           </div>
 
-          <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
             <div class="flex items-center justify-between mb-3">
               <div class="flex items-center gap-2">
                 <Newspaper size={14} class="text-[var(--color-text-faint)]" />
@@ -460,6 +461,11 @@ export function Founder() {
             <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
               Source: Google News · Query: "artificial intelligence" OR "AI", last 24 hours.
             </div>
+          </div>
+
+          {/* Nikki — narrow column with live chat + stats */}
+          <div class="lg:col-span-2">
+            <NikkiCard />
           </div>
         </div>
 
