@@ -19,7 +19,7 @@ import { promisify } from 'node:util';
 import type { Api, RawApi } from 'grammy';
 
 import { ALLOWED_CHAT_ID, GOOGLE_API_KEY, PROJECT_ROOT } from './config.js';
-import { getRecentHighImportanceMemories, getRecentConsolidations } from './db.js';
+import { getRecentHighImportanceMemories, getRecentConsolidations, insertDailyBrief, markBriefSent, markBriefFailed } from './db.js';
 import { generateContent } from './gemini.js';
 import { logger } from './logger.js';
 import { getCashData } from './cash-data.js';
@@ -136,13 +136,15 @@ Write the brief in Telegram-friendly format (plain text, no markdown headers, li
 
 If there is nothing notable, say so plainly. Do not invent priorities.`;
 
-export async function runDailyBrief(api: Api<RawApi> | null, chatId: string): Promise<void> {
-  if (!api || !chatId || !GOOGLE_API_KEY) {
-    logger.info('daily-brief: skipped (no api / chatId / GOOGLE_API_KEY)');
-    return;
-  }
+function todayLocalStamp(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
-  // db.ts helpers handle the schema details; we just grab the top-N.
+/** Build the brief prompt + call Gemini. Pure generation, no Telegram, no DB. */
+async function composeBrief(chatId: string): Promise<string> {
   const memories = getRecentHighImportanceMemories(chatId, 20);
   const consolidations = getRecentConsolidations(chatId, 5);
   const outreachLine = buildOutreachLine();
@@ -165,9 +167,18 @@ export async function runDailyBrief(api: Api<RawApi> | null, chatId: string): Pr
     .replace('{MEMORIES}', memoriesBlock)
     .replace('{CONSOLIDATIONS}', consolidationsBlock);
 
+  return await generateContent(prompt);
+}
+
+export async function runDailyBrief(api: Api<RawApi> | null, chatId: string): Promise<void> {
+  if (!api || !chatId || !GOOGLE_API_KEY) {
+    logger.info('daily-brief: skipped (no api / chatId / GOOGLE_API_KEY)');
+    return;
+  }
+
   let brief: string;
   try {
-    brief = await generateContent(prompt);
+    brief = await composeBrief(chatId);
   } catch (e) {
     logger.error({ err: String((e as Error)?.message || e) }, 'daily-brief: gemini call failed');
     return;
@@ -178,12 +189,39 @@ export async function runDailyBrief(api: Api<RawApi> | null, chatId: string): Pr
     return;
   }
 
+  // Persist BEFORE the Telegram send so we keep the body even if send fails.
+  const briefId = insertDailyBrief({
+    generatedAt: Date.now(),
+    briefDate: todayLocalStamp(),
+    body: brief,
+    sendStatus: 'pending',
+  });
+
   try {
-    await api.sendMessage(chatId, brief.slice(0, 4000));
-    logger.info({ memoryCount: memories.length, length: brief.length }, 'daily-brief: sent');
+    const sent = await api.sendMessage(chatId, brief.slice(0, 4000));
+    markBriefSent(briefId, sent?.message_id ?? null);
+    logger.info({ briefId, length: brief.length }, 'daily-brief: sent + archived');
   } catch (e) {
-    logger.error({ err: String((e as Error)?.message || e) }, 'daily-brief: telegram send failed');
+    const msg = String((e as Error)?.message || e);
+    markBriefFailed(briefId, msg);
+    logger.error({ err: msg, briefId }, 'daily-brief: telegram send failed (archived as failed)');
   }
+}
+
+/** Generate-only path used by the Mission Control "Generate now" button.
+ *  Skips Telegram, stores as 'preview' so we don't get spammed in the brief
+ *  archive with on-demand previews mixed in with the scheduled 7am ones. */
+export async function generateBriefPreview(chatId: string): Promise<{ id: number; body: string } | null> {
+  if (!chatId || !GOOGLE_API_KEY) return null;
+  const body = await composeBrief(chatId);
+  if (!body || !body.trim()) return null;
+  const id = insertDailyBrief({
+    generatedAt: Date.now(),
+    briefDate: todayLocalStamp(),
+    body,
+    sendStatus: 'preview',
+  });
+  return { id, body };
 }
 
 /** Milliseconds until next 7:00 AM local time. */

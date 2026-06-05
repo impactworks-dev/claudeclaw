@@ -401,6 +401,24 @@ function createSchema(database: Database.Database): void {
       total_cost  REAL NOT NULL DEFAULT 0,
       created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
+
+    -- Daily Brief archive: each morning's 7am brief gets persisted here so
+    -- the Founder Dashboard can surface the latest one and we keep a running
+    -- log for "what did Nikki flag, did I act on it" review.
+    CREATE TABLE IF NOT EXISTS daily_briefs (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      generated_at         INTEGER NOT NULL,                -- epoch ms
+      brief_date           TEXT NOT NULL,                   -- YYYY-MM-DD local
+      body                 TEXT NOT NULL,
+      char_count           INTEGER NOT NULL,
+      send_status          TEXT NOT NULL DEFAULT 'pending', -- pending | sent | failed | preview
+      telegram_message_id  INTEGER,
+      send_error           TEXT,
+      user_marked          TEXT,                            -- acted | ignored | null
+      marked_at            INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_daily_briefs_generated ON daily_briefs(generated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_daily_briefs_date ON daily_briefs(brief_date DESC);
   `);
 }
 
@@ -1204,6 +1222,73 @@ export function searchConsolidations(chatId: string, query: string, limit = 3): 
        ORDER BY created_at DESC LIMIT ?`,
     )
     .all(chatId, pattern, pattern, limit) as Consolidation[];
+}
+
+// ── Daily briefs ─────────────────────────────────────────────────────
+
+export interface DailyBriefRow {
+  id: number;
+  generated_at: number;
+  brief_date: string;
+  body: string;
+  char_count: number;
+  send_status: 'pending' | 'sent' | 'failed' | 'preview';
+  telegram_message_id: number | null;
+  send_error: string | null;
+  user_marked: 'acted' | 'ignored' | null;
+  marked_at: number | null;
+}
+
+export function insertDailyBrief(opts: {
+  generatedAt: number; briefDate: string; body: string; sendStatus?: 'pending' | 'preview';
+}): number {
+  const r = db
+    .prepare(
+      `INSERT INTO daily_briefs (generated_at, brief_date, body, char_count, send_status)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(opts.generatedAt, opts.briefDate, opts.body, opts.body.length, opts.sendStatus || 'pending');
+  return Number(r.lastInsertRowid);
+}
+
+export function markBriefSent(id: number, telegramMessageId: number | null): void {
+  db.prepare(
+    `UPDATE daily_briefs SET send_status = 'sent', telegram_message_id = ? WHERE id = ?`,
+  ).run(telegramMessageId, id);
+}
+
+export function markBriefFailed(id: number, error: string): void {
+  db.prepare(
+    `UPDATE daily_briefs SET send_status = 'failed', send_error = ? WHERE id = ?`,
+  ).run(error.slice(0, 500), id);
+}
+
+export function markBriefUserAction(id: number, action: 'acted' | 'ignored' | null): void {
+  if (action == null) {
+    db.prepare(`UPDATE daily_briefs SET user_marked = NULL, marked_at = NULL WHERE id = ?`).run(id);
+  } else {
+    db.prepare(
+      `UPDATE daily_briefs SET user_marked = ?, marked_at = ? WHERE id = ?`,
+    ).run(action, Date.now(), id);
+  }
+}
+
+export function getLatestDailyBrief(): DailyBriefRow | null {
+  const row = db
+    .prepare(`SELECT * FROM daily_briefs ORDER BY generated_at DESC LIMIT 1`)
+    .get() as DailyBriefRow | undefined;
+  return row || null;
+}
+
+export function getRecentDailyBriefs(limit = 14): DailyBriefRow[] {
+  return db
+    .prepare(`SELECT * FROM daily_briefs ORDER BY generated_at DESC LIMIT ?`)
+    .all(limit) as DailyBriefRow[];
+}
+
+export function getDailyBrief(id: number): DailyBriefRow | null {
+  const row = db.prepare(`SELECT * FROM daily_briefs WHERE id = ?`).get(id) as DailyBriefRow | undefined;
+  return row || null;
 }
 
 // ── Scheduled Tasks ──────────────────────────────────────────────────

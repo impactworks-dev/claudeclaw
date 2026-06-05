@@ -115,6 +115,8 @@ import { getNewsData } from './news-data.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
+import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief } from './db.js';
+import { generateBriefPreview } from './daily-brief.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
@@ -1444,6 +1446,57 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json(data);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'calendar endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // ── Daily brief archive ────────────────────────────────────────────
+  app.get('/api/brief/latest', (c) => {
+    const latest = getLatestDailyBrief();
+    const recent = getRecentDailyBriefs(14).map(b => ({
+      id: b.id, brief_date: b.brief_date, generated_at: b.generated_at,
+      char_count: b.char_count, send_status: b.send_status, user_marked: b.user_marked,
+    }));
+    return c.json({ latest, recent });
+  });
+
+  app.get('/api/brief/list', (c) => {
+    const limit = parseInt(c.req.query('limit') || '30', 10);
+    return c.json({ briefs: getRecentDailyBriefs(limit) });
+  });
+
+  app.get('/api/brief/:id', (c) => {
+    const id = parseInt(c.req.param('id'), 10);
+    const brief = getDailyBrief(id);
+    if (!brief) return c.json({ error: 'not found' }, 404);
+    return c.json({ brief });
+  });
+
+  app.post('/api/brief/:id/mark', async (c) => {
+    try {
+      const id = parseInt(c.req.param('id'), 10);
+      const body = await c.req.json().catch(() => ({} as any));
+      const action = body?.action;
+      if (action != null && action !== 'acted' && action !== 'ignored') {
+        return c.json({ error: 'action must be "acted", "ignored", or null' }, 400);
+      }
+      markBriefUserAction(id, action ?? null);
+      return c.json({ ok: true });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Generate a fresh brief NOW (preview mode — doesn't send to Telegram).
+  // Used by the Founder Dashboard "Generate now" button.
+  app.post('/api/brief/run', async (c) => {
+    try {
+      const chatId = ALLOWED_CHAT_ID || '';
+      if (!chatId) return c.json({ error: 'ALLOWED_CHAT_ID not configured' }, 400);
+      const r = await generateBriefPreview(chatId);
+      if (!r) return c.json({ error: 'brief generation returned empty or unconfigured' }, 500);
+      return c.json({ ok: true, id: r.id, body: r.body });
+    } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });

@@ -9,6 +9,7 @@ import { StockChart } from '@/components/StockChart';
 import { NikkiCard } from '@/components/NikkiCard';
 import { CalendarTile } from '@/components/CalendarTile';
 import { VendastaTile } from '@/components/VendastaTile';
+import { LatestBriefCard } from '@/components/LatestBriefCard';
 
 interface BrainProposal { topic: string; hitCount: number; importance: number; examples: string[]; suggestedNoteName: string; }
 
@@ -558,6 +559,9 @@ export function Founder() {
             </div>
           </div>
         )}
+
+        {/* Latest Morning Brief — full-width hero card at the bottom */}
+        <LatestBriefCard />
 
         {/* Quick links footer */}
         <div class="flex flex-wrap gap-3 text-[11px] text-[var(--color-text-faint)] border-t border-[var(--color-border)] pt-3 mt-2">
