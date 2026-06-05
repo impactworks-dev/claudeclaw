@@ -21,6 +21,7 @@ import { generateContent, parseJsonResponse } from './gemini.js';
 import { logger } from './logger.js';
 import { ingestConversationTurn } from './memory-ingest.js';
 import { buildObsidianContext } from './obsidian.js';
+import { buildWikiContext } from './brain-data.js';
 
 /**
  * Build a structured memory context string to prepend to the user's message.
@@ -177,6 +178,17 @@ export async function buildMemoryContext(
 
   const obsidianBlock = buildObsidianContext(agentObsidianConfig);
   if (obsidianBlock) parts.push(obsidianBlock);
+
+  // Layer 6: Wiki context (canonical truth from the Obsidian Brain vault).
+  // Always-include primary notes + relevance-matched others. This is the
+  // Karpathy-style second-brain layer; complements the auto-captured
+  // memory DB above with deliberately curated facts.
+  try {
+    const wikiCtx = buildWikiContext(userMessage);
+    if (wikiCtx.contextText) parts.push(wikiCtx.contextText);
+  } catch (e) {
+    logger.warn({ err: String((e as Error)?.message || e) }, 'buildWikiContext failed (non-fatal)');
+  }
 
   return { contextText: parts.join('\n\n'), surfacedMemoryIds: [...seen], surfacedMemorySummaries: summaryMap };
 }

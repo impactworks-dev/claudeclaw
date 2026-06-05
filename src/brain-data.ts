@@ -462,3 +462,118 @@ export function getGraph(opts: { center?: string; hops?: number } = {}): { nodes
 export function invalidateBrainCache(): void {
   indexCache = null;
 }
+
+// ---- Context injection for Nikki ----
+//
+// On every conversation turn, we surface a small set of relevant wiki
+// notes as part of the prompt context. Strategy:
+//   - ALWAYS include notes tagged "primary" (foundational truth — identity,
+//     active strategy, system architecture). These are the canon that
+//     should reach Nikki regardless of what the user asked.
+//   - For non-primary notes, score by token overlap with the user's
+//     message against title + aliases + tags. Surface the top few.
+//   - Hard cap on total injected notes + total chars to keep prompt
+//     budget reasonable.
+
+const PRIMARY_TAG = 'primary';
+const MAX_TOTAL_NOTES = 8;
+const MAX_NON_PRIMARY = 4;
+const MAX_CHARS_PER_NOTE = 600;   // truncate long notes
+const MAX_TOTAL_CHARS = 3500;     // hard cap on the injection block
+
+export interface WikiContextResult {
+  contextText: string;
+  surfacedPaths: string[];
+}
+
+/** Strip frontmatter + the first markdown H1 so the summary reads cleanly. */
+function summarizeNoteForContext(content: string): string {
+  let body = content;
+  // Strip frontmatter
+  if (body.startsWith('---')) {
+    const end = body.indexOf('\n---', 3);
+    if (end > 0) body = body.slice(end + 4);
+  }
+  // Strip leading H1
+  body = body.replace(/^\s*#\s+[^\n]+\n+/, '');
+  // Collapse whitespace and trim
+  return body.replace(/\s+/g, ' ').trim();
+}
+
+function tokenize(s: string): Set<string> {
+  return new Set(
+    s.toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 3),
+  );
+}
+
+export function buildWikiContext(userMessage: string): WikiContextResult {
+  const idx = getIndex();
+  if (idx.noteList.length === 0) return { contextText: '', surfacedPaths: [] };
+
+  const tokens = tokenize(userMessage);
+
+  // Split notes into primary (always-include) and the rest
+  const primary: BrainNote[] = [];
+  const rest: BrainNote[] = [];
+  for (const n of idx.noteList) {
+    if (n.tags.includes(PRIMARY_TAG)) primary.push(n);
+    else rest.push(n);
+  }
+
+  // Score the non-primary notes against the user message
+  const scored = rest.map(n => {
+    let score = 0;
+    const titleTokens = tokenize(n.title);
+    const aliasTokens = new Set(n.aliases.flatMap(a => Array.from(tokenize(a))));
+    for (const t of tokens) {
+      if (titleTokens.has(t)) score += 4;
+      if (aliasTokens.has(t)) score += 3;
+      if (n.tags.includes(t)) score += 2;
+    }
+    return { n, score };
+  }).filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_NON_PRIMARY);
+
+  const selected = [
+    ...primary.slice(0, MAX_TOTAL_NOTES - scored.length),
+    ...scored.map(s => s.n),
+  ];
+  if (selected.length === 0) return { contextText: '', surfacedPaths: [] };
+
+  const lines: string[] = ['[Wiki context — canonical notes from Obsidian Brain]'];
+  let totalChars = 0;
+  const surfaced: string[] = [];
+
+  for (const note of selected) {
+    if (totalChars >= MAX_TOTAL_CHARS) break;
+    // Lazy-read content
+    let content = note.content;
+    if (content == null) {
+      try {
+        content = fs.readFileSync(path.join(idx.vaultPath, note.path), 'utf-8');
+        note.content = content;
+      } catch { continue; }
+    }
+    const summary = summarizeNoteForContext(content || '').slice(0, MAX_CHARS_PER_NOTE);
+    if (!summary) continue;
+    const tagBadge = note.tags.includes(PRIMARY_TAG) ? '[primary] ' : '';
+    const linksTail = note.links.length > 0
+      ? `  links: ${note.links.slice(0, 5).map(l => {
+          const linked = idx.byPath.get(l);
+          return linked ? `[[${linked.title}]]` : '';
+        }).filter(Boolean).join(' ')}`
+      : '';
+    const block = `- ${tagBadge}[[${note.title}]] — ${summary}${linksTail ? '\n' + linksTail : ''}`;
+    lines.push(block);
+    totalChars += block.length;
+    surfaced.push(note.path);
+  }
+
+  lines.push('[End wiki context]');
+  return { contextText: lines.join('\n\n'), surfacedPaths: surfaced };
+}
+
