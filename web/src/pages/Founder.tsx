@@ -7,6 +7,8 @@ import { useFetch } from '@/lib/useFetch';
 import { apiPost, apiDelete } from '@/lib/api';
 import { StockChart } from '@/components/StockChart';
 import { NikkiCard } from '@/components/NikkiCard';
+import { CalendarTile } from '@/components/CalendarTile';
+import { VendastaTile } from '@/components/VendastaTile';
 
 interface BrainProposal { topic: string; hitCount: number; importance: number; examples: string[]; suggestedNoteName: string; }
 
@@ -474,6 +476,12 @@ export function Founder() {
           <div class="lg:col-span-2">
             <NikkiCard />
           </div>
+        </div>
+
+        {/* New row: Calendar + Vendasta CRM (ImpactWorks / Rocket Local toggle) */}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <CalendarTile />
+          <VendastaTile />
         </div>
 
         {/* Brain promotion proposals — patterns Nikki noticed in your memory DB

@@ -112,6 +112,8 @@ import { getStocksData, invalidateStocksCache } from './stocks-data.js';
 import { loadTickers, addTicker, removeTicker } from './stocks-tickers.js';
 import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
+import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
+import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
@@ -1427,6 +1429,34 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json(data);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'ai-news endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Google Calendar — today or next 7 days. Cache: 2 minutes.
+  app.get('/api/calendar', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const range = (c.req.query('range') === 'week' ? 'week' : 'today') as 'today' | 'week';
+      if (force) invalidateCalendarCache();
+      const data = await getCalendarData({ range, force });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'calendar endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Vendasta — companies + opportunities per market (ImpactWorks / Rocket Local).
+  // Cache: 10 minutes on the volume.
+  app.get('/api/vendasta', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      if (force) invalidateVendastaCache();
+      const data = await getVendastaData({ force });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'vendasta endpoint failed');
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
