@@ -1794,23 +1794,26 @@ export interface DashboardMemoryStats {
 }
 
 export function getDashboardMemoryStats(chatId: string): DashboardMemoryStats {
+  const ids = expandChatIds(chatId);
+  if (ids.length === 0) {
+    return { total: 0, pinned: 0, consolidations: 0, avgImportance: 0, avgSalience: 0, importanceDistribution: [] };
+  }
+  const ph = ids.map(() => '?').join(',');
+
   const counts = db
     .prepare(
-      `SELECT
-         COUNT(*) as total,
-         AVG(importance) as avgImportance,
-         AVG(salience) as avgSalience
-       FROM memories WHERE chat_id = ?`,
+      `SELECT COUNT(*) as total, AVG(importance) as avgImportance, AVG(salience) as avgSalience
+       FROM memories WHERE chat_id IN (${ph})`,
     )
-    .get(chatId) as { total: number; avgImportance: number | null; avgSalience: number | null };
+    .get(...ids) as { total: number; avgImportance: number | null; avgSalience: number | null };
 
   const consolidationCount = db
-    .prepare('SELECT COUNT(*) as cnt FROM consolidations WHERE chat_id = ?')
-    .get(chatId) as { cnt: number };
+    .prepare(`SELECT COUNT(*) as cnt FROM consolidations WHERE chat_id IN (${ph})`)
+    .get(...ids) as { cnt: number };
 
   const pinnedCount = db
-    .prepare('SELECT COUNT(*) as cnt FROM memories WHERE chat_id = ? AND pinned = 1')
-    .get(chatId) as { cnt: number };
+    .prepare(`SELECT COUNT(*) as cnt FROM memories WHERE chat_id IN (${ph}) AND pinned = 1`)
+    .get(...ids) as { cnt: number };
 
   const buckets = db
     .prepare(
@@ -1823,11 +1826,11 @@ export function getDashboardMemoryStats(chatId: string): DashboardMemoryStats {
            ELSE '0.8-1.0'
          END as bucket,
          COUNT(*) as count
-       FROM memories WHERE chat_id = ?
+       FROM memories WHERE chat_id IN (${ph})
        GROUP BY bucket
        ORDER BY bucket`,
     )
-    .all(chatId) as { bucket: string; count: number }[];
+    .all(...ids) as { bucket: string; count: number }[];
 
   return {
     total: counts.total,
@@ -1840,45 +1843,62 @@ export function getDashboardMemoryStats(chatId: string): DashboardMemoryStats {
 }
 
 export function getDashboardPinnedMemories(chatId: string): Memory[] {
+  const ids = expandChatIds(chatId);
+  if (ids.length === 0) return [];
+  const ph = ids.map(() => '?').join(',');
   return db
-    .prepare('SELECT * FROM memories WHERE chat_id = ? AND pinned = 1 ORDER BY importance DESC')
-    .all(chatId) as Memory[];
+    .prepare(`SELECT * FROM memories WHERE chat_id IN (${ph}) AND pinned = 1 ORDER BY importance DESC`)
+    .all(...ids) as Memory[];
 }
 
 export function getDashboardLowSalienceMemories(chatId: string, limit = 10): Memory[] {
+  const ids = expandChatIds(chatId);
+  if (ids.length === 0) return [];
+  const ph = ids.map(() => '?').join(',');
   return db
     .prepare(
-      `SELECT * FROM memories WHERE chat_id = ? AND salience < 0.5
+      `SELECT * FROM memories WHERE chat_id IN (${ph}) AND salience < 0.5
        ORDER BY salience ASC LIMIT ?`,
     )
-    .all(chatId, limit) as Memory[];
+    .all(...ids, limit) as Memory[];
 }
 
 export function getDashboardTopAccessedMemories(chatId: string, limit = 5): Memory[] {
+  const ids = expandChatIds(chatId);
+  if (ids.length === 0) return [];
+  const ph = ids.map(() => '?').join(',');
   return db
     .prepare(
-      `SELECT * FROM memories WHERE chat_id = ? AND importance >= 0.5
+      `SELECT * FROM memories WHERE chat_id IN (${ph}) AND importance >= 0.5
        ORDER BY accessed_at DESC LIMIT ?`,
     )
-    .all(chatId, limit) as Memory[];
+    .all(...ids, limit) as Memory[];
 }
 
 export function getDashboardMemoryTimeline(chatId: string, days = 30): { date: string; count: number }[] {
+  const ids = expandChatIds(chatId);
+  if (ids.length === 0) return [];
+  const ph = ids.map(() => '?').join(',');
   return db
     .prepare(
-      `SELECT
-         date(created_at, 'unixepoch') as date,
-         COUNT(*) as count
+      `SELECT date(created_at, 'unixepoch') as date, COUNT(*) as count
        FROM memories
-       WHERE chat_id = ? AND created_at >= unixepoch('now', ?)
+       WHERE chat_id IN (${ph}) AND created_at >= unixepoch('now', ?)
        GROUP BY date
        ORDER BY date`,
     )
-    .all(chatId, `-${days} days`) as { date: string; count: number }[];
+    .all(...ids, `-${days} days`) as { date: string; count: number }[];
 }
 
 export function getDashboardConsolidations(chatId: string, limit = 5): Consolidation[] {
-  return getRecentConsolidations(chatId, limit);
+  const ids = expandChatIds(chatId);
+  if (ids.length === 0) return [];
+  const ph = ids.map(() => '?').join(',');
+  return db
+    .prepare(
+      `SELECT * FROM consolidations WHERE chat_id IN (${ph}) ORDER BY created_at DESC LIMIT ?`,
+    )
+    .all(...ids, limit) as Consolidation[];
 }
 
 export interface DashboardTokenStats {
@@ -1954,10 +1974,27 @@ export function getDashboardRecentTokenUsage(chatId: string, limit = 20): Recent
     .all(chatId, limit) as RecentTokenUsageRow[];
 }
 
+/** Expand a chatId that may be a comma-separated list of multiple chat
+ *  IDs (the multi-chat bot config) into an array, plus an empty array
+ *  for the empty/undefined case. Trims whitespace, drops blanks. */
+function expandChatIds(chatId: string): string[] {
+  if (!chatId) return [];
+  const parts = chatId.split(',').map(s => s.trim()).filter(Boolean);
+  // Always include the compound key itself as a fallback so memories
+  // captured when the whole multi-chat session was logged still surface.
+  const all = new Set<string>(parts);
+  if (chatId.includes(',')) all.add(chatId);
+  return Array.from(all);
+}
+
 export function getDashboardMemoriesList(chatId: string, limit = 50, offset = 0, sortBy: 'importance' | 'salience' | 'recent' = 'importance'): { memories: Memory[]; total: number } {
+  const ids = expandChatIds(chatId);
+  if (ids.length === 0) return { memories: [], total: 0 };
+  const placeholders = ids.map(() => '?').join(',');
+
   const total = db
-    .prepare('SELECT COUNT(*) as cnt FROM memories WHERE chat_id = ?')
-    .get(chatId) as { cnt: number };
+    .prepare(`SELECT COUNT(*) as cnt FROM memories WHERE chat_id IN (${placeholders})`)
+    .get(...ids) as { cnt: number };
 
   let orderClause: string;
   switch (sortBy) {
@@ -1973,9 +2010,9 @@ export function getDashboardMemoriesList(chatId: string, limit = 50, offset = 0,
 
   const memories = db
     .prepare(
-      `SELECT * FROM memories WHERE chat_id = ? ${orderClause} LIMIT ? OFFSET ?`,
+      `SELECT * FROM memories WHERE chat_id IN (${placeholders}) ${orderClause} LIMIT ? OFFSET ?`,
     )
-    .all(chatId, limit, offset) as Memory[];
+    .all(...ids, limit, offset) as Memory[];
   return { memories, total: total.cnt };
 }
 
