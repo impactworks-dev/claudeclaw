@@ -8,7 +8,7 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/node</string>
+    <string>/usr/local/bin/node</string>
     <string>/Users/dantecrescenzi/claudeclaw/relay/dist/recall-relay.js</string>
   </array>
 
@@ -21,9 +21,9 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>RELAY_PORT</key>
     <string>7456</string>
-    <!-- RELAY_SHARED_SECRET must be set externally; the plist is checked into git
-         so we don't put it here. Use `launchctl setenv` before loading, or
-         source it from /Users/dantecrescenzi/claudeclaw/relay/.env at boot. -->
+    <!-- RELAY_SHARED_SECRET: set in your LOCAL copy at
+         ~/Library/LaunchAgents/com.impactworks.recall-relay.plist
+         (do not commit). Generate via `openssl rand -hex 32`. -->
   </dict>
 
   <key>RunAtLoad</key>

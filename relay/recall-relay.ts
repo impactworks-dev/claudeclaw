@@ -83,7 +83,7 @@ async function forwardMcp(method: string, params: unknown): Promise<unknown> {
     headers: {
       'Authorization': `Bearer ${access}`,
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      'Accept': 'application/json, text/event-stream',
     },
     body: JSON.stringify(rpcBody),
   });
@@ -101,6 +101,17 @@ async function forwardMcp(method: string, params: unknown): Promise<unknown> {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Recall MCP ${method} failed (${res.status}): ${text.slice(0, 300)}`);
+  }
+  // Recall returns either JSON or SSE depending on negotiation. Parse both.
+  const ctype = res.headers.get('content-type') || '';
+  if (ctype.includes('text/event-stream')) {
+    const raw = await res.text();
+    // SSE frames look like "event: message\ndata: {...}\n\n"; grab the first JSON payload.
+    const dataMatch = raw.match(/data:\s*(.+)/);
+    if (dataMatch) {
+      try { return JSON.parse(dataMatch[1]); } catch { return { raw }; }
+    }
+    return { raw };
   }
   return await res.json();
 }
