@@ -55,6 +55,22 @@ if [ -n "${NOTION_API_KEY:-}" ]; then
     }"
 fi
 
+# Recall is reached via the Mac-side relay daemon over Cloudflare Tunnel.
+# Both RECALL_RELAY_URL and RECALL_RELAY_SECRET must be set; otherwise the
+# block stays empty and the agent boots without Recall.
+RECALL_BLOCK=""
+if [ -n "${RECALL_RELAY_URL:-}" ] && [ -n "${RECALL_RELAY_SECRET:-}" ]; then
+  RECALL_BLOCK=",
+    \"recall\": {
+      \"command\": \"node\",
+      \"args\": [\"/app/connectors/recall-relay-client/server.mjs\"],
+      \"env\": {
+        \"RECALL_RELAY_URL\": \"${RECALL_RELAY_URL}\",
+        \"RECALL_RELAY_SECRET\": \"${RECALL_RELAY_SECRET}\"
+      }
+    }"
+fi
+
 cat > "$CLAUDE_HOME/settings.json" <<EOF
 {
   "mcpServers": {
@@ -69,7 +85,7 @@ cat > "$CLAUDE_HOME/settings.json" <<EOF
     "quickbooks": {
       "command": "node",
       "args": ["/app/connectors/quickbooks/server.mjs"]
-    }${NOTION_BLOCK}
+    }${NOTION_BLOCK}${RECALL_BLOCK}
   }
 }
 EOF
@@ -79,6 +95,11 @@ if [ -n "${NOTION_API_KEY:-}" ]; then
   echo "  notion MCP enabled (NOTION_API_KEY present)"
 else
   echo "  notion MCP skipped (NOTION_API_KEY not set)"
+fi
+if [ -n "${RECALL_RELAY_URL:-}" ] && [ -n "${RECALL_RELAY_SECRET:-}" ]; then
+  echo "  recall MCP enabled (relay at ${RECALL_RELAY_URL})"
+else
+  echo "  recall MCP skipped (RECALL_RELAY_URL / RECALL_RELAY_SECRET not set)"
 fi
 
 # ── Restore Claude Code credentials from persistent volume ───────────────

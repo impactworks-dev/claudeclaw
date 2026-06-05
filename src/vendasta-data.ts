@@ -105,8 +105,9 @@ function asEpochMs(v: any): number | null {
 
 // Pull every company in the workspace and bucket by market slug. We do one
 // list_records loop, return the indexed buckets.
-async function fetchAllCompanies(): Promise<Map<string, CompanyRow[]>> {
+async function fetchAllCompanies(): Promise<{ buckets: Map<string, CompanyRow[]>; slugByAgid: Map<string, string> }> {
   const buckets = new Map<string, CompanyRow[]>();
+  const slugByAgid = new Map<string, string>();
   let cursor = '';
   for (let pg = 0; pg < 30; pg++) {  // up to 3000 records
     const args: any = {
@@ -121,6 +122,7 @@ async function fetchAllCompanies(): Promise<Map<string, CompanyRow[]>> {
         'standard__company_primary_location_state_province_region',
         'standard__company_website',
         'system__company_id',
+        'platform__company_account_group_id',  // Needed to resolve opportunity → market
       ],
     };
     if (cursor) args.cursor = cursor;
@@ -141,11 +143,15 @@ async function fetchAllCompanies(): Promise<Map<string, CompanyRow[]>> {
       };
       if (!buckets.has(slug)) buckets.set(slug, []);
       buckets.get(slug)!.push(row);
+
+      // Index AGID → slug so opportunities can join back to their market
+      const agid = String(getField(flds, 'platform__company_account_group_id') || '');
+      if (agid) slugByAgid.set(agid, slug);
     }
     if (!j.has_more || !j.next_cursor) break;
     cursor = j.next_cursor;
   }
-  return buckets;
+  return { buckets, slugByAgid };
 }
 
 // Pull all opportunities (deals) for the partner. The opportunity payload
@@ -235,25 +241,10 @@ export async function getVendastaData(opts: { force?: boolean } = {}): Promise<V
   }
 
   try {
-    // 1) Pull all companies, bucket by market slug
-    const buckets = await fetchAllCompanies();
+    // 1) Pull all companies, bucket by market slug + index AGID → slug.
+    const { buckets, slugByAgid } = await fetchAllCompanies();
 
-    // 2) Build agid → slug map for opportunity-side join
-    const slugByAgid = new Map<string, string>();
-    for (const [slug, rows] of buckets.entries()) {
-      for (const r of rows) {
-        // company id is "CompanyID-..." which isn't the AGID. But companies
-        // store source_drill or platform__company_account_group_id; the latter
-        // wasn't in our return fields. We'll let opportunities resolve unknown
-        // market for now — opportunities typically only have AGIDs that don't
-        // map 1:1 with companies anyway. Future: include
-        // platform__company_account_group_id in returnFields.
-      }
-    }
-
-    // 3) Pull opportunities; bucket by accountGroupId → marketSlug if known.
-    //    Without AGID resolution we tag everything 'unknown' for now; that
-    //    surfaces honestly in the widget rather than silently mis-attributing.
+    // 2) Pull opportunities; resolve each to its market via the AGID index.
     let opps: Opportunity[] = [];
     try {
       opps = await fetchOpportunities(slugByAgid);
