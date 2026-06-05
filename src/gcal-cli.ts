@@ -163,6 +163,22 @@ async function cmdListEvents(): Promise<void> {
   await listRange(calendarId, start, end, max, `${fromStr} to ${toStr}`);
 }
 
+/** Drop all-day events whose `end` date equals the window start. Google
+ *  Calendar treats the `end` date of an all-day event as exclusive — an
+ *  event with `end: 2026-06-05` "ends at the start of June 5", i.e. it's
+ *  a June 4 event. But events.list returns it for a timeMin of June 5
+ *  midnight because the boundary check is inclusive on the start side.
+ *  Without this filter, yesterday's all-day events leak into "today". */
+function isStaleAllDayEnd(evStart: string | null | undefined, evEnd: string | null | undefined, windowStart: Date, allDay: boolean): boolean {
+  if (!allDay || !evEnd) return false;
+  // evEnd for all-day events is YYYY-MM-DD; compare to windowStart's local date.
+  const [y, m, d] = evEnd.split('-').map(n => parseInt(n, 10));
+  if (!y || !m || !d) return false;
+  return y === windowStart.getFullYear()
+    && (m - 1) === windowStart.getMonth()
+    && d === windowStart.getDate();
+}
+
 async function listRange(calendarId: string, start: Date, end: Date, max: number, label: string): Promise<void> {
   const cal = getCalendarApi();
   try {
@@ -174,7 +190,14 @@ async function listRange(calendarId: string, start: Date, end: Date, max: number
       orderBy: 'startTime',
       maxResults: max,
     });
-    const events = (r.data.items || []).map(fmtEvent);
+    const events = (r.data.items || [])
+      .filter(e => !isStaleAllDayEnd(
+        e.start?.date || null,
+        e.end?.date || null,
+        start,
+        !!e.start?.date && !e.start?.dateTime,
+      ))
+      .map(fmtEvent);
     out({ ok: true, calendarId, range: label, count: events.length, events });
   } catch (err) {
     fail(`list events failed: ${(err as Error).message}`);

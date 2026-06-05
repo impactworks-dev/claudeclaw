@@ -375,19 +375,41 @@ export function LatestBriefCard() {
           </div>
         </div>
 
-        {recent.length > 1 && (
-          <div class="flex items-center gap-1.5 flex-wrap pt-2 border-t border-[var(--color-border)]">
-            <span class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mr-1">Recent</span>
-            {recent.slice(0, 10).map(r => (
-              <RecentChip
-                key={r.id}
-                row={r}
-                isActive={!previewBody && r.id === latest?.id}
-                onClick={() => { /* future: load this brief into the main view */ }}
-              />
-            ))}
-          </div>
-        )}
+        {(() => {
+          // Dedupe the recent strip to one chip per unique date. When a day
+          // has multiple briefs (e.g. previews + the real 7am brief), prefer
+          // the one with the strongest status: sent > failed > preview > pending.
+          // Hide the strip entirely if we only have one unique date so far
+          // (otherwise it's just noise — a row of identical "today" chips).
+          const STATUS_RANK: Record<DailyBriefRow['send_status'], number> = {
+            sent: 4, failed: 3, preview: 2, pending: 1,
+          };
+          const byDate = new Map<string, RecentRow>();
+          for (const r of recent) {
+            const existing = byDate.get(r.brief_date);
+            if (!existing) { byDate.set(r.brief_date, r); continue; }
+            const beatsByStatus = STATUS_RANK[r.send_status] > STATUS_RANK[existing.send_status];
+            const beatsByRecency = STATUS_RANK[r.send_status] === STATUS_RANK[existing.send_status]
+              && r.generated_at > existing.generated_at;
+            if (beatsByStatus || beatsByRecency) byDate.set(r.brief_date, r);
+          }
+          const uniqueDays = Array.from(byDate.values())
+            .sort((a, b) => b.generated_at - a.generated_at);
+          if (uniqueDays.length < 2) return null;
+          return (
+            <div class="flex items-center gap-1.5 flex-wrap pt-2 border-t border-[var(--color-border)]">
+              <span class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mr-1">Recent</span>
+              {uniqueDays.slice(0, 10).map(r => (
+                <RecentChip
+                  key={r.id}
+                  row={r}
+                  isActive={!previewBody && r.id === latest?.id}
+                  onClick={() => { /* future: load this brief into the main view */ }}
+                />
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
