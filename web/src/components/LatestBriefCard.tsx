@@ -60,11 +60,29 @@ function relTime(ms: number): string {
   return `${days}d ago`;
 }
 
+// Defensive cleanup for briefs already stored before the server-side fix:
+// strips outer quotes and replaces literal `\n` / `\"` / `\\` sequences
+// with their real characters. New briefs are already cleaned on the
+// server, so this is a no-op for them.
+function unescapeBrief(raw: string): string {
+  let s = (raw || '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1);
+  }
+  s = s.replace(/\\\\/g, '__BS__')
+       .replace(/\\n/g, '\n')
+       .replace(/\\t/g, '\t')
+       .replace(/\\"/g, '"')
+       .replace(/__BS__/g, '\\');
+  return s.trim();
+}
+
 // Split a brief into (headline, rest). The morning-brief prompt asks for
 // a single ☀️-prefixed headline line. We grab the first non-empty line as
 // the headline, then return the rest as the body.
 function splitBrief(body: string): { headline: string; rest: string } {
-  const lines = body.split('\n').map(l => l.trimEnd());
+  const cleaned = unescapeBrief(body);
+  const lines = cleaned.split('\n').map(l => l.trimEnd());
   let headlineIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trim()) { headlineIdx = i; break; }

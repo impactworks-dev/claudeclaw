@@ -1926,15 +1926,18 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     return c.json({ stats, fading, topAccessed, timeline, consolidations });
   });
 
-  // Memory list (for drill-down drawer)
+  // Memory list (for drill-down drawer). Same chatId-fallback rationale as
+  // /api/memories and /api/health: the SPA can load without a chatId in the
+  // URL, fall back to the primary authorized chat so the page actually
+  // shows the user's memories.
   app.get('/api/memories/pinned', (c) => {
-    const chatId = c.req.query('chatId') || '';
+    const chatId = c.req.query('chatId') || ALLOWED_CHAT_ID || '';
     const memories = getDashboardPinnedMemories(chatId);
     return c.json({ memories });
   });
 
   app.get('/api/memories/list', (c) => {
-    const chatId = c.req.query('chatId') || '';
+    const chatId = c.req.query('chatId') || ALLOWED_CHAT_ID || '';
     const limit = parseInt(c.req.query('limit') || '50', 10);
     const offset = parseInt(c.req.query('offset') || '0', 10);
     const sortBy = (c.req.query('sort') || 'importance') as 'importance' | 'salience' | 'recent';

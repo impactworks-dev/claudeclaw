@@ -143,6 +143,29 @@ function todayLocalStamp(now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Strip JSON-string artifacts from Gemini's response.
+ *
+ * Gemini sometimes returns the brief wrapped in quotes with literal `\n`
+ * (backslash + n) sequences instead of actual newlines. Strip the
+ * surrounding quotes and unescape `\n`, `\"`, and `\\` so the body
+ * renders as natural prose. */
+function cleanGeminiBrief(raw: string): string {
+  let s = (raw || '').trim();
+  // Trim a single layer of surrounding double or single quotes
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1);
+  }
+  // Replace literal escapes that Gemini emitted as text instead of as
+  // actual control chars. Order matters: handle \\ before \" and \n so we
+  // don't accidentally rewrite an already-escaped backslash.
+  s = s.replace(/\\\\/g, '__BACKSLASH__')
+       .replace(/\\n/g, '\n')
+       .replace(/\\t/g, '\t')
+       .replace(/\\"/g, '"')
+       .replace(/__BACKSLASH__/g, '\\');
+  return s.trim();
+}
+
 /** Build the brief prompt + call Gemini. Pure generation, no Telegram, no DB. */
 async function composeBrief(chatId: string): Promise<string> {
   const memories = getRecentHighImportanceMemories(chatId, 20);
@@ -167,7 +190,8 @@ async function composeBrief(chatId: string): Promise<string> {
     .replace('{MEMORIES}', memoriesBlock)
     .replace('{CONSOLIDATIONS}', consolidationsBlock);
 
-  return await generateContent(prompt);
+  const raw = await generateContent(prompt);
+  return cleanGeminiBrief(raw);
 }
 
 export async function runDailyBrief(api: Api<RawApi> | null, chatId: string): Promise<void> {
