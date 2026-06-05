@@ -40,7 +40,22 @@ fi
 # Add new connectors here as we build them (e.g. quickbooks below).
 CLAUDE_HOME="${HOME:-/home/node}/.claude"
 mkdir -p "$CLAUDE_HOME"
-cat > "$CLAUDE_HOME/settings.json" <<'EOF'
+
+# Build the MCP config as JSON. Notion is added only when NOTION_API_KEY
+# is present so the agent doesn't fail at startup when it isn't.
+NOTION_BLOCK=""
+if [ -n "${NOTION_API_KEY:-}" ]; then
+  NOTION_BLOCK=",
+    \"notion\": {
+      \"command\": \"npx\",
+      \"args\": [\"-y\", \"@notionhq/notion-mcp-server\"],
+      \"env\": {
+        \"OPENAPI_MCP_HEADERS\": \"{\\\"Authorization\\\": \\\"Bearer ${NOTION_API_KEY}\\\", \\\"Notion-Version\\\": \\\"2022-06-28\\\"}\"
+      }
+    }"
+fi
+
+cat > "$CLAUDE_HOME/settings.json" <<EOF
 {
   "mcpServers": {
     "clickup": {
@@ -54,12 +69,17 @@ cat > "$CLAUDE_HOME/settings.json" <<'EOF'
     "quickbooks": {
       "command": "node",
       "args": ["/app/connectors/quickbooks/server.mjs"]
-    }
+    }${NOTION_BLOCK}
   }
 }
 EOF
 chmod 600 "$CLAUDE_HOME/settings.json"
 echo "Wrote MCP server config → $CLAUDE_HOME/settings.json"
+if [ -n "${NOTION_API_KEY:-}" ]; then
+  echo "  notion MCP enabled (NOTION_API_KEY present)"
+else
+  echo "  notion MCP skipped (NOTION_API_KEY not set)"
+fi
 
 # ── Restore Claude Code credentials from persistent volume ───────────────
 # Claude Code CLI reads OAuth creds from $HOME/.claude/.credentials.json.

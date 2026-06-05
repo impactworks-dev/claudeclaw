@@ -1,19 +1,17 @@
 #!/usr/bin/env node
 /**
- * ClaudeClaw Gmail OAuth Bootstrapper
+ * ClaudeClaw Google OAuth Bootstrapper (Gmail + Calendar + Drive)
  *
  * Runs once locally. Walks Google's OAuth consent flow on port 3456,
  * exchanges the auth code for a refresh token, and prints the token plus
  * the exact `fly secrets set` command to wire it into the deployed bot.
  *
- * Why a separate flow from scripts/google-auth.ts?
- *   - That flow stores encrypted tokens in store/google-tokens.json for the
- *     local Mac/Linux service. Fine for the host machine, useless on Fly.
- *   - On Fly we want a long-lived refresh token in env (GMAIL_REFRESH_TOKEN)
- *     so the bot can mint access tokens on demand with no filesystem state.
+ * The single refresh token authorizes all configured scopes:
+ *   - Gmail: send, readonly, compose, modify
+ *   - Calendar: readonly, events
+ *   - Drive: readonly
  *
- * Scopes requested: send, readonly, compose, modify. Covers every operation
- * exposed by src/gmail.ts.
+ * So one OAuth flow + one Fly secret unlocks all three APIs for Nikki.
  *
  * Usage:
  *   npx tsx src/gmail-auth.ts
@@ -27,10 +25,16 @@ import { OAuth2Client } from 'google-auth-library';
 import { readEnvFile } from './env.js';
 
 const SCOPES = [
+  // Gmail
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/gmail.modify',
+  // Calendar — added 2026-06-04 so Nikki's morning brief can pull today's events.
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
+  // Drive — added 2026-06-04 for read access to docs/sheets Dante references.
+  'https://www.googleapis.com/auth/drive.readonly',
 ];
 
 const REDIRECT_PORT = 3456;
@@ -71,8 +75,8 @@ async function main(): Promise<void> {
     prompt: 'consent', // force a refresh token even on re-auth
   });
 
-  console.log('\nGmail OAuth bootstrap');
-  console.log('─────────────────────');
+  console.log('\nGoogle OAuth bootstrap (Gmail + Calendar + Drive)');
+  console.log('─────────────────────────────────────────────────');
   console.log(`Listening on ${REDIRECT_URI}`);
   console.log('Opening your browser. If it does not open, paste this URL:\n');
   console.log(authUrl);
@@ -139,12 +143,13 @@ async function main(): Promise<void> {
 
         console.log('\n────────────────────────────────────────────────────────────');
         console.log('Refresh token captured.\n');
-        console.log('GMAIL_REFRESH_TOKEN:');
+        console.log('GOOGLE_REFRESH_TOKEN (covers Gmail + Calendar + Drive):');
         console.log(refreshToken);
-        console.log('\nSet it on Fly:');
-        console.log(`  fly secrets set GMAIL_REFRESH_TOKEN=${refreshToken} -a ${FLY_APP_NAME}`);
+        console.log('\nSet it on Fly (sets BOTH names so legacy code keeps working):');
+        console.log(`  fly secrets set GMAIL_REFRESH_TOKEN=${refreshToken} GOOGLE_REFRESH_TOKEN=${refreshToken} -a ${FLY_APP_NAME}`);
         console.log('\nOr add to .env for local testing:');
         console.log(`  GMAIL_REFRESH_TOKEN=${refreshToken}`);
+        console.log(`  GOOGLE_REFRESH_TOKEN=${refreshToken}`);
         console.log('────────────────────────────────────────────────────────────\n');
 
         server.close();

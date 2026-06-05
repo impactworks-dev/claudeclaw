@@ -14,6 +14,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Api, RawApi } from 'grammy';
 
 import { ALLOWED_CHAT_ID, GOOGLE_API_KEY, PROJECT_ROOT } from './config.js';
@@ -22,6 +24,9 @@ import { generateContent } from './gemini.js';
 import { logger } from './logger.js';
 import { getCashData } from './cash-data.js';
 import { getOutreachData } from './outreach-data.js';
+
+const execFileAsync = promisify(execFile);
+const GCAL_CLI = path.join(PROJECT_ROOT, 'dist', 'gcal-cli.js');
 
 const ROSTER_FILE = path.join(PROJECT_ROOT, 'store', 'bid-roster.json');
 
@@ -51,6 +56,50 @@ async function buildCashLine(): Promise<string> {
   } catch (e) { return 'Cash: data unavailable.'; }
 }
 
+interface CalEvent {
+  id?: string; title?: string; start?: string; end?: string;
+  allDay?: boolean; location?: string; attendees?: Array<{ name?: string; email?: string }>;
+}
+
+/** Pull today's calendar via the gcal CLI. Returns a one-line summary
+ *  plus a block of formatted events for the brief prompt. Silent skip
+ *  if the CLI isn't built or the token doesn't authorize calendar yet. */
+async function buildCalendarBlock(): Promise<{ summaryLine: string; eventsBlock: string }> {
+  if (!fs.existsSync(GCAL_CLI)) {
+    return { summaryLine: 'Calendar: gcal-cli not built yet.', eventsBlock: '' };
+  }
+  try {
+    const { stdout } = await execFileAsync('node', [GCAL_CLI, 'today'], {
+      env: { ...process.env },
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const j = JSON.parse(stdout) as { ok: boolean; count?: number; events?: CalEvent[]; error?: string };
+    if (!j.ok || !Array.isArray(j.events)) {
+      return { summaryLine: `Calendar: ${j.error || 'unknown error'}`, eventsBlock: '' };
+    }
+    if (j.events.length === 0) {
+      return { summaryLine: 'Calendar: no events today.', eventsBlock: '' };
+    }
+    const fmt = (e: CalEvent) => {
+      const startTime = e.start && !e.allDay
+        ? new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        : (e.allDay ? 'all day' : '?');
+      const who = e.attendees && e.attendees.length > 0
+        ? ` w/ ${e.attendees.slice(0, 3).map(a => a.name || a.email).filter(Boolean).join(', ')}`
+        : '';
+      const where = e.location ? ` @ ${e.location.slice(0, 40)}` : '';
+      return `  ${startTime} — ${e.title || '(untitled)'}${who}${where}`;
+    };
+    return {
+      summaryLine: `Calendar: ${j.events.length} event${j.events.length === 1 ? '' : 's'} today.`,
+      eventsBlock: j.events.map(fmt).join('\n'),
+    };
+  } catch (e) {
+    const msg = String((e as Error)?.message || e).slice(0, 120);
+    return { summaryLine: `Calendar: cli failed (${msg})`, eventsBlock: '' };
+  }
+}
+
 function buildBidRosterLine(): string {
   try {
     const j = JSON.parse(fs.readFileSync(ROSTER_FILE, 'utf-8'));
@@ -68,6 +117,9 @@ Goals:
 
 Operational context for today:
 {OPERATIONAL_CONTEXT}
+
+Today's calendar:
+{CALENDAR}
 
 Recent high-importance memories (last 7 days):
 {MEMORIES}
@@ -96,8 +148,10 @@ export async function runDailyBrief(api: Api<RawApi> | null, chatId: string): Pr
   const outreachLine = buildOutreachLine();
   const cashLine = await buildCashLine();
   const bidRosterLine = buildBidRosterLine();
+  const { summaryLine: calLine, eventsBlock: calEvents } = await buildCalendarBlock();
 
-  const operationalContext = [cashLine, outreachLine, bidRosterLine].filter(Boolean).join('\n');
+  const operationalContext = [cashLine, outreachLine, bidRosterLine, calLine].filter(Boolean).join('\n');
+  const calendarBlock = calEvents || '(no events today)';
   const memoriesBlock = memories.length === 0
     ? '(none in the last 7 days)'
     : memories.map(m => `[importance ${m.importance.toFixed(2)}] ${m.summary}`).join('\n');
@@ -107,6 +161,7 @@ export async function runDailyBrief(api: Api<RawApi> | null, chatId: string): Pr
 
   const prompt = BRIEF_PROMPT
     .replace('{OPERATIONAL_CONTEXT}', operationalContext || '(no operational context available)')
+    .replace('{CALENDAR}', calendarBlock)
     .replace('{MEMORIES}', memoriesBlock)
     .replace('{CONSOLIDATIONS}', consolidationsBlock);
 

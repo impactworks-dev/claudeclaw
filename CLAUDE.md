@@ -101,6 +101,59 @@ Local Obsidian vault is at `/Users/dantecrescenzi/Documents/Claude/Obsidian Brai
 
 **Needs-auth connectors:** PayPal, Adzviser, Zapier, Stripe — will require OAuth before first use.
 
+## Google Calendar API
+
+For calendar reads, prefer the gcal CLI. Uses the same Google OAuth refresh token as the Gmail CLI — `GOOGLE_REFRESH_TOKEN` (falls back to `GMAIL_REFRESH_TOKEN`) plus `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
+
+```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+
+# Today's events on primary calendar
+node "$PROJECT_ROOT/dist/gcal-cli.js" today
+
+# Next 7 days
+node "$PROJECT_ROOT/dist/gcal-cli.js" week
+
+# Custom range
+node "$PROJECT_ROOT/dist/gcal-cli.js" list-events --from 2026-06-04 --to 2026-06-11
+
+# One event in full
+node "$PROJECT_ROOT/dist/gcal-cli.js" get-event <eventId>
+
+# List all calendars (find non-primary IDs)
+node "$PROJECT_ROOT/dist/gcal-cli.js" calendars
+
+# Verify auth
+node "$PROJECT_ROOT/dist/gcal-cli.js" status
+```
+
+All commands print JSON to stdout. The morning brief uses this for the calendar block.
+
+## Google Drive API
+
+Same OAuth token as Gmail + Calendar. Auto-exports Docs/Sheets/Slides to text when reading.
+
+```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+
+# Search
+node "$PROJECT_ROOT/dist/gdrive-cli.js" search "Q3 roadmap"
+
+# Recently modified
+node "$PROJECT_ROOT/dist/gdrive-cli.js" recent --max 20
+
+# File metadata
+node "$PROJECT_ROOT/dist/gdrive-cli.js" get <fileId>
+
+# File content as text (Google Docs → plain text, Sheets → CSV)
+node "$PROJECT_ROOT/dist/gdrive-cli.js" read <fileId>
+
+# Verify auth
+node "$PROJECT_ROOT/dist/gdrive-cli.js" status
+```
+
+Capped at 50K chars per read so the prompt budget stays sane.
+
 ## Email (Gmail API)
 
 For sending, reading, searching, replying, and drafting email, prefer the Gmail CLI over MCP. It works the same locally and on Fly, uses a stored refresh token, and returns JSON the agent can parse directly.
