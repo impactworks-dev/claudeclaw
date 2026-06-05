@@ -402,6 +402,29 @@ function createSchema(database: Database.Database): void {
       created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
+    -- Proactive alerts: each unique "signal" Nikki flagged with cooldown
+    -- tracking so we don't spam Dante. signal_key is a stable identifier
+    -- (e.g. "cash_low_balance", "task_overdue_TASK-123", "brief_unacted_4").
+    -- Last-fired timestamp gates the cooldown; dismissed_at suppresses for
+    -- 7 days; snoozed_until pushes the next-eligible time forward.
+    CREATE TABLE IF NOT EXISTS proactive_alerts (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_key    TEXT NOT NULL,
+      severity      TEXT NOT NULL DEFAULT 'info',    -- critical | warn | info
+      kind          TEXT NOT NULL,                   -- heartbeat | money_idea
+      title         TEXT NOT NULL,
+      body          TEXT NOT NULL,
+      related_url   TEXT,
+      generated_at  INTEGER NOT NULL,
+      sent_at       INTEGER,
+      dismissed_at  INTEGER,
+      snoozed_until INTEGER,
+      telegram_message_id INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_proactive_alerts_signal ON proactive_alerts(signal_key, generated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_proactive_alerts_generated ON proactive_alerts(generated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_proactive_alerts_kind ON proactive_alerts(kind, generated_at DESC);
+
     -- Daily Brief archive: each morning's 7am brief gets persisted here so
     -- the Founder Dashboard can surface the latest one and we keep a running
     -- log for "what did Nikki flag, did I act on it" review.
@@ -1289,6 +1312,91 @@ export function getRecentDailyBriefs(limit = 14): DailyBriefRow[] {
 export function getDailyBrief(id: number): DailyBriefRow | null {
   const row = db.prepare(`SELECT * FROM daily_briefs WHERE id = ?`).get(id) as DailyBriefRow | undefined;
   return row || null;
+}
+
+// ── Proactive alerts ─────────────────────────────────────────────────
+
+export interface ProactiveAlertRow {
+  id: number;
+  signal_key: string;
+  severity: 'critical' | 'warn' | 'info';
+  kind: 'heartbeat' | 'money_idea';
+  title: string;
+  body: string;
+  related_url: string | null;
+  generated_at: number;
+  sent_at: number | null;
+  dismissed_at: number | null;
+  snoozed_until: number | null;
+  telegram_message_id: number | null;
+}
+
+/** Decide whether a signal is eligible to fire NOW.
+ *  Rules:
+ *   - If never fired before → eligible
+ *   - If dismissed in last 7 days → blocked
+ *   - If snoozed_until > now → blocked
+ *   - Otherwise, eligible iff (now - last_sent_at) > cooldownMs
+ */
+export function shouldFireSignal(signalKey: string, cooldownMs: number): { fire: boolean; reason: string; lastFiredAt: number | null } {
+  const now = Date.now();
+  const last = db
+    .prepare(`SELECT * FROM proactive_alerts WHERE signal_key = ? ORDER BY generated_at DESC LIMIT 1`)
+    .get(signalKey) as ProactiveAlertRow | undefined;
+  if (!last) return { fire: true, reason: 'first time', lastFiredAt: null };
+  if (last.dismissed_at && now - last.dismissed_at < 7 * 24 * 3600 * 1000) {
+    return { fire: false, reason: 'dismissed within 7 days', lastFiredAt: last.sent_at };
+  }
+  if (last.snoozed_until && now < last.snoozed_until) {
+    return { fire: false, reason: 'snoozed', lastFiredAt: last.sent_at };
+  }
+  const ageMs = now - (last.sent_at || last.generated_at);
+  if (ageMs < cooldownMs) {
+    return { fire: false, reason: `cooldown active (${Math.round(ageMs / 60000)}m of ${Math.round(cooldownMs / 60000)}m)`, lastFiredAt: last.sent_at };
+  }
+  return { fire: true, reason: 'cooldown elapsed', lastFiredAt: last.sent_at };
+}
+
+export function insertProactiveAlert(opts: {
+  signalKey: string; severity: 'critical' | 'warn' | 'info'; kind: 'heartbeat' | 'money_idea';
+  title: string; body: string; relatedUrl?: string;
+}): number {
+  const r = db
+    .prepare(
+      `INSERT INTO proactive_alerts (signal_key, severity, kind, title, body, related_url, generated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(opts.signalKey, opts.severity, opts.kind, opts.title, opts.body, opts.relatedUrl || null, Date.now());
+  return Number(r.lastInsertRowid);
+}
+
+export function markAlertSent(id: number, telegramMessageId: number | null): void {
+  db.prepare(`UPDATE proactive_alerts SET sent_at = ?, telegram_message_id = ? WHERE id = ?`)
+    .run(Date.now(), telegramMessageId, id);
+}
+
+export function dismissAlert(id: number): void {
+  db.prepare(`UPDATE proactive_alerts SET dismissed_at = ? WHERE id = ?`).run(Date.now(), id);
+}
+
+export function snoozeAlert(id: number, hoursFromNow: number): void {
+  db.prepare(`UPDATE proactive_alerts SET snoozed_until = ? WHERE id = ?`)
+    .run(Date.now() + hoursFromNow * 3600 * 1000, id);
+}
+
+export function getRecentProactiveAlerts(limit = 50, kind?: 'heartbeat' | 'money_idea'): ProactiveAlertRow[] {
+  if (kind) {
+    return db.prepare(`SELECT * FROM proactive_alerts WHERE kind = ? ORDER BY generated_at DESC LIMIT ?`)
+      .all(kind, limit) as ProactiveAlertRow[];
+  }
+  return db.prepare(`SELECT * FROM proactive_alerts ORDER BY generated_at DESC LIMIT ?`)
+    .all(limit) as ProactiveAlertRow[];
+}
+
+export function getAlertsToday(): ProactiveAlertRow[] {
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  return db.prepare(`SELECT * FROM proactive_alerts WHERE generated_at >= ? ORDER BY generated_at DESC`)
+    .all(startOfDay.getTime()) as ProactiveAlertRow[];
 }
 
 // ── Scheduled Tasks ──────────────────────────────────────────────────

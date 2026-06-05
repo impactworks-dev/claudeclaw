@@ -258,6 +258,35 @@ async function main(): Promise<void> {
       }
     }
 
+    // Heartbeat: hourly proactive scan + daily money-idea pulse. Main agent
+    // only so sub-agents don't all ping Dante in parallel. Both have built-in
+    // quiet hours, anti-spam cooldowns, and in-meeting suppression.
+    if (AGENT_ID === 'main' && ALLOWED_CHAT_ID && bot?.api) {
+      try {
+        const botApi = bot.api;
+        const { runHeartbeatScan, msUntilNextHeartbeat, runMoneyIdeas, msUntilNextMoneyIdeas } = await import('./heartbeat.js');
+
+        const hbMs = msUntilNextHeartbeat();
+        setTimeout(() => {
+          void runHeartbeatScan(botApi, ALLOWED_CHAT_ID);
+          setInterval(() => { void runHeartbeatScan(botApi, ALLOWED_CHAT_ID); }, 60 * 60 * 1000);
+        }, hbMs);
+
+        const miMs = msUntilNextMoneyIdeas();
+        setTimeout(() => {
+          void runMoneyIdeas(botApi, ALLOWED_CHAT_ID);
+          setInterval(() => { void runMoneyIdeas(botApi, ALLOWED_CHAT_ID); }, 24 * 60 * 60 * 1000);
+        }, miMs);
+
+        logger.info({
+          hoursUntilFirstHeartbeat: (hbMs / 3600000).toFixed(2),
+          hoursUntilFirstMoneyIdea: (miMs / 3600000).toFixed(2),
+        }, 'Heartbeat + money-ideas scheduled');
+      } catch (e) {
+        logger.warn({ err: String((e as Error)?.message || e) }, 'heartbeat: scheduler init failed');
+      }
+    }
+
     // Gmail watcher: polls every 5 min, auto-promotes outreach statuses for
     // any BID contact based on send/reply activity. No-ops if the roster
     // file is missing.

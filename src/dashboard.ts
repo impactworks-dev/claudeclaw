@@ -115,8 +115,9 @@ import { getNewsData } from './news-data.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
-import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief } from './db.js';
+import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert } from './db.js';
 import { generateBriefPreview } from './daily-brief.js';
+import { runHeartbeatScan, runMoneyIdeas } from './heartbeat.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
@@ -1499,6 +1500,55 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
+  });
+
+  // ── Proactive heartbeat ────────────────────────────────────────────
+  app.get('/api/heartbeat/recent', (c) => {
+    const limit = parseInt(c.req.query('limit') || '50', 10);
+    const kind = c.req.query('kind') as 'heartbeat' | 'money_idea' | undefined;
+    const alerts = getRecentProactiveAlerts(limit, kind);
+    return c.json({ alerts });
+  });
+
+  // Manual heartbeat scan. Pass ?send=1 to actually push to Telegram via the
+  // bot api injected at startup. Without it, runs in dry mode — checkers
+  // execute, alerts persist, but no Telegram ping (good for testing).
+  app.post('/api/heartbeat/run', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const apiRef = c.req.query('send') === '1' ? (botApi || null) : null;
+      const r = await runHeartbeatScan(apiRef, ALLOWED_CHAT_ID || '', { force });
+      return c.json(r);
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.post('/api/heartbeat/ideas', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const apiRef = c.req.query('send') === '1' ? (botApi || null) : null;
+      const r = await runMoneyIdeas(apiRef, ALLOWED_CHAT_ID || '', { force });
+      return c.json(r);
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.post('/api/heartbeat/:id/dismiss', async (c) => {
+    try {
+      dismissAlert(parseInt(c.req.param('id'), 10));
+      return c.json({ ok: true });
+    } catch (e) { return c.json({ error: String((e as Error)?.message || e) }, 500); }
+  });
+
+  app.post('/api/heartbeat/:id/snooze', async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({} as any));
+      const hours = parseInt(body?.hours || '24', 10);
+      snoozeAlert(parseInt(c.req.param('id'), 10), hours);
+      return c.json({ ok: true, hours });
+    } catch (e) { return c.json({ error: String((e as Error)?.message || e) }, 500); }
   });
 
   // Manual trigger for the nightly DB backup. Useful for smoke-testing and
