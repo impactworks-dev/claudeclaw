@@ -89,6 +89,88 @@ function Stat({ label, value, tone, sub }: { label: string; value: any; tone?: s
   );
 }
 
+// ── Cash Pulse card ────────────────────────────────────────────────────────
+// Compact 3-stat health view: balance (Plaid), burn/mo (QB or Plaid est.),
+// runway in months. Designed to be scanned in 2 seconds.
+interface CashPulseProps {
+  cash: { totalCashCents: number; last30NetCents: number; connectionStatus: string } | null;
+  qb: QbSummary | null;
+}
+function CashPulseTile({ cash, qb }: CashPulseProps) {
+  const plaidOk = cash?.connectionStatus === 'ok';
+  const qbOk   = qb?.connectionStatus  === 'ok';
+
+  // Monthly burn (positive = spending more than earning).
+  // Prefer QB 30-day net; fall back to Plaid heuristic when QB not wired.
+  const burnMoCents: number | null = qbOk
+    ? -qb!.last30.netCents
+    : plaidOk
+    ? -cash!.last30NetCents
+    : null;
+
+  const isBurning    = burnMoCents != null && burnMoCents > 0;
+  const balanceCents = cash?.totalCashCents ?? 0;
+
+  // Runway in months (null = cash-flow positive, show "Cash+")
+  const runwayMonths: number | null =
+    isBurning && balanceCents > 0
+      ? balanceCents / burnMoCents!
+      : null;
+
+  const runwayTone =
+    runwayMonths == null ? 'good'
+    : runwayMonths >= 6  ? 'good'
+    : runwayMonths >= 3  ? 'warn'
+    : 'bad';
+
+  const burnTone =
+    !isBurning            ? 'good'
+    : burnMoCents! > 500000 ? 'bad'   // > $5k/mo
+    : 'warn';
+
+  return (
+    <Tile icon={Wallet} title="Cash Pulse" href="/cash">
+      {!plaidOk ? (
+        /* Bank not connected yet */
+        <div class="text-[12px] text-[var(--color-text-muted)]">
+          No bank connected.{' '}
+          <Link href="/cash"><a class="underline">Set up Cash →</a></Link>
+        </div>
+      ) : (
+        <>
+          <div class="grid grid-cols-3 gap-4">
+            <Stat
+              label="Balance"
+              value={money(balanceCents)}
+              tone="good"
+              sub="bank"
+            />
+            <Stat
+              label="Burn / mo"
+              value={isBurning ? money(burnMoCents!) : '—'}
+              tone={isBurning ? burnTone : 'good'}
+              sub={qbOk ? 'QB 30d' : 'Plaid est.'}
+            />
+            <Stat
+              label="Runway"
+              value={runwayMonths == null ? 'Cash+' : runwayMonths.toFixed(1) + ' mo'}
+              tone={runwayTone}
+            />
+          </div>
+          {!qbOk && (
+            <div class="mt-2.5 text-[10.5px] text-[var(--color-text-faint)]">
+              Using Plaid estimates ·{' '}
+              <Link href="/settings">
+                <a class="underline hover:text-[var(--color-text-muted)]">Connect QuickBooks for accounting-grade numbers</a>
+              </Link>
+            </div>
+          )}
+        </>
+      )}
+    </Tile>
+  );
+}
+
 function StockRow({
   q, expanded, onToggle, onRemove,
 }: {
@@ -275,7 +357,10 @@ export function Founder() {
           </Link>
         )}
 
-        {/* Top row: Cash + Pipeline */}
+        {/* Cash Pulse — compact balance / burn / runway at a glance */}
+        <CashPulseTile cash={cash} qb={qb} />
+
+        {/* Top row: Cash (full detail) + Pipeline */}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Tile icon={Wallet} title={qbConnected ? `Cash · QB (${qb!.company.name || 'ImpactWorks'})` : 'Cash'} href="/cash">
             {data.cash.ok && cash ? (
