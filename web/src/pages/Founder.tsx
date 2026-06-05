@@ -253,6 +253,9 @@ export function Founder() {
 
       <div class="flex-1 overflow-auto p-4 space-y-4">
 
+        {/* Latest Morning Brief — promoted to the top so it's the first thing you see */}
+        <LatestBriefCard />
+
         {/* Primary attention: the ONE thing right now */}
         {data.primaryAttention && (
           <Link href={data.primaryAttention.href}>
@@ -559,9 +562,6 @@ export function Founder() {
             </div>
           </div>
         )}
-
-        {/* Latest Morning Brief — full-width hero card at the bottom */}
-        <LatestBriefCard />
 
         {/* Quick links footer */}
         <div class="flex flex-wrap gap-3 text-[11px] text-[var(--color-text-faint)] border-t border-[var(--color-border)] pt-3 mt-2">
