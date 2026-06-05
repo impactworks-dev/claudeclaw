@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
 import { useFetch } from '@/lib/useFetch';
 import { apiPost, apiDelete } from '@/lib/api';
+import { pushToast } from '@/lib/toasts';
 import { StockChart } from '@/components/StockChart';
 import { NikkiCard } from '@/components/NikkiCard';
 import { CalendarTile } from '@/components/CalendarTile';
@@ -503,7 +504,31 @@ export function Founder() {
               });
               setDismissed(prev => { const next = new Set(prev); next.add(p.topic); return next; });
               proposalsFetch.refresh();
-            } catch (e) {
+              pushToast({
+                tone: 'success',
+                title: `Added "${p.suggestedNoteName}" to wiki`,
+                description: 'Created in Decisions/ — Syncthing will push it to Obsidian shortly.',
+                durationMs: 5000,
+              });
+            } catch (e: any) {
+              const status = e?.status;
+              if (status === 409) {
+                pushToast({
+                  tone: 'warn',
+                  title: 'Already in wiki',
+                  description: `"${p.suggestedNoteName}" already exists in the vault.`,
+                  durationMs: 6000,
+                });
+                // Still dismiss locally so the card goes away
+                setDismissed(prev => { const next = new Set(prev); next.add(p.topic); return next; });
+              } else {
+                pushToast({
+                  tone: 'error',
+                  title: 'Failed to add to wiki',
+                  description: e?.message || String(e),
+                  durationMs: 8000,
+                });
+              }
               console.error('accept proposal', e);
             } finally { setAccepting(null); }
           }
