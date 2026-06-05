@@ -377,8 +377,8 @@ export async function runMoneyIdeas(api: Api<RawApi> | null, chatId: string, opt
   let wikiContext = '';
   try {
     const wiki = buildWikiContext('revenue opportunities client services agency offerings');
-    if (wiki.notes.length > 0) {
-      wikiContext = wiki.notes.slice(0, 3).map(n => `[[${n.title}]]: ${n.snippet || n.bodyPreview || ''}`.slice(0, 400)).join('\n');
+    if (wiki.contextText) {
+      wikiContext = wiki.contextText.slice(0, 1500);
     }
   } catch { /* wiki best-effort */ }
 
