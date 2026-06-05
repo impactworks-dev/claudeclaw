@@ -239,6 +239,25 @@ async function main(): Promise<void> {
       logger.info({ hoursUntilFirstBrief: hours }, 'Daily brief scheduled (7am local)');
     }
 
+    // Nightly off-Fly backup at 2:00 AM. SQLite snapshot → gzip → Google
+    // Drive folder "ClaudeClaw Backups". Rotates 30 daily + 12 monthly.
+    // No-ops on the main agent only (sub-agents shouldn't all back up
+    // independently). Skips silently if Google OAuth isn't configured.
+    if (AGENT_ID === 'main') {
+      try {
+        const { runBackup, msUntilNext2am } = await import('./backup.js');
+        const ms = msUntilNext2am();
+        setTimeout(() => {
+          void runBackup();
+          setInterval(() => { void runBackup(); }, 24 * 60 * 60 * 1000);
+        }, ms);
+        const hours = (ms / (60 * 60 * 1000)).toFixed(1);
+        logger.info({ hoursUntilFirstBackup: hours }, 'Nightly DB backup scheduled (2am local, off-Fly)');
+      } catch (e) {
+        logger.warn({ err: String((e as Error)?.message || e) }, 'backup: scheduler init failed');
+      }
+    }
+
     // Gmail watcher: polls every 5 min, auto-promotes outreach statuses for
     // any BID contact based on send/reply activity. No-ops if the roster
     // file is missing.

@@ -114,6 +114,7 @@ import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
+import { runBackup } from './backup.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
@@ -1444,6 +1445,17 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'calendar endpoint failed');
       return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Manual trigger for the nightly DB backup. Useful for smoke-testing and
+  // for "I'm about to do something risky, backup first" moments.
+  app.post('/api/backup/run', async (c) => {
+    try {
+      const result = await runBackup();
+      return c.json(result, result.ok ? 200 : 500);
+    } catch (e) {
+      return c.json({ ok: false, error: String((e as Error)?.message || e) }, 500);
     }
   });
 
