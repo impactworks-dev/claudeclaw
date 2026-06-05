@@ -33,8 +33,12 @@ const SCOPES = [
   // Calendar — added 2026-06-04 so Nikki's morning brief can pull today's events.
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/calendar.events',
-  // Drive — added 2026-06-04 for read access to docs/sheets Dante references.
+  // Drive — read access to docs/sheets Dante references (added 2026-06-04)
   'https://www.googleapis.com/auth/drive.readonly',
+  // Drive.file — write access scoped to files this app created/opened,
+  // used by the nightly off-Fly DB backup. NOT full Drive write — only
+  // the "ClaudeClaw Backups" folder + files we put there (added 2026-06-05).
+  'https://www.googleapis.com/auth/drive.file',
 ];
 
 const REDIRECT_PORT = 3456;
