@@ -38,6 +38,7 @@ interface ChatMsg {
   role: 'user' | 'assistant';
   text: string;
   ts: number;
+  sources?: { wikiPaths?: string[]; memoryIds?: number[] };
 }
 
 interface ElevenVoice {
@@ -155,7 +156,13 @@ export function NikkiCard() {
         if (!text) return;
         setMessages(prev => [
           ...prev,
-          { id: `a-${Date.now()}-${Math.random()}`, role: 'assistant', text, ts: Date.now() },
+          {
+            id: `a-${Date.now()}-${Math.random()}`,
+            role: 'assistant',
+            text,
+            ts: Date.now(),
+            sources: data?.sources,
+          },
         ]);
         setProcessing(false);
         agents.refresh();
@@ -579,6 +586,17 @@ export function NikkiCard() {
                 {m.role === 'user' ? 'You' : 'Nikki'}
               </span>
               {m.text}
+              {m.role === 'assistant' && m.sources && (m.sources.wikiPaths?.length || m.sources.memoryIds?.length) ? (
+                <div class="text-[9px] text-[var(--color-text-faint)] mt-1 pl-7" title="Context Nikki had access to for this reply">
+                  ⌬ {m.sources.wikiPaths && m.sources.wikiPaths.length > 0 && (
+                    <span>{m.sources.wikiPaths.map(p => p.split('/').pop()?.replace(/\.md$/, '')).filter(Boolean).slice(0, 3).join(' · ')}{m.sources.wikiPaths.length > 3 ? ` +${m.sources.wikiPaths.length - 3}` : ''}</span>
+                  )}
+                  {m.sources.wikiPaths && m.sources.wikiPaths.length > 0 && m.sources.memoryIds && m.sources.memoryIds.length > 0 ? ' · ' : ''}
+                  {m.sources.memoryIds && m.sources.memoryIds.length > 0 && (
+                    <span>{m.sources.memoryIds.length} {m.sources.memoryIds.length === 1 ? 'memory' : 'memories'}</span>
+                  )}
+                </div>
+              ) : null}
             </div>
           ))
         )}

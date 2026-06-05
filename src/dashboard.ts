@@ -115,6 +115,7 @@ import { getNewsData } from './news-data.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
+import { getBrainProposals, invalidateProposalsCache } from './brain-proposals.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
 import { getWarRoomHtml } from './warroom-html.js';
@@ -2507,7 +2508,50 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // Force-rebuild the in-memory index. Useful after a big vault edit.
   app.post('/api/brain/reindex', (c) => {
     invalidateBrainCache();
+    invalidateProposalsCache();
     return c.json({ ok: true, stats: getBrainStats() });
+  });
+
+  // Promotion proposals — patterns in the memory DB worth promoting to canon.
+  app.get('/api/brain/proposals', (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      return c.json({ proposals: getBrainProposals({ force }) });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e), proposals: [] }, 500);
+    }
+  });
+
+  // Accept a proposal — create a stub wiki note from the suggested name + examples.
+  // The note is written to Decisions/ (or whatever folder the user prefers via
+  // body.folder) and Syncthing pushes it back to the Mac.
+  app.post('/api/brain/proposals/accept', async (c) => {
+    try {
+      const body = await c.req.json<{ topic?: string; folder?: string; examples?: string[] }>();
+      const topic = String(body?.topic || '').trim();
+      if (!topic) return c.json({ error: 'topic required' }, 400);
+      const folder = String(body?.folder || 'Decisions').trim();
+      const examples = Array.isArray(body?.examples) ? body!.examples!.slice(0, 5) : [];
+      const stats = getBrainStats();
+      if (!stats.exists) return c.json({ error: 'vault not present on disk' }, 500);
+      const noteName = topic.charAt(0).toUpperCase() + topic.slice(1);
+      const dirPath = path.join(stats.vaultPath, folder);
+      try { fs.mkdirSync(dirPath, { recursive: true }); } catch { /* ignore */ }
+      const filePath = path.join(dirPath, noteName.replace(/[\\/]/g, '-') + '.md');
+      if (fs.existsSync(filePath)) {
+        return c.json({ error: 'note already exists', path: filePath }, 409);
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      const exampleLines = examples.map(e => `> ${e.replace(/\n+/g, ' ')}`).join('\n\n');
+      const content = `---\ntitle: ${noteName}\ntags: [proposed, ${today}]\n---\n\n# ${noteName}\n\n*Promoted from memory pattern on ${today}. Edit freely.*\n\n${exampleLines}\n\n## Why this is worth keeping\n\n*Add context here.*\n\n## Related\n\n- *Add wikilinks here*\n`;
+      fs.writeFileSync(filePath, content, 'utf-8');
+      invalidateBrainCache();
+      invalidateProposalsCache();
+      return c.json({ ok: true, path: filePath });
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, '/api/brain/proposals/accept failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
   });
 
   // Abort current processing

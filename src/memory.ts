@@ -37,6 +37,8 @@ export interface MemoryContextResult {
   contextText: string;
   surfacedMemoryIds: number[];
   surfacedMemorySummaries: Map<number, string>;
+  /** Wiki note paths surfaced from the Obsidian Brain. Empty if vault unavailable. */
+  surfacedWikiPaths: string[];
 }
 
 export interface BuildMemoryContextOpts {
@@ -124,10 +126,11 @@ export async function buildMemoryContext(
   }
 
   if (memLines.length === 0 && insightLines.length === 0 && !agentObsidianConfig) {
-    return { contextText: '', surfacedMemoryIds: [], surfacedMemorySummaries: new Map() };
+    return { contextText: '', surfacedMemoryIds: [], surfacedMemorySummaries: new Map(), surfacedWikiPaths: [] };
   }
 
   const parts: string[] = [];
+  let wikiPaths: string[] = [];
 
   if (memLines.length > 0 || insightLines.length > 0) {
     const blocks: string[] = ['[Memory context]'];
@@ -185,12 +188,20 @@ export async function buildMemoryContext(
   // memory DB above with deliberately curated facts.
   try {
     const wikiCtx = buildWikiContext(userMessage);
-    if (wikiCtx.contextText) parts.push(wikiCtx.contextText);
+    if (wikiCtx.contextText) {
+      parts.push(wikiCtx.contextText);
+      wikiPaths = wikiCtx.surfacedPaths;
+    }
   } catch (e) {
     logger.warn({ err: String((e as Error)?.message || e) }, 'buildWikiContext failed (non-fatal)');
   }
 
-  return { contextText: parts.join('\n\n'), surfacedMemoryIds: [...seen], surfacedMemorySummaries: summaryMap };
+  return {
+    contextText: parts.join('\n\n'),
+    surfacedMemoryIds: [...seen],
+    surfacedMemorySummaries: summaryMap,
+    surfacedWikiPaths: wikiPaths,
+  };
 }
 
 /**

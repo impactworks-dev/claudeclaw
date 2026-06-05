@@ -509,7 +509,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
   const sessionId = getSession(chatIdStr, AGENT_ID);
 
   // Build memory context and prepend to message
-  const { contextText: memCtx, surfacedMemoryIds, surfacedMemorySummaries } = await buildMemoryContext(chatIdStr, message, AGENT_ID);
+  const { contextText: memCtx, surfacedMemoryIds, surfacedMemorySummaries, surfacedWikiPaths } = await buildMemoryContext(chatIdStr, message, AGENT_ID);
   const parts: string[] = [];
   if (agentSystemPrompt && !sessionId) parts.push(`[Agent role — follow these instructions]\n${agentSystemPrompt}\n[End agent role]`);
   if (memCtx) parts.push(memCtx);
@@ -689,8 +689,14 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
       }
     }
 
-    // Emit assistant response to SSE clients
-    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, content: rawResponse, source: 'telegram' });
+    // Emit assistant response to SSE clients with source attribution
+    emitChatEvent({
+      type: 'assistant_message',
+      chatId: chatIdStr,
+      content: rawResponse,
+      source: 'telegram',
+      sources: { wikiPaths: surfacedWikiPaths, memoryIds: surfacedMemoryIds },
+    });
 
     // Send any attached files first
     for (const file of fileMarkers) {
@@ -1849,7 +1855,7 @@ async function processDashboardMessage(
   try {
     const sessionId = getSession(chatIdStr, AGENT_ID);
 
-    const { contextText: memCtx, surfacedMemoryIds: dashSurfacedIds, surfacedMemorySummaries: dashSummaries } = await buildMemoryContext(chatIdStr, text, AGENT_ID);
+    const { contextText: memCtx, surfacedMemoryIds: dashSurfacedIds, surfacedMemorySummaries: dashSummaries, surfacedWikiPaths: dashWikiPaths } = await buildMemoryContext(chatIdStr, text, AGENT_ID);
     const dashParts: string[] = [];
     if (agentSystemPrompt && !sessionId) dashParts.push(`[Agent role — follow these instructions]\n${agentSystemPrompt}\n[End agent role]`);
     if (memCtx) dashParts.push(memCtx);
@@ -1914,7 +1920,14 @@ async function processDashboardMessage(
 
     // Emit assistant response to SSE clients. Dashboard chat and Telegram
     // are distinct channels now — no Telegram mirror here.
-    emitChatEvent({ type: 'assistant_message', chatId: chatIdStr, agentId: AGENT_ID, content: rawResponse, source: 'dashboard' });
+    emitChatEvent({
+      type: 'assistant_message',
+      chatId: chatIdStr,
+      agentId: AGENT_ID,
+      content: rawResponse,
+      source: 'dashboard',
+      sources: { wikiPaths: dashWikiPaths, memoryIds: dashSurfacedIds },
+    });
 
     // Log token usage
     if (result.usage) {

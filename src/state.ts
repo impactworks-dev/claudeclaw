@@ -93,6 +93,12 @@ export interface ChatEvent {
   source?: 'telegram' | 'dashboard' | 'signal';
   description?: string;
   processing?: boolean;
+  /** Source attribution for assistant_message events — populated when
+   *  the message was answered with context from the wiki and/or memory DB. */
+  sources?: {
+    wikiPaths?: string[];
+    memoryIds?: number[];
+  };
   timestamp: number;
 }
 

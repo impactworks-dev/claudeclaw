@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks';
-import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper, Plus, X } from 'lucide-preact';
+import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper, Plus, X, Sparkles, Library } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
@@ -7,6 +7,8 @@ import { useFetch } from '@/lib/useFetch';
 import { apiPost, apiDelete } from '@/lib/api';
 import { StockChart } from '@/components/StockChart';
 import { NikkiCard } from '@/components/NikkiCard';
+
+interface BrainProposal { topic: string; hitCount: number; importance: number; examples: string[]; suggestedNoteName: string; }
 
 interface Section<T> { ok: boolean; error: string | null; data: T | null; }
 interface AttentionItem { severity: 'critical' | 'warn' | 'info'; source: 'cash' | 'pipeline' | 'outreach' | 'members'; title: string; detail: string; href: string; }
@@ -168,6 +170,11 @@ export function Founder() {
   const qbFetch = useFetch<QbSummary>('/api/qb');
   const stocksFetch = useFetch<StocksSummary>('/api/stocks');
   const newsFetch = useFetch<NewsSummary>('/api/ai-news');
+  const proposalsFetch = useFetch<{ proposals: BrainProposal[] }>('/api/brain/proposals', 5 * 60_000);
+
+  // Promotion accept/dismiss state — local-only dismiss for now
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [accepting, setAccepting] = useState<string | null>(null);
 
   const today = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }), [data]);
 
@@ -468,6 +475,71 @@ export function Founder() {
             <NikkiCard />
           </div>
         </div>
+
+        {/* Brain promotion proposals — patterns Nikki noticed in your memory DB
+            that aren't yet canonical wiki notes. One click to promote to canon. */}
+        {(() => {
+          const props = (proposalsFetch.data?.proposals || []).filter(p => !dismissed.has(p.topic));
+          if (props.length === 0) return null;
+          async function acceptProposal(p: BrainProposal) {
+            setAccepting(p.topic);
+            try {
+              await apiPost('/api/brain/proposals/accept', {
+                topic: p.suggestedNoteName,
+                folder: 'Decisions',
+                examples: p.examples,
+              });
+              setDismissed(prev => { const next = new Set(prev); next.add(p.topic); return next; });
+              proposalsFetch.refresh();
+            } catch (e) {
+              console.error('accept proposal', e);
+            } finally { setAccepting(null); }
+          }
+          return (
+            <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+              <div class="flex items-center gap-2 mb-2">
+                <Sparkles size={14} class="text-[var(--color-accent)]" />
+                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">
+                  Brain proposals · {props.length}
+                </div>
+                <Link href="/brain">
+                  <a class="text-[10px] text-[var(--color-text-faint)] hover:text-[var(--color-text)] ml-auto inline-flex items-center gap-0.5">
+                    open Brain <ArrowRight size={10} />
+                  </a>
+                </Link>
+              </div>
+              <div class="space-y-1.5">
+                {props.slice(0, 4).map(p => (
+                  <div key={p.topic} class="flex items-start gap-2 text-[11px] py-1.5 px-2 rounded bg-[var(--color-elevated)]">
+                    <Library size={12} class="text-[var(--color-accent)] mt-0.5 shrink-0" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-[var(--color-text)] font-medium">{p.suggestedNoteName}</div>
+                      <div class="text-[10px] text-[var(--color-text-faint)] truncate">
+                        Seen in {p.hitCount} memories · avg importance {p.importance.toFixed(1)} · e.g. "{p.examples[0]?.slice(0, 80)}…"
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => acceptProposal(p)}
+                      disabled={accepting === p.topic}
+                      class="text-[10px] px-2 py-1 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 disabled:opacity-40 shrink-0"
+                    >
+                      {accepting === p.topic ? 'Adding…' : 'Add to wiki'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissed(prev => { const n = new Set(prev); n.add(p.topic); return n; })}
+                      class="text-[10px] px-1.5 py-1 rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)] shrink-0"
+                      aria-label="Dismiss"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Full attention list (excluding the primary, which is already prominent) */}
         {data.attentionList.length > 1 && (
