@@ -54,12 +54,36 @@ export interface ThreadDetail {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const URGENT_KEYWORDS = [
-  'urgent', 'asap', 'overdue', 'past due', 'invoice', 'payment',
-  'contract', 'agreement', 'signature', 'sign', 'deadline',
-  'expir', 'today', 'this week', 'final notice', 'reminder',
-  'action required', 'response needed', 'please confirm',
+// Urgency detection. Word-boundary regex matches only — single bare words
+// like "today" caused false positives ("Game of Thrones is available now —
+// today!"). Phrase-only matches for the noisiest words.
+const URGENT_REGEX = [
+  /\burgent\b/i,
+  /\basap\b/i,
+  /\boverdue\b/i,
+  /\bpast\s+due\b/i,
+  /\bunpaid\s+invoice\b/i,
+  /\binvoice\s+(due|overdue|attached)\b/i,
+  /\bpayment\s+(due|overdue|required|reminder|failed)\b/i,
+  /\bcontract\s+(attached|to\s+sign|review|expir|signed)\b/i,
+  /\bsignature\s+(required|requested|needed)\b/i,
+  /\b(needs|need|requires)\s+(your\s+)?signature\b/i,
+  /\bplease\s+sign\b/i,
+  /\bdeadline\b/i,
+  /\bexpir(es?|ing|ed)\s+(today|tomorrow|in)\b/i,
+  /\bdue\s+(today|tomorrow|by)\b/i,
+  /\bby\s+(eod|cob|end\s+of\s+day|end\s+of\s+business)\b/i,
+  /\bfinal\s+notice\b/i,
+  /\baction\s+required\b/i,
+  /\bresponse\s+needed\b/i,
+  /\bplease\s+confirm\b/i,
+  /\bfollow[\s-]?up\b/i,
+  /\btime[\s-]?sensitive\b/i,
 ];
+
+// Senders we exclude from urgency entirely — newsletters, marketing,
+// receipts. These almost never carry real-action emails.
+const MARKETING_SENDER_RE = /(noreply|no-reply|notifications|donotreply|do-not-reply|@email\.|@mail\.|@news\.|newsletter|marketing|updates|alerts)/i;
 
 function parseFromHeader(from: string): { name: string; email: string } {
   // "Dante Crescenzi <dante@impactworks.com>" → { name: "Dante Crescenzi", email: "dante@impactworks.com" }
@@ -75,9 +99,11 @@ function parseGmailDate(s: string): number {
   return isNaN(t) ? Date.now() : t;
 }
 
-function hasUrgent(subject: string, snippet: string): boolean {
-  const blob = `${subject} ${snippet}`.toLowerCase();
-  return URGENT_KEYWORDS.some(kw => blob.includes(kw));
+function hasUrgent(subject: string, snippet: string, fromHeader: string): boolean {
+  // Marketing senders never count as urgent, regardless of content
+  if (MARKETING_SENDER_RE.test(fromHeader)) return false;
+  const blob = `${subject} ${snippet}`;
+  return URGENT_REGEX.some(re => re.test(blob));
 }
 
 function shapeRow(raw: any): EmailRow {
@@ -97,7 +123,7 @@ function shapeRow(raw: any): EmailRow {
     receivedAt,
     unread: !!raw.unread,
     ageHours,
-    hasUrgentKeyword: hasUrgent(raw.subject || '', raw.snippet || ''),
+    hasUrgentKeyword: hasUrgent(raw.subject || '', raw.snippet || '', raw.from || ''),
   };
 }
 
