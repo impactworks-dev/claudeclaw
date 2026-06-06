@@ -24,7 +24,7 @@
     "uninstall": "npm uninstall"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.34",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.150",
     "@google/genai": "^1.44.0",
     "@hono/node-server": "^1.19.9",
     "@monaco-editor/react": "^4.7.0",
