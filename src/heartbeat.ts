@@ -47,6 +47,7 @@ import { getOutreachData } from './outreach-data.js';
 import { getQbData } from './qb-data.js';
 import { getVendastaData } from './vendasta-data.js';
 import { buildWikiContext } from './brain-data.js';
+import { findStaleImportantEmails } from './email-data.js';
 
 const execFileAsync = promisify(execFile);
 const GCAL_CLI = path.join(PROJECT_ROOT, 'dist', 'gcal-cli.js');
@@ -207,6 +208,31 @@ function checkUnactedBriefs(): Alert[] {
   return out;
 }
 
+/** Unread emails 24h+ from known clients or with urgency keywords. */
+async function checkStaleImportantEmails(): Promise<Alert[]> {
+  const out: Alert[] = [];
+  try {
+    const stale = await findStaleImportantEmails({ minHours: 24, knownOnly: true });
+    if (stale.length === 0) return out;
+    const top = stale.slice(0, 3);
+    const lines = top.map(e => {
+      const who = e.fromName || e.fromEmail;
+      const ageStr = e.ageHours > 24 ? `${Math.round(e.ageHours / 24)}d` : `${Math.round(e.ageHours)}h`;
+      const tag = e.hasUrgentKeyword ? '⚠️ ' : '';
+      return `${tag}${who} (${ageStr}): ${e.subject.slice(0, 60)}`;
+    });
+    out.push({
+      signalKey: 'email_stale_important',
+      severity: top.some(t => t.hasUrgentKeyword) ? 'warn' : 'info',
+      title: `${stale.length} unread email${stale.length === 1 ? '' : 's'} need${stale.length === 1 ? 's' : ''} a look`,
+      body: lines.join('\n'),
+      cooldownMs: 12 * HR,
+      emoji: '📨',
+    });
+  } catch (e) { logger.warn({ err: String((e as Error)?.message || e) }, 'heartbeat: email check failed'); }
+  return out;
+}
+
 /** Vendasta market quiet: flag if a market hasn't logged activity in 14+ days. */
 async function checkVendastaQuiet(): Promise<Alert[]> {
   const out: Alert[] = [];
@@ -263,6 +289,7 @@ export async function runHeartbeatScan(api: Api<RawApi> | null, chatId: string, 
     Promise.resolve(checkOutreachOverdue()),
     Promise.resolve(checkUnactedBriefs()),
     checkVendastaQuiet(),
+    checkStaleImportantEmails(),
   ]);
   const allEmitted = buckets.flat();
 

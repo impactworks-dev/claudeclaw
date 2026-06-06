@@ -11,6 +11,7 @@ import { NikkiCard } from '@/components/NikkiCard';
 import { CalendarTile } from '@/components/CalendarTile';
 import { VendastaTile } from '@/components/VendastaTile';
 import { LatestBriefCard } from '@/components/LatestBriefCard';
+import { InboxCard } from '@/components/InboxCard';
 
 interface BrainProposal { topic: string; hitCount: number; importance: number; examples: string[]; suggestedNoteName: string; }
 
@@ -573,6 +574,9 @@ export function Founder() {
           <CalendarTile />
           <VendastaTile />
         </div>
+
+        {/* Inbox — full-width row (long row of subjects reads better wide) */}
+        <InboxCard />
 
         {/* Brain promotion proposals — patterns Nikki noticed in your memory DB
             that aren't yet canonical wiki notes. One click to promote to canon. */}

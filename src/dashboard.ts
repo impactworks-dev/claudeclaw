@@ -118,6 +118,7 @@ import { runBackup } from './backup.js';
 import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert } from './db.js';
 import { generateBriefPreview } from './daily-brief.js';
 import { runHeartbeatScan, runMoneyIdeas } from './heartbeat.js';
+import { getInbox, getThread, invalidateInboxCache } from './email-data.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
@@ -1497,6 +1498,31 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       const r = await generateBriefPreview(chatId);
       if (!r) return c.json({ error: 'brief generation returned empty or unconfigured' }, 500);
       return c.json({ ok: true, id: r.id, body: r.body });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // ── Personal inbox (Gmail) ─────────────────────────────────────────
+  app.get('/api/email/inbox', async (c) => {
+    try {
+      const limit = parseInt(c.req.query('limit') || '25', 10);
+      const force = c.req.query('force') === '1';
+      if (force) invalidateInboxCache();
+      const r = await getInbox({ limit, force });
+      return c.json(r);
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.get('/api/email/thread/:id', async (c) => {
+    try {
+      const id = c.req.param('id');
+      const force = c.req.query('force') === '1';
+      const r = await getThread(id, force);
+      if ('error' in r) return c.json(r, 500);
+      return c.json(r);
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }

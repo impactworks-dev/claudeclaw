@@ -24,6 +24,7 @@ import { generateContent } from './gemini.js';
 import { logger } from './logger.js';
 import { getCashData } from './cash-data.js';
 import { getOutreachData } from './outreach-data.js';
+import { buildBriefEmailBlock } from './email-data.js';
 
 const execFileAsync = promisify(execFile);
 const GCAL_CLI = path.join(PROJECT_ROOT, 'dist', 'gcal-cli.js');
@@ -174,8 +175,10 @@ async function composeBrief(chatId: string): Promise<string> {
   const cashLine = await buildCashLine();
   const bidRosterLine = buildBidRosterLine();
   const { summaryLine: calLine, eventsBlock: calEvents } = await buildCalendarBlock();
+  let emailBlock = '';
+  try { emailBlock = await buildBriefEmailBlock(3); } catch { /* non-fatal */ }
 
-  const operationalContext = [cashLine, outreachLine, bidRosterLine, calLine].filter(Boolean).join('\n');
+  const operationalContext = [cashLine, outreachLine, bidRosterLine, calLine, emailBlock].filter(Boolean).join('\n');
   const calendarBlock = calEvents || '(no events today)';
   const memoriesBlock = memories.length === 0
     ? '(none in the last 7 days)'
