@@ -20,17 +20,21 @@ import { SortableSection } from '@/components/SortableSection';
 // `sections` object inside the component.
 const DEFAULT_SECTION_ORDER = [
   'brief',
+  'nikki',
   'attention',
   'cash-pulse',
   'cash-pipeline',
   'outreach-members',
-  'stocks-news-nikki',
+  'stocks-news',
   'cal-vendasta',
   'inbox',
   'brain-proposals',
   'watchlist',
 ] as const;
-const SECTION_ORDER_KEY = 'founder-section-order-v1';
+// Bumped to v2 when nikki was split out into its own section. Old saved
+// orders containing the legacy `stocks-news-nikki` id are discarded once,
+// then the new default applies. After that, user reorders save under v2.
+const SECTION_ORDER_KEY = 'founder-section-order-v2';
 
 function loadSectionOrder(): string[] {
   try {
@@ -438,6 +442,10 @@ export function Founder() {
   const sectionContent: Record<string, any> = {
     'brief': <LatestBriefCard />,
 
+    // Nikki broken out as her own full-width tile right under the daily brief,
+    // separate from the Stocks + News row below.
+    'nikki': <NikkiCard />,
+
     'attention': data.primaryAttention ? (
       <Link href={data.primaryAttention.href}>
         <a class="block rounded-lg border-2 p-4 cursor-pointer hover:bg-[var(--color-elevated)]"
@@ -539,9 +547,11 @@ export function Founder() {
       </div>
     ),
 
-    'stocks-news-nikki': (
-      <div class="grid grid-cols-1 lg:grid-cols-8 gap-4">
-        <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+    // Stocks + AI News side-by-side. Nikki used to be a third column here —
+    // she's now her own full-width section right under the daily brief.
+    'stocks-news': (
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
               <LineChart size={14} class="text-[var(--color-text-faint)]" />
@@ -604,7 +614,7 @@ export function Founder() {
             Quotes from Stooq · Candles from Yahoo · Click a row to view candles · Edits persist on the Fly volume.
           </div>
         </div>
-        <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+        <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
               <Newspaper size={14} class="text-[var(--color-text-faint)]" />
@@ -631,7 +641,6 @@ export function Founder() {
             Source: Google News · Query: "artificial intelligence" OR "AI", last 24 hours.
           </div>
         </div>
-        <div class="lg:col-span-2"><NikkiCard /></div>
       </div>
     ),
 
