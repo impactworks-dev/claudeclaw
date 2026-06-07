@@ -229,14 +229,20 @@ async function main(): Promise<void> {
     // a short Telegram digest of what needs attention today.
     if (ALLOWED_CHAT_ID && GOOGLE_API_KEY && bot?.api) {
       const botApi = bot.api;
-      const { runDailyBrief, msUntilNext7am } = await import('./daily-brief.js');
-      const ms = msUntilNext7am();
-      setTimeout(() => {
-        void runDailyBrief(botApi, ALLOWED_CHAT_ID);
-        setInterval(() => { void runDailyBrief(botApi, ALLOWED_CHAT_ID); }, 24 * 60 * 60 * 1000);
-      }, ms);
-      const hours = (ms / (60 * 60 * 1000)).toFixed(1);
-      logger.info({ hoursUntilFirstBrief: hours }, 'Daily brief scheduled (7am local)');
+      const { runDailyBrief, msUntilNextBriefSlot } = await import('./daily-brief.js');
+      // 5 briefs/day in EST: morning 7am, noon 12pm, afternoon 3pm,
+      // evening 6pm, night 10pm. After each fire we recompute the next
+      // slot — that way DST transitions don't drift the schedule.
+      const scheduleNextBrief = () => {
+        const { delayMs, kind } = msUntilNextBriefSlot();
+        const hours = (delayMs / (60 * 60 * 1000)).toFixed(2);
+        logger.info({ kind, hoursUntilNextBrief: hours }, 'Brief scheduled (EST)');
+        setTimeout(async () => {
+          await runDailyBrief(botApi, ALLOWED_CHAT_ID, kind);
+          scheduleNextBrief();
+        }, delayMs);
+      };
+      scheduleNextBrief();
     }
 
     // Nightly off-Fly backup at 2:00 AM. SQLite snapshot → gzip → Google

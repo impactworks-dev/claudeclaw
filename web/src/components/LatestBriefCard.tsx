@@ -7,14 +7,17 @@
 // button, and a strip of recent days.
 
 import { useState, useMemo } from 'preact/hooks';
-import { Sunrise, ArrowRight, Sparkles, Check, X, Loader2, ChevronDown, ChevronUp, MessageCircle } from 'lucide-preact';
+import { Sunrise, Sun, Sunset, Moon, ArrowRight, Sparkles, Check, X, Loader2, ChevronDown, ChevronUp, MessageCircle } from 'lucide-preact';
 import { apiPost } from '@/lib/api';
 import { useFetch } from '@/lib/useFetch';
+
+type BriefKind = 'morning' | 'noon' | 'afternoon' | 'evening' | 'night';
 
 interface DailyBriefRow {
   id: number;
   generated_at: number;
   brief_date: string;
+  brief_kind?: BriefKind; // optional for old rows pre-migration
   body: string;
   char_count: number;
   send_status: 'pending' | 'sent' | 'failed' | 'preview';
@@ -25,12 +28,185 @@ interface DailyBriefRow {
 
 interface RecentRow {
   id: number; brief_date: string; generated_at: number; char_count: number;
+  brief_kind?: BriefKind;
   send_status: DailyBriefRow['send_status']; user_marked: DailyBriefRow['user_marked'];
 }
 
 interface LatestBriefResponse {
   latest: DailyBriefRow | null;
   recent: RecentRow[];
+}
+
+// ── Time-of-day theme system ───────────────────────────────────────
+// Each kind drives the card hero header's gradient backdrop, decorative
+// SVG, icon badge, accent color, and label. The body content itself is
+// theme-neutral so prose reads cleanly against any backdrop.
+
+interface BriefTheme {
+  label: string;
+  gradient: string;          // CSS gradient string for the hero
+  decorationColor: string;   // dominant decoration color
+  badgeFrom: string;
+  badgeTo: string;
+  icon: typeof Sunrise;
+  decoration: 'sunrays' | 'sunhigh' | 'sunlow' | 'sunset-bands' | 'moon-stars';
+  textShadow: string;        // tinted shadow on headline for legibility
+  accentRing: string;        // border tint
+}
+
+const THEME_BY_KIND: Record<BriefKind, BriefTheme> = {
+  morning: {
+    label: 'Morning Brief',
+    gradient: 'linear-gradient(135deg, #ffb088 0%, #ff8e72 40%, #ffd66e 100%)',
+    decorationColor: '#fff5d6',
+    badgeFrom: '#fb923c',
+    badgeTo: '#f59e0b',
+    icon: Sunrise,
+    decoration: 'sunrays',
+    textShadow: '0 1px 12px rgba(120, 40, 0, 0.25)',
+    accentRing: 'rgba(255, 142, 114, 0.6)',
+  },
+  noon: {
+    label: 'Noon Check',
+    gradient: 'linear-gradient(135deg, #ffd43b 0%, #ffb347 35%, #7bd3f7 100%)',
+    decorationColor: '#ffffff',
+    badgeFrom: '#fbbf24',
+    badgeTo: '#f97316',
+    icon: Sun,
+    decoration: 'sunhigh',
+    textShadow: '0 1px 12px rgba(80, 50, 0, 0.28)',
+    accentRing: 'rgba(251, 191, 36, 0.6)',
+  },
+  afternoon: {
+    label: 'Afternoon Nudge',
+    gradient: 'linear-gradient(135deg, #ff9f1c 0%, #ffc75f 50%, #d4955d 100%)',
+    decorationColor: '#ffe9c4',
+    badgeFrom: '#ea580c',
+    badgeTo: '#d97706',
+    icon: Sun,
+    decoration: 'sunlow',
+    textShadow: '0 1px 12px rgba(80, 30, 0, 0.32)',
+    accentRing: 'rgba(234, 88, 12, 0.6)',
+  },
+  evening: {
+    label: 'Evening Wind-down',
+    gradient: 'linear-gradient(180deg, #7f5af0 0%, #ff6b6b 55%, #ffa94d 100%)',
+    decorationColor: '#ffe5b4',
+    badgeFrom: '#a855f7',
+    badgeTo: '#ec4899',
+    icon: Sunset,
+    decoration: 'sunset-bands',
+    textShadow: '0 1px 14px rgba(40, 20, 80, 0.35)',
+    accentRing: 'rgba(168, 85, 247, 0.65)',
+  },
+  night: {
+    label: 'Night Reflection',
+    gradient: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%)',
+    decorationColor: '#e0e7ff',
+    badgeFrom: '#6366f1',
+    badgeTo: '#4338ca',
+    icon: Moon,
+    decoration: 'moon-stars',
+    textShadow: '0 1px 14px rgba(0, 0, 0, 0.5)',
+    accentRing: 'rgba(99, 102, 241, 0.7)',
+  },
+};
+
+/** Decorative SVG layer over the hero gradient. Absolutely positioned, low
+ *  opacity, pointer-events-none so it never blocks the chips. Each variant
+ *  is a small hand-tuned scene that reads at-a-glance even at low opacity. */
+function Decoration({ kind }: { kind: BriefKind }) {
+  const theme = THEME_BY_KIND[kind];
+  const color = theme.decorationColor;
+  switch (theme.decoration) {
+    case 'sunrays':
+      return (
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+          {/* Rising sun bottom-right */}
+          <circle cx="340" cy="170" r="48" fill={color} opacity="0.5" />
+          <circle cx="340" cy="170" r="32" fill={color} opacity="0.7" />
+          {/* Light beams radiating from sun */}
+          {[0, 22, 45, 67, 90, 112, 135].map((deg, i) => {
+            const rad = (deg * Math.PI) / 180;
+            const x2 = 340 - Math.cos(rad) * 200;
+            const y2 = 170 - Math.sin(rad) * 200;
+            return <line key={i} x1="340" y1="170" x2={x2} y2={y2} stroke={color} strokeWidth="1.5" opacity="0.18">
+              <animate attributeName="opacity" values="0.10;0.22;0.10" dur="6s" begin={`${i * 0.4}s`} repeatCount="indefinite" />
+            </line>;
+          })}
+        </svg>
+      );
+    case 'sunhigh':
+      return (
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+          {/* Sun high in upper-right */}
+          <circle cx="340" cy="60" r="42" fill={color} opacity="0.55" />
+          <circle cx="340" cy="60" r="28" fill={color} opacity="0.85" />
+          {/* Halo rings */}
+          <circle cx="340" cy="60" r="60" fill="none" stroke={color} strokeWidth="1" opacity="0.2">
+            <animate attributeName="r" values="55;72;55" dur="5s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.3;0.1;0.3" dur="5s" repeatCount="indefinite" />
+          </circle>
+          <circle cx="340" cy="60" r="85" fill="none" stroke={color} strokeWidth="0.8" opacity="0.15" />
+        </svg>
+      );
+    case 'sunlow':
+      return (
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+          {/* Lowering sun mid-right with long horizontal glow */}
+          <ellipse cx="340" cy="120" rx="180" ry="14" fill={color} opacity="0.18" />
+          <circle cx="340" cy="120" r="38" fill={color} opacity="0.55" />
+          <circle cx="340" cy="120" r="26" fill={color} opacity="0.8" />
+        </svg>
+      );
+    case 'sunset-bands':
+      return (
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+          {/* Horizontal sky bands suggesting layered dusk */}
+          <rect x="0" y="120" width="400" height="6" fill={color} opacity="0.20" />
+          <rect x="0" y="138" width="400" height="4" fill={color} opacity="0.16" />
+          <rect x="0" y="150" width="400" height="3" fill={color} opacity="0.12" />
+          {/* Setting sun at horizon */}
+          <circle cx="320" cy="145" r="40" fill={color} opacity="0.45" />
+          <circle cx="320" cy="145" r="24" fill={color} opacity="0.75" />
+        </svg>
+      );
+    case 'moon-stars':
+      return (
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+          {/* Crescent moon: white circle with overlapping dark circle to bite */}
+          <defs>
+            <mask id="crescent-mask">
+              <rect width="400" height="200" fill="white" />
+              <circle cx="320" cy="50" r="32" fill="black" />
+            </mask>
+          </defs>
+          <circle cx="340" cy="55" r="32" fill={color} opacity="0.9" mask="url(#crescent-mask)" />
+          {/* Scattered stars */}
+          {[
+            [60, 30, 1.5], [120, 60, 1], [200, 40, 1.8], [260, 90, 1.2],
+            [80, 110, 1], [160, 130, 1.4], [240, 150, 1], [40, 80, 1.3],
+            [300, 130, 1.6], [180, 90, 0.9], [110, 140, 1.1], [280, 30, 1.4],
+          ].map(([cx, cy, r], i) => (
+            <circle key={i} cx={cx} cy={cy} r={r} fill={color} opacity={0.75}>
+              <animate attributeName="opacity" values="0.4;0.9;0.4" dur={`${3 + (i % 3)}s`} begin={`${i * 0.3}s`} repeatCount="indefinite" />
+            </circle>
+          ))}
+        </svg>
+      );
+  }
+}
+
+/** Pick a default theme based on the user's current local hour. Used for
+ *  the "no brief yet" empty state and as a fallback when an old brief
+ *  row has no brief_kind. */
+function themeFromCurrentHour(): BriefKind {
+  const h = new Date().getHours();
+  if (h < 11) return 'morning';
+  if (h < 14) return 'noon';
+  if (h < 17) return 'afternoon';
+  if (h < 21) return 'evening';
+  return 'night';
 }
 
 const STATUS_LABEL: Record<DailyBriefRow['send_status'], { label: string; color: string }> = {
@@ -147,16 +323,23 @@ function RecentChip({ row, isActive, onClick }: { row: RecentRow; isActive: bool
   const dt = new Date(y, m - 1, d);
   const label = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const status = STATUS_LABEL[row.send_status];
+  // Tiny kind icon — sun/moon glyph beside the date so you can tell at a
+  // glance which of the day's 5 briefs this chip represents.
+  const kind = row.brief_kind || 'morning';
+  const KindIcon = THEME_BY_KIND[kind].icon;
+  const kindColor = THEME_BY_KIND[kind].badgeFrom;
   return (
     <button
       type="button"
       onClick={onClick}
+      title={`${THEME_BY_KIND[kind].label} · ${label}`}
       class={`group inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
         isActive
           ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
           : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]'
       }`}
     >
+      <KindIcon size={10} style={{ color: kindColor }} />
       <span class="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
       {label}
       {row.user_marked === 'acted' && <Check size={10} class="text-[#16a34a]" />}
@@ -213,24 +396,35 @@ export function LatestBriefCard() {
     );
   }
 
-  // No saved brief AND no preview → invite the user to generate one
+  // No saved brief AND no preview → invite the user to generate one,
+  // themed to the current time of day so the empty state still looks alive.
   if (!latest && !previewBody) {
+    const ekind = themeFromCurrentHour();
+    const etheme = THEME_BY_KIND[ekind];
+    const EIcon = etheme.icon;
     return (
-      <div class="rounded-xl border border-[var(--color-border)] bg-gradient-to-br from-[var(--color-card)] to-[var(--color-elevated)] p-6 text-center">
-        <Sunrise size={28} class="mx-auto text-[var(--color-text-faint)] mb-2" />
-        <div class="text-[13px] font-semibold text-[var(--color-text)] mb-1">No morning brief yet</div>
-        <div class="text-[11px] text-[var(--color-text-muted)] mb-4">
-          Nikki composes a brief every day at 7:00 AM. Generate one now to preview the format.
+      <div class="relative rounded-xl border overflow-hidden" style={{ borderColor: etheme.accentRing }}>
+        <div class="relative px-6 py-8 text-center overflow-hidden" style={{ background: etheme.gradient }}>
+          <Decoration kind={ekind} />
+          <EIcon size={28} class="mx-auto text-white mb-2 relative" style={{ filter: 'drop-shadow(0 1px 6px rgba(0,0,0,0.25))' }} />
+          <div class="relative text-[14px] font-semibold mb-1" style={{ color: '#ffffff', textShadow: etheme.textShadow }}>
+            No {etheme.label.toLowerCase()} yet
+          </div>
+          <div class="relative text-[11px] mb-4" style={{ color: 'rgba(255,255,255,0.85)', textShadow: etheme.textShadow }}>
+            Nikki composes briefs five times a day — morning, noon, afternoon, evening, night.
+            Generate one now to preview.
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={generating}
+            class="relative inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-semibold disabled:opacity-50"
+            style={{ backgroundColor: 'rgba(255,255,255,0.92)', color: '#1f2937', backdropFilter: 'blur(4px)' }}
+          >
+            {generating ? <Loader2 size={13} class="animate-spin" /> : <Sparkles size={13} />}
+            {generating ? 'Composing…' : 'Generate brief now'}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={generating}
-          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--color-accent)] text-white text-[12px] font-medium hover:opacity-90 disabled:opacity-50"
-        >
-          {generating ? <Loader2 size={13} class="animate-spin" /> : <Sparkles size={13} />}
-          {generating ? 'Composing…' : 'Generate brief now'}
-        </button>
       </div>
     );
   }
@@ -249,33 +443,58 @@ export function LatestBriefCard() {
   const status = STATUS_LABEL[displayStatus];
   const recent = data?.recent || [];
 
+  // Pick the theme. New brief rows carry brief_kind directly; older rows
+  // (pre-migration) fall back to morning. Previews use the current hour
+  // so they preview as the right time-of-day theme.
+  const kind: BriefKind = previewBody
+    ? themeFromCurrentHour()
+    : (latest?.brief_kind || 'morning');
+  const theme = THEME_BY_KIND[kind];
+  const HeroIcon = theme.icon;
+
   return (
-    <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden shadow-sm">
-      {/* Hero gradient header */}
-      <div
-        class="relative px-5 pt-5 pb-6"
-        style={{
-          background: 'linear-gradient(135deg, rgba(251,146,60,0.15) 0%, rgba(124,58,237,0.08) 50%, rgba(14,165,233,0.10) 100%)',
-        }}
-      >
-        <div class="flex items-start justify-between mb-3">
+    <div
+      class="rounded-xl border overflow-hidden shadow-sm"
+      style={{
+        borderColor: theme.accentRing,
+        boxShadow: `0 1px 2px rgba(0,0,0,0.04), 0 8px 30px ${theme.accentRing.replace('0.6', '0.15').replace('0.65', '0.18').replace('0.7', '0.20')}`,
+      }}
+    >
+      {/* Hero — gradient + decoration + headline */}
+      <div class="relative px-5 pt-5 pb-6 overflow-hidden" style={{ background: theme.gradient }}>
+        <Decoration kind={kind} />
+
+        <div class="relative flex items-start justify-between mb-3">
           <div class="flex items-center gap-2.5">
-            <div class="w-9 h-9 rounded-full bg-gradient-to-br from-[#fb923c] to-[#f59e0b] flex items-center justify-center shadow-sm">
-              <Sunrise size={17} class="text-white" />
+            <div
+              class="w-9 h-9 rounded-full flex items-center justify-center shadow"
+              style={{ background: `linear-gradient(135deg, ${theme.badgeFrom}, ${theme.badgeTo})` }}
+            >
+              <HeroIcon size={17} class="text-white" />
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-[0.12em] text-[var(--color-text-faint)] font-medium">
-                {previewBody ? 'Preview Brief' : 'Morning Brief'}
+              <div
+                class="text-[10px] uppercase tracking-[0.14em] font-semibold"
+                style={{ color: 'rgba(255,255,255,0.85)', textShadow: theme.textShadow }}
+              >
+                {previewBody ? `Preview · ${theme.label}` : theme.label}
               </div>
-              <div class="text-[14px] font-semibold text-[var(--color-text)] leading-tight">
-                {weekday}, <span class="text-[var(--color-text-muted)] font-normal">{long.replace(weekday + ', ', '')}</span>
+              <div
+                class="text-[14px] font-semibold leading-tight"
+                style={{ color: '#ffffff', textShadow: theme.textShadow }}
+              >
+                {weekday}, <span style={{ color: 'rgba(255,255,255,0.78)', fontWeight: 400 }}>{long.replace(weekday + ', ', '')}</span>
               </div>
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="relative flex items-center gap-2">
             <span
-              class="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: status.color + '20', color: status.color }}
+              class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.85)',
+                color: status.color,
+                backdropFilter: 'blur(4px)',
+              }}
             >
               <span class="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
               {status.label}
@@ -285,7 +504,12 @@ export function LatestBriefCard() {
               onClick={handleGenerate}
               disabled={generating}
               title="Generate a fresh preview"
-              class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)] disabled:opacity-50"
+              class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors disabled:opacity-50"
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.75)',
+                color: '#1f2937',
+                backdropFilter: 'blur(4px)',
+              }}
             >
               {generating ? <Loader2 size={11} class="animate-spin" /> : <Sparkles size={11} />}
               {generating ? '…' : 'New'}
@@ -293,8 +517,11 @@ export function LatestBriefCard() {
           </div>
         </div>
 
-        {/* Headline */}
-        <div class="text-[18px] leading-snug font-semibold text-[var(--color-text)] tracking-[-0.01em]">
+        {/* Headline — sits on glass overlay so it reads against any backdrop */}
+        <div
+          class="relative text-[18px] leading-snug font-semibold tracking-[-0.01em]"
+          style={{ color: '#ffffff', textShadow: theme.textShadow }}
+        >
           {headline}
         </div>
       </div>

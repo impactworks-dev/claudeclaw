@@ -1482,6 +1482,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     const latest = getLatestDailyBrief();
     const recent = getRecentDailyBriefs(14).map(b => ({
       id: b.id, brief_date: b.brief_date, generated_at: b.generated_at,
+      brief_kind: b.brief_kind,
       char_count: b.char_count, send_status: b.send_status, user_marked: b.user_marked,
     }));
     return c.json({ latest, recent });

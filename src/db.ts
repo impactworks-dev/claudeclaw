@@ -433,6 +433,7 @@ function createSchema(database: Database.Database): void {
       id                   INTEGER PRIMARY KEY AUTOINCREMENT,
       generated_at         INTEGER NOT NULL,                -- epoch ms
       brief_date           TEXT NOT NULL,                   -- YYYY-MM-DD local
+      brief_kind           TEXT NOT NULL DEFAULT 'morning', -- morning | noon | afternoon | evening | night
       body                 TEXT NOT NULL,
       char_count           INTEGER NOT NULL,
       send_status          TEXT NOT NULL DEFAULT 'pending', -- pending | sent | failed | preview
@@ -518,6 +519,14 @@ function runMigrations(database: Database.Database): void {
   const hasContextWindow = cols.some((c) => c.name === 'context_window');
   if (!hasContextWindow) {
     database.exec(`ALTER TABLE token_usage ADD COLUMN context_window INTEGER`);
+  }
+
+  // Add brief_kind column to daily_briefs (morning/noon/afternoon/evening/night).
+  // Backfill: existing rows are pre-multi-brief so they're all morning briefs.
+  const briefCols = database.prepare(`PRAGMA table_info(daily_briefs)`).all() as Array<{ name: string }>;
+  const hasBriefKind = briefCols.some((c) => c.name === 'brief_kind');
+  if (!hasBriefKind) {
+    database.exec(`ALTER TABLE daily_briefs ADD COLUMN brief_kind TEXT NOT NULL DEFAULT 'morning'`);
   }
 
   // Multi-agent: migrate sessions table to composite primary key (chat_id, agent_id)
@@ -1257,10 +1266,13 @@ export function searchConsolidations(chatId: string, query: string, limit = 3): 
 
 // ── Daily briefs ─────────────────────────────────────────────────────
 
+export type BriefKind = 'morning' | 'noon' | 'afternoon' | 'evening' | 'night';
+
 export interface DailyBriefRow {
   id: number;
   generated_at: number;
   brief_date: string;
+  brief_kind: BriefKind;
   body: string;
   char_count: number;
   send_status: 'pending' | 'sent' | 'failed' | 'preview';
@@ -1271,14 +1283,19 @@ export interface DailyBriefRow {
 }
 
 export function insertDailyBrief(opts: {
-  generatedAt: number; briefDate: string; body: string; sendStatus?: 'pending' | 'preview';
+  generatedAt: number; briefDate: string; body: string;
+  sendStatus?: 'pending' | 'preview';
+  briefKind?: BriefKind;
 }): number {
   const r = db
     .prepare(
-      `INSERT INTO daily_briefs (generated_at, brief_date, body, char_count, send_status)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO daily_briefs (generated_at, brief_date, brief_kind, body, char_count, send_status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(opts.generatedAt, opts.briefDate, opts.body, opts.body.length, opts.sendStatus || 'pending');
+    .run(
+      opts.generatedAt, opts.briefDate, opts.briefKind || 'morning',
+      opts.body, opts.body.length, opts.sendStatus || 'pending',
+    );
   return Number(r.lastInsertRowid);
 }
 
