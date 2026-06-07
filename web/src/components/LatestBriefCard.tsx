@@ -125,16 +125,18 @@ function Decoration({ kind }: { kind: BriefKind }) {
     case 'sunrays':
       return (
         <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+          {/* Soft halo glow around the sun */}
+          <circle cx="340" cy="170" r="90" fill={color} opacity="0.15" />
           {/* Rising sun bottom-right */}
-          <circle cx="340" cy="170" r="48" fill={color} opacity="0.5" />
-          <circle cx="340" cy="170" r="32" fill={color} opacity="0.7" />
-          {/* Light beams radiating from sun */}
-          {[0, 22, 45, 67, 90, 112, 135].map((deg, i) => {
+          <circle cx="340" cy="170" r="48" fill={color} opacity="0.55" />
+          <circle cx="340" cy="170" r="32" fill={color} opacity="0.8" />
+          {/* Light beams radiating from sun — boosted opacity + more rays */}
+          {[0, 18, 36, 54, 72, 90, 108, 126, 144].map((deg, i) => {
             const rad = (deg * Math.PI) / 180;
-            const x2 = 340 - Math.cos(rad) * 200;
-            const y2 = 170 - Math.sin(rad) * 200;
-            return <line key={i} x1="340" y1="170" x2={x2} y2={y2} stroke={color} strokeWidth="1.5" opacity="0.18">
-              <animate attributeName="opacity" values="0.10;0.22;0.10" dur="6s" begin={`${i * 0.4}s`} repeatCount="indefinite" />
+            const x2 = 340 - Math.cos(rad) * 240;
+            const y2 = 170 - Math.sin(rad) * 240;
+            return <line key={i} x1="340" y1="170" x2={x2} y2={y2} stroke={color} strokeWidth="2" opacity="0.32" strokeLinecap="round">
+              <animate attributeName="opacity" values="0.20;0.40;0.20" dur="6s" begin={`${i * 0.35}s`} repeatCount="indefinite" />
             </line>;
           })}
         </svg>
@@ -142,24 +144,46 @@ function Decoration({ kind }: { kind: BriefKind }) {
     case 'sunhigh':
       return (
         <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+          {/* Soft halo behind everything */}
+          <circle cx="340" cy="60" r="100" fill={color} opacity="0.15" />
           {/* Sun high in upper-right */}
-          <circle cx="340" cy="60" r="42" fill={color} opacity="0.55" />
-          <circle cx="340" cy="60" r="28" fill={color} opacity="0.85" />
-          {/* Halo rings */}
-          <circle cx="340" cy="60" r="60" fill="none" stroke={color} strokeWidth="1" opacity="0.2">
-            <animate attributeName="r" values="55;72;55" dur="5s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0.3;0.1;0.3" dur="5s" repeatCount="indefinite" />
+          <circle cx="340" cy="60" r="42" fill={color} opacity="0.65" />
+          <circle cx="340" cy="60" r="28" fill={color} opacity="0.95" />
+          {/* Light beams radiating in all directions (12-spoke sunburst) */}
+          {Array.from({ length: 12 }).map((_, i) => {
+            const deg = i * 30;
+            const rad = (deg * Math.PI) / 180;
+            const x2 = 340 + Math.cos(rad) * 180;
+            const y2 = 60 + Math.sin(rad) * 180;
+            return <line key={i} x1="340" y1="60" x2={x2} y2={y2} stroke={color} strokeWidth="2" opacity="0.32" strokeLinecap="round">
+              <animate attributeName="opacity" values="0.22;0.42;0.22" dur="5s" begin={`${i * 0.25}s`} repeatCount="indefinite" />
+            </line>;
+          })}
+          {/* Pulsing halo ring */}
+          <circle cx="340" cy="60" r="60" fill="none" stroke={color} strokeWidth="1.5" opacity="0.3">
+            <animate attributeName="r" values="55;78;55" dur="5s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.4;0.12;0.4" dur="5s" repeatCount="indefinite" />
           </circle>
-          <circle cx="340" cy="60" r="85" fill="none" stroke={color} strokeWidth="0.8" opacity="0.15" />
         </svg>
       );
     case 'sunlow':
       return (
         <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
-          {/* Lowering sun mid-right with long horizontal glow */}
-          <ellipse cx="340" cy="120" rx="180" ry="14" fill={color} opacity="0.18" />
-          <circle cx="340" cy="120" r="38" fill={color} opacity="0.55" />
-          <circle cx="340" cy="120" r="26" fill={color} opacity="0.8" />
+          {/* Soft halo behind sun + horizontal glow */}
+          <circle cx="340" cy="120" r="85" fill={color} opacity="0.18" />
+          <ellipse cx="340" cy="120" rx="180" ry="14" fill={color} opacity="0.22" />
+          {/* Lowering sun mid-right */}
+          <circle cx="340" cy="120" r="38" fill={color} opacity="0.65" />
+          <circle cx="340" cy="120" r="26" fill={color} opacity="0.9" />
+          {/* Light beams radiating outward, slightly biased upward to feel like late-day sun */}
+          {[-25, 0, 25, 50, 75, 100, 125, 150, 175, 200].map((deg, i) => {
+            const rad = (deg * Math.PI) / 180;
+            const x2 = 340 - Math.cos(rad) * 220;
+            const y2 = 120 - Math.sin(rad) * 220;
+            return <line key={i} x1="340" y1="120" x2={x2} y2={y2} stroke={color} strokeWidth="2" opacity="0.30" strokeLinecap="round">
+              <animate attributeName="opacity" values="0.18;0.40;0.18" dur="6s" begin={`${i * 0.3}s`} repeatCount="indefinite" />
+            </line>;
+          })}
         </svg>
       );
     case 'sunset-bands':
