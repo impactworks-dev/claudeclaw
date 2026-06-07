@@ -71,6 +71,23 @@ if [ -n "${RECALL_RELAY_URL:-}" ] && [ -n "${RECALL_RELAY_SECRET:-}" ]; then
     }"
 fi
 
+# iMessage relay is reached via the Mac-side relay daemon over Cloudflare
+# Tunnel (messages-relay.impactworks.com). Both MESSAGES_RELAY_URL and
+# MESSAGES_RELAY_SECRET must be set; otherwise the block stays empty and
+# Nikki boots without iMessage tools.
+MESSAGES_BLOCK=""
+if [ -n "${MESSAGES_RELAY_URL:-}" ] && [ -n "${MESSAGES_RELAY_SECRET:-}" ]; then
+  MESSAGES_BLOCK=",
+    \"messages\": {
+      \"command\": \"node\",
+      \"args\": [\"/app/connectors/messages/server.mjs\"],
+      \"env\": {
+        \"MESSAGES_RELAY_URL\": \"${MESSAGES_RELAY_URL}\",
+        \"MESSAGES_RELAY_SECRET\": \"${MESSAGES_RELAY_SECRET}\"
+      }
+    }"
+fi
+
 cat > "$CLAUDE_HOME/settings.json" <<EOF
 {
   "mcpServers": {
@@ -85,7 +102,7 @@ cat > "$CLAUDE_HOME/settings.json" <<EOF
     "quickbooks": {
       "command": "node",
       "args": ["/app/connectors/quickbooks/server.mjs"]
-    }${NOTION_BLOCK}${RECALL_BLOCK}
+    }${NOTION_BLOCK}${RECALL_BLOCK}${MESSAGES_BLOCK}
   }
 }
 EOF
@@ -100,6 +117,11 @@ if [ -n "${RECALL_RELAY_URL:-}" ] && [ -n "${RECALL_RELAY_SECRET:-}" ]; then
   echo "  recall MCP enabled (relay at ${RECALL_RELAY_URL})"
 else
   echo "  recall MCP skipped (RECALL_RELAY_URL / RECALL_RELAY_SECRET not set)"
+fi
+if [ -n "${MESSAGES_RELAY_URL:-}" ] && [ -n "${MESSAGES_RELAY_SECRET:-}" ]; then
+  echo "  messages MCP enabled (relay at ${MESSAGES_RELAY_URL})"
+else
+  echo "  messages MCP skipped (MESSAGES_RELAY_URL / MESSAGES_RELAY_SECRET not set)"
 fi
 
 # ── Restore Claude Code credentials from persistent volume ───────────────
