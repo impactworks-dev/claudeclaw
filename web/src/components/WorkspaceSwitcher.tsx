@@ -30,7 +30,8 @@ export function WorkspaceSwitcher() {
     };
   }, [open]);
 
-  const current = themeMeta[theme.value];
+  // Header badge gradient uses the current accent swatch for visual identity.
+  const current = accentMeta[accent.value];
   const rawName = workspaceName.value;
   // Treat the default "ClaudeClaw" workspace as ImpactWorks OS.
   const isDefault = !rawName || rawName === 'ClaudeClaw';
