@@ -57,36 +57,39 @@ interface BriefTheme {
 const THEME_BY_KIND: Record<BriefKind, BriefTheme> = {
   morning: {
     label: 'Morning Brief',
-    gradient: 'linear-gradient(135deg, #ffb088 0%, #ff8e72 40%, #ffd66e 100%)',
+    // Sky-first: blue top, warm sunrise bottom — feels like the actual sky
+    gradient: 'linear-gradient(180deg, #7dd3fc 0%, #fbbf77 60%, #ffd66e 100%)',
     decorationColor: '#fff5d6',
     badgeFrom: '#fb923c',
     badgeTo: '#f59e0b',
     icon: Sunrise,
     decoration: 'sunrays',
-    textShadow: '0 1px 12px rgba(120, 40, 0, 0.25)',
-    accentRing: 'rgba(255, 142, 114, 0.6)',
+    textShadow: '0 1px 12px rgba(40, 80, 120, 0.35)',
+    accentRing: 'rgba(125, 211, 252, 0.65)',
   },
   noon: {
     label: 'Noon Check',
-    gradient: 'linear-gradient(135deg, #ffd43b 0%, #ffb347 35%, #7bd3f7 100%)',
+    // Strong sky blue dominating, soft warmth at top right
+    gradient: 'linear-gradient(180deg, #4dabf7 0%, #74c0fc 40%, #a5d8ff 100%)',
     decorationColor: '#ffffff',
     badgeFrom: '#fbbf24',
     badgeTo: '#f97316',
     icon: Sun,
     decoration: 'sunhigh',
-    textShadow: '0 1px 12px rgba(80, 50, 0, 0.28)',
-    accentRing: 'rgba(251, 191, 36, 0.6)',
+    textShadow: '0 1px 12px rgba(20, 60, 120, 0.4)',
+    accentRing: 'rgba(77, 171, 247, 0.65)',
   },
   afternoon: {
     label: 'Afternoon Nudge',
-    gradient: 'linear-gradient(135deg, #ff9f1c 0%, #ffc75f 50%, #d4955d 100%)',
+    // Blue sky with warm afternoon glow at bottom
+    gradient: 'linear-gradient(180deg, #74c0fc 0%, #ffc75f 65%, #ff9f1c 100%)',
     decorationColor: '#ffe9c4',
     badgeFrom: '#ea580c',
     badgeTo: '#d97706',
     icon: Sun,
     decoration: 'sunlow',
-    textShadow: '0 1px 12px rgba(80, 30, 0, 0.32)',
-    accentRing: 'rgba(234, 88, 12, 0.6)',
+    textShadow: '0 1px 12px rgba(40, 60, 100, 0.35)',
+    accentRing: 'rgba(116, 192, 252, 0.65)',
   },
   evening: {
     label: 'Evening Wind-down',
@@ -307,8 +310,32 @@ function decorationDimmedByWeather(weather: WeatherSnapshot | null): boolean {
 /** Weather decoration overlay: drifting clouds, rain streaks, snowflakes,
  *  lightning flash. Stacks ON TOP of (or replaces) the time-of-day decoration.
  *  Pointer-events-none so it never blocks the chips. */
-function WeatherOverlay({ weather }: { weather: WeatherSnapshot | null }) {
-  if (!weather || weather.condition === 'clear' || weather.condition === 'unknown') return null;
+function WeatherOverlay({ weather, briefKind }: { weather: WeatherSnapshot | null; briefKind?: BriefKind }) {
+  // Clear daytime: still show 2 wispy white clouds drifting for that
+  // Apple-Weather-card sky feel. Doesn't apply at night (stars would
+  // be obscured) or unknown weather.
+  if (!weather || weather.condition === 'unknown') return null;
+  if (weather.condition === 'clear' && weather.isDay && briefKind !== 'night' && briefKind !== 'evening') {
+    return (
+      <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        <g opacity="0.55">
+          <ellipse cx="80" cy="60" rx="34" ry="11" fill="#ffffff" />
+          <ellipse cx="58" cy="64" rx="20" ry="8" fill="#ffffff" />
+          <ellipse cx="102" cy="64" rx="20" ry="8" fill="#ffffff" />
+          <ellipse cx="72" cy="54" rx="18" ry="8" fill="#ffffff" />
+          <animateTransform attributeName="transform" type="translate" values="-20 0; 30 0; -20 0" dur="55s" repeatCount="indefinite" />
+        </g>
+        <g opacity="0.4">
+          <ellipse cx="230" cy="90" rx="40" ry="12" fill="#ffffff" />
+          <ellipse cx="200" cy="94" rx="22" ry="9" fill="#ffffff" />
+          <ellipse cx="260" cy="94" rx="22" ry="9" fill="#ffffff" />
+          <ellipse cx="218" cy="82" rx="20" ry="9" fill="#ffffff" />
+          <animateTransform attributeName="transform" type="translate" values="-40 0; 20 0; -40 0" dur="70s" repeatCount="indefinite" />
+        </g>
+      </svg>
+    );
+  }
+  if (weather.condition === 'clear') return null;
   const c = weather.condition;
   const heavy = HEAVY_CONDITIONS.includes(c);
 
@@ -669,7 +696,7 @@ export function LatestBriefCard() {
       <div class="relative rounded-xl border overflow-hidden" style={{ borderColor: etheme.accentRing }}>
         <div class="relative px-6 py-8 text-center overflow-hidden" style={{ background: eHero }}>
           {!eHideDeco && <Decoration kind={ekind} />}
-          <WeatherOverlay weather={weather || null} />
+          <WeatherOverlay weather={weather || null} briefKind={ekind} />
           <EIcon size={28} class="mx-auto text-white mb-2 relative" style={{ filter: 'drop-shadow(0 1px 6px rgba(0,0,0,0.25))' }} />
           <div class="relative text-[14px] font-semibold mb-1" style={{ color: '#ffffff', textShadow: etheme.textShadow }}>
             No {etheme.label.toLowerCase()} yet
@@ -742,7 +769,7 @@ export function LatestBriefCard() {
       {/* Hero — gradient + decoration + headline */}
       <div class="relative px-5 pt-5 pb-6 overflow-hidden" style={{ background: heroGradient }}>
         {!hideTimeOfDayDecoration && <Decoration kind={kind} />}
-        <WeatherOverlay weather={weather || null} />
+        <WeatherOverlay weather={weather || null} briefKind={kind} />
 
         <div class="relative flex items-start justify-between mb-3">
           <div class="flex items-center gap-2.5">
