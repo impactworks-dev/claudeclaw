@@ -19,7 +19,7 @@ import { STORE_DIR } from './config.js';
 import { logger } from './logger.js';
 
 const CACHE_FILE = path.join(STORE_DIR, 'weather-cache.json');
-const TTL_MS = 10 * 60 * 1000;
+const TTL_MS = 5 * 60 * 1000;
 const OAKVILLE: WeatherLocation = {
   lat: 43.45,
   lon: -79.68,
@@ -316,6 +316,13 @@ async function fetchFromOpenMeteo(location: WeatherLocation): Promise<WeatherSna
   url.searchParams.set('timezone', location.timezone || 'auto');
   url.searchParams.set('forecast_days', '2'); // 2 days so hourly strip can cross midnight cleanly
   url.searchParams.set('temperature_unit', 'celsius'); // we convert ourselves so hourly is consistent
+  // Use a region-appropriate model rather than the global blend. Environment
+  // Canada's GEM is the most accurate weather model in Canada, and the US
+  // GFS in CONUS — best_match picks the right one based on lat/lon, but
+  // we explicitly bias to the regional high-res model for our coordinates.
+  // For Canada (lat > 41, lon < -55) use gem_seamless; else gfs_seamless.
+  const useCanadianModel = location.lat > 41 && location.lon < -55 && location.lon > -141;
+  url.searchParams.set('models', useCanadianModel ? 'gem_seamless' : 'gfs_seamless');
 
   const res = await fetch(url.toString());
   if (!res.ok) {
