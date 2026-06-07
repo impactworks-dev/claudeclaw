@@ -1,25 +1,53 @@
 import { signal, effect } from '@preact/signals';
 
-export type ThemeName = 'graphite' | 'midnight' | 'crimson' | 'light';
+/** Light/dark canvas mode. Sets the background, card, text, and border
+ *  CSS variables. Independent from the accent palette. */
+export type ThemeMode = 'dark' | 'light';
 
-const STORAGE_KEY = 'claudeclaw.theme';
-const ACCENT_KEY = 'claudeclaw.theme.customAccent';
+/** Accent palette. Sets the --color-accent / -hover / -soft variables.
+ *  Independent from light/dark mode — so you can have Light + Midnight or
+ *  Dark + Crimson, etc. */
+export type ThemeAccent = 'graphite' | 'midnight' | 'crimson';
+
+/** Backwards-compatible name kept for callers that still import it. The
+ *  old single-key theme was either graphite|midnight|crimson (all dark)
+ *  or light (light+graphite). New code should prefer { mode, accent }. */
+export type ThemeName = ThemeAccent | 'light';
+
+const MODE_KEY = 'claudeclaw.theme.mode';
+const ACCENT_KEY = 'claudeclaw.theme.accent';
+const LEGACY_THEME_KEY = 'claudeclaw.theme'; // pre-split single-axis key
+const CUSTOM_ACCENT_KEY = 'claudeclaw.theme.customAccent';
 const SCALE_KEY = 'claudeclaw.uiScale';
 const SHOW_COSTS_KEY = 'claudeclaw.showCosts';
 
-function loadInitial(): ThemeName {
+function loadInitialMode(): ThemeMode {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'graphite' || saved === 'midnight' || saved === 'crimson' || saved === 'light') {
-      return saved;
-    }
+    const m = localStorage.getItem(MODE_KEY);
+    if (m === 'dark' || m === 'light') return m;
+    // Migrate from legacy single-axis key. Old 'light' → light mode.
+    // 'graphite' / 'midnight' / 'crimson' → dark mode.
+    const legacy = localStorage.getItem(LEGACY_THEME_KEY);
+    if (legacy === 'light') return 'light';
+  } catch {}
+  return 'dark';
+}
+
+function loadInitialAccent(): ThemeAccent {
+  try {
+    const a = localStorage.getItem(ACCENT_KEY);
+    if (a === 'graphite' || a === 'midnight' || a === 'crimson') return a;
+    // Migrate from legacy single-axis key. 'graphite' / 'midnight' /
+    // 'crimson' map straight across; 'light' was light+graphite.
+    const legacy = localStorage.getItem(LEGACY_THEME_KEY);
+    if (legacy === 'graphite' || legacy === 'midnight' || legacy === 'crimson') return legacy;
   } catch {}
   return 'graphite';
 }
 
 function loadCustomAccent(): string | null {
   try {
-    const v = localStorage.getItem(ACCENT_KEY);
+    const v = localStorage.getItem(CUSTOM_ACCENT_KEY);
     if (v && /^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
   } catch {}
   return null;
@@ -39,70 +67,88 @@ function loadShowCosts(): boolean {
     if (v === 'on') return true;
     if (v === 'off') return false;
   } catch {}
-  // Default OFF for Claude Code subscription users — costs are only
-  // meaningful if you're on the API path. Toggle on in Settings → Display.
   return false;
 }
 
-export const theme = signal<ThemeName>(loadInitial());
+export const mode = signal<ThemeMode>(loadInitialMode());
+export const accent = signal<ThemeAccent>(loadInitialAccent());
+
+/** Backwards-compatible single-signal shim. Reads return the closest
+ *  legacy theme name; writes split into mode + accent. Kept so existing
+ *  imports (`theme`, `setTheme`, `themeMeta`) keep working. */
+export const theme = signal<ThemeName>(deriveLegacyName(mode.value, accent.value));
+effect(() => { theme.value = deriveLegacyName(mode.value, accent.value); });
+
+function deriveLegacyName(m: ThemeMode, a: ThemeAccent): ThemeName {
+  if (m === 'light') return 'light';
+  return a; // dark + accent → just the accent name
+}
 
 /** Custom accent override (hex). When set, it overrides the active
- *  theme's --color-accent (and derives --color-accent-soft/-hover from
- *  it) via inline style on <html>. Null restores the theme default. */
+ *  accent palette's --color-accent (and derives --color-accent-soft /
+ *  -hover from it) via inline style on <html>. Null restores default. */
 export const customAccent = signal<string | null>(loadCustomAccent());
 
-/** Global UI zoom factor. Applied via the CSS `zoom` property on the
- *  root element so layout calculations stay correct (unlike transform
- *  scale, which would clip overflows). 1.0 is the design baseline;
- *  most users will want 1.1–1.25. */
+/** Global UI zoom factor. Applied via CSS `zoom` on root. */
 export const uiScale = signal<number>(loadScale());
 
-/** Whether to surface per-agent / per-session cost figures. Default OFF
- *  because most users are on the Claude Code subscription path where
- *  cost is irrelevant. Flip on in Settings → Display if you've moved
- *  to the API. Affects Agent cards, AgentDetail KPIs, Usage page KPIs
- *  + 30-day chart, and the Chat session bar's "Cost today" cell. */
+/** Whether to surface per-agent / per-session cost figures. */
 export const showCosts = signal<boolean>(loadShowCosts());
 
-export const themeMeta: Record<ThemeName, { label: string; swatch: string }> = {
-  graphite: { label: 'Graphite', swatch: '#8b8af0' },
-  midnight: { label: 'Midnight', swatch: '#5eb6ff' },
-  crimson: { label: 'Crimson', swatch: '#ff5e6e' },
+export const modeMeta: Record<ThemeMode, { label: string; swatch: string }> = {
+  dark:  { label: 'Dark',  swatch: '#1a1a1c' },
   light: { label: 'Light', swatch: '#ffffff' },
 };
 
-// Apply theme + scale + accent override to <html> whenever any signal
-// changes. Persist each to localStorage so the choice survives reloads.
+export const accentMeta: Record<ThemeAccent, { label: string; swatch: string }> = {
+  graphite: { label: 'Graphite', swatch: '#8b8af0' },
+  midnight: { label: 'Midnight', swatch: '#5eb6ff' },
+  crimson:  { label: 'Crimson',  swatch: '#ff5e6e' },
+};
+
+/** Backwards-compatible meta — exposed by name like the old single-axis
+ *  picker. Kept so any caller still using `themeMeta` keeps working. */
+export const themeMeta: Record<ThemeName, { label: string; swatch: string }> = {
+  graphite: accentMeta.graphite,
+  midnight: accentMeta.midnight,
+  crimson:  accentMeta.crimson,
+  light:    modeMeta.light,
+};
+
+// Apply mode + accent to <html> whenever signals change. Persist each.
 effect(() => {
-  const next = theme.value;
-  document.documentElement.setAttribute('data-theme', next);
-  try { localStorage.setItem(STORAGE_KEY, next); } catch {}
+  const m = mode.value;
+  document.documentElement.setAttribute('data-mode', m);
+  try { localStorage.setItem(MODE_KEY, m); } catch {}
 });
 
 effect(() => {
-  const accent = customAccent.value;
+  const a = accent.value;
+  document.documentElement.setAttribute('data-accent', a);
+  try { localStorage.setItem(ACCENT_KEY, a); } catch {}
+});
+
+effect(() => {
+  const acc = customAccent.value;
   const root = document.documentElement;
-  if (accent) {
-    root.style.setProperty('--color-accent', accent);
+  if (acc) {
+    root.style.setProperty('--color-accent', acc);
     root.style.setProperty(
       '--color-accent-soft',
-      `color-mix(in srgb, ${accent} 18%, transparent)`,
+      `color-mix(in srgb, ${acc} 18%, transparent)`,
     );
-    root.style.setProperty('--color-accent-hover', shadeHex(accent, -10));
-    try { localStorage.setItem(ACCENT_KEY, accent); } catch {}
+    root.style.setProperty('--color-accent-hover', shadeHex(acc, mode.value === 'light' ? -15 : 10));
+    try { localStorage.setItem(CUSTOM_ACCENT_KEY, acc); } catch {}
   } else {
     root.style.removeProperty('--color-accent');
     root.style.removeProperty('--color-accent-soft');
     root.style.removeProperty('--color-accent-hover');
-    try { localStorage.removeItem(ACCENT_KEY); } catch {}
+    try { localStorage.removeItem(CUSTOM_ACCENT_KEY); } catch {}
   }
 });
 
 effect(() => {
   const s = uiScale.value;
-  // Use CSS `zoom` (not transform: scale) — keeps layout calculations
-  // correct so scrollbars and viewport math behave. Cross-browser
-  // support landed in Firefox 126 (May 2024).
   document.documentElement.style.zoom = String(s);
   try { localStorage.setItem(SCALE_KEY, String(s)); } catch {}
 });
@@ -111,8 +157,22 @@ effect(() => {
   try { localStorage.setItem(SHOW_COSTS_KEY, showCosts.value ? 'on' : 'off'); } catch {}
 });
 
+export function setMode(next: ThemeMode) {
+  mode.value = next;
+}
+
+export function setAccent(next: ThemeAccent) {
+  accent.value = next;
+}
+
+/** Backwards-compatible setter. Accepts the legacy single-key form. */
 export function setTheme(next: ThemeName) {
-  theme.value = next;
+  if (next === 'light') {
+    mode.value = 'light';
+  } else {
+    mode.value = 'dark';
+    accent.value = next;
+  }
 }
 
 export function setCustomAccent(hex: string | null) {

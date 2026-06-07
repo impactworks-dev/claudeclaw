@@ -1,9 +1,14 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { ChevronDown, Check } from 'lucide-preact';
-import { theme, themeMeta, setTheme, type ThemeName } from '@/lib/theme';
+import {
+  mode, accent, modeMeta, accentMeta,
+  setMode, setAccent,
+  type ThemeMode, type ThemeAccent,
+} from '@/lib/theme';
 import { workspaceName } from '@/lib/personalization';
 
-const THEME_ORDER: ThemeName[] = ['graphite', 'midnight', 'crimson', 'light'];
+const MODE_ORDER: ThemeMode[] = ['dark', 'light'];
+const ACCENT_ORDER: ThemeAccent[] = ['graphite', 'midnight', 'crimson'];
 
 export function WorkspaceSwitcher() {
   const [open, setOpen] = useState(false);
@@ -77,19 +82,40 @@ export function WorkspaceSwitcher() {
 
       {open && (
         <div class="absolute left-3 right-3 top-full mt-1 z-50 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-2xl overflow-hidden">
-          <div class="px-3 py-2 section-label border-b border-[var(--color-border)]">Theme</div>
-          {THEME_ORDER.map((name) => {
-            const meta = themeMeta[name];
-            const active = theme.value === name;
+          <div class="px-3 py-2 section-label border-b border-[var(--color-border)]">Mode</div>
+          {MODE_ORDER.map((name) => {
+            const meta = modeMeta[name];
+            const active = mode.value === name;
             return (
               <button
                 key={name}
                 type="button"
-                onClick={() => { setTheme(name); setOpen(false); }}
+                onClick={() => setMode(name)}
                 class="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px] hover:bg-[var(--color-elevated)] transition-colors"
               >
                 <div
                   class="w-4 h-4 rounded shrink-0"
+                  style={{ background: meta.swatch, border: '1px solid var(--color-border)' }}
+                />
+                <span class="text-[var(--color-text)]">{meta.label}</span>
+                {active && <Check size={14} class="ml-auto text-[var(--color-accent)]" />}
+              </button>
+            );
+          })}
+
+          <div class="px-3 py-2 section-label border-y border-[var(--color-border)]">Accent</div>
+          {ACCENT_ORDER.map((name) => {
+            const meta = accentMeta[name];
+            const active = accent.value === name;
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setAccent(name)}
+                class="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px] hover:bg-[var(--color-elevated)] transition-colors"
+              >
+                <div
+                  class="w-4 h-4 rounded-full shrink-0"
                   style={{ background: meta.swatch, border: '1px solid var(--color-border)' }}
                 />
                 <span class="text-[var(--color-text)]">{meta.label}</span>

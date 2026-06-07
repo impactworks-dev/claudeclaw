@@ -1,6 +1,6 @@
 import { signal } from '@preact/signals';
 import { ROUTES } from './routes';
-import { setTheme } from './theme';
+import { setMode, setAccent } from './theme';
 
 export const commandPaletteOpen = signal(false);
 
@@ -25,10 +25,11 @@ export function buildActions(): PaletteAction[] {
   }));
 
   const themes: PaletteAction[] = [
-    { id: 'theme:graphite', label: 'Theme: Graphite', group: 'Theme', run: () => setTheme('graphite') },
-    { id: 'theme:midnight', label: 'Theme: Midnight', group: 'Theme', run: () => setTheme('midnight') },
-    { id: 'theme:crimson',  label: 'Theme: Crimson',  group: 'Theme', run: () => setTheme('crimson')  },
-    { id: 'theme:light',    label: 'Theme: Light',    group: 'Theme', run: () => setTheme('light')    },
+    { id: 'mode:dark',      label: 'Mode: Dark',       group: 'Theme', run: () => setMode('dark')   },
+    { id: 'mode:light',     label: 'Mode: Light',      group: 'Theme', run: () => setMode('light')  },
+    { id: 'accent:graphite', label: 'Accent: Graphite', group: 'Theme', run: () => setAccent('graphite') },
+    { id: 'accent:midnight', label: 'Accent: Midnight', group: 'Theme', run: () => setAccent('midnight') },
+    { id: 'accent:crimson',  label: 'Accent: Crimson',  group: 'Theme', run: () => setAccent('crimson')  },
   ];
 
   const actions: PaletteAction[] = [
