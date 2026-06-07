@@ -173,6 +173,63 @@ async function revenueByAccount(partnerId) {
   };
 }
 
+// ---- Platform admin helpers — list/create/update on JSON:API endpoints ----
+// Many platform resources share the same shape: paginated lists with optional
+// filter[] params, a single GET-by-id, and POST/PATCH for write. These helpers
+// keep the per-resource tools small.
+
+function buildPlatformQuery(args) {
+  const qs = new URLSearchParams();
+  if (args.limit) qs.set('page[limit]', String(args.limit));
+  if (args.cursor) qs.set('page[cursor]', args.cursor);
+  if (args.filters && typeof args.filters === 'object') {
+    for (const [k, v] of Object.entries(args.filters)) qs.set(`filter[${k}]`, String(v));
+  }
+  if (args.include) qs.set('include', args.include);
+  // Auto-inject partner filter under the right key. Most endpoints use
+  // `filter[partner.id]`, but some use `filter[businessPartner.id]` and
+  // automations want `filter[namespace]`. Tools pass partnerFilterKey to
+  // override (default 'partner.id' is fine for most).
+  const partnerId = args.partnerId;
+  const key = args.partnerFilterKey || 'partner.id';
+  if (partnerId && key && !qs.has(`filter[${key}]`)) {
+    qs.set(`filter[${key}]`, partnerId);
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : '';
+}
+
+async function platformList(resource, scope, args = {}) {
+  const path = `/${resource}${buildPlatformQuery(args)}`;
+  return platformGet(path, scope);
+}
+
+async function platformGetById(resource, scope, id) {
+  return platformGet(`/${resource}/${enc(id)}`, scope);
+}
+
+async function platformWrite(method, resource, scope, body, id) {
+  const token = await getAccessToken(scope);
+  const url = id ? `${PLATFORM_BASE}/${resource}/${enc(id)}` : `${PLATFORM_BASE}/${resource}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/vnd.api+json',
+      Accept: 'application/vnd.api+json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const e = new Error(`Vendasta ${method} ${resource} -> ${res.status}`);
+    e.status = res.status; e.body = data; throw e;
+  }
+  return data;
+}
+
 // ---- Sales opportunities (deal pipeline) — Connect/gRPC endpoint, scope sales.opportunity ----
 const SALES_OPP_URL = 'https://sales-opportunities-prod.apigateway.co/salesopportunities.v1.SalesOpportunities/ListOpportunities';
 async function listOpportunities(partnerId) {
@@ -347,6 +404,194 @@ const tools = [
       required: ['fields'],
     },
   },
+
+  // ── Platform Admin (Partner Center) — read tools ──────────────────
+  // These hit the Platform API (https://prod.apigateway.co/platform) which
+  // covers org-level admin: your Partner Center config, team members,
+  // subscriptions, orders, automations, business taxonomy. All read tools
+  // accept optional { limit, cursor, filters, partnerId } for pagination
+  // and scoping. partnerId defaults to VENDASTA_NAMESPACE.
+
+  {
+    name: 'vendasta_platform_list_users',
+    description: 'List admin users / team members on your Partner Center. Returns { data, links } JSON:API. Each user has roles, email, name, status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        partnerId: { type: 'string' },
+        limit: { type: 'integer' },
+        cursor: { type: 'string' },
+        filters: { type: 'object', description: 'JSON:API filters, e.g. { "status": "active" }' },
+      },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_sales_accounts',
+    description: 'List sales accounts at the admin level (which sales reps / sales account groupings exist in your Partner Center).',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_subscriptions',
+    description: 'List subscriptions on a single business location (customer). Required: businessLocationId (AG-...). Use vendasta_platform_list_business_locations first to find IDs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        businessLocationId: { type: 'string', description: 'AG-... business location ID' },
+        limit: { type: 'integer' },
+        cursor: { type: 'string' },
+        filters: { type: 'object' },
+      },
+      required: ['businessLocationId'],
+    },
+  },
+  {
+    name: 'vendasta_platform_list_subscription_assignments',
+    description: 'List subscription assignments on a single business location (customer). Required: businessLocationId (AG-...). Use vendasta_platform_list_business_locations first to find IDs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        businessLocationId: { type: 'string', description: 'AG-... business location ID' },
+        limit: { type: 'integer' },
+        cursor: { type: 'string' },
+        filters: { type: 'object' },
+      },
+      required: ['businessLocationId'],
+    },
+  },
+  {
+    name: 'vendasta_platform_list_orders',
+    description: 'List orders flowing through your Partner Center (retail customer orders). Returns JSON:API list with attributes incl. lineItems, orderForms, status.',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object', description: 'e.g. { "status": "pending" } or { "businessLocation.id": "AG-..." }' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_purchases',
+    description: 'List wholesale purchase records — what your Partner Center owes Vendasta. Pairs with vendasta_revenue_by_account for margin analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_activatable_products',
+    description: 'List products YOUR Partner Center can activate (the catalog you have access to). Use this to see what extra products are available to add to your offering.',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_automations',
+    description: 'List workflow automations configured at the Partner Center level (e.g. lifecycle emails, fulfillment triggers).',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_business_categories',
+    description: 'List the business category taxonomy (industries / verticals) available in your Partner Center.',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_business_locations',
+    description: 'List business locations registered in your Partner Center (the AG-... accounts your customers represent).',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
+    },
+  },
+  // ── Platform Admin (Partner Center) — write tools ─────────────────
+  // CONFIRMATION REQUIRED: Nikki MUST present the exact payload to Dante
+  // and wait for explicit "yes" before invoking any of these. Modifies
+  // real Partner Center state.
+
+  {
+    name: 'vendasta_platform_create_user',
+    description: '(WRITE — confirm with Dante first) Create a new admin user / team member in Partner Center. Pass { attributes: { firstName, lastName, email, roles: [...] }, partnerId? }. Returns the created user.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        partnerId: { type: 'string' },
+        attributes: {
+          type: 'object',
+          description: 'User attributes per Vendasta Platform API schema. Required at minimum: firstName, lastName, email, roles.',
+        },
+      },
+      required: ['attributes'],
+    },
+  },
+  {
+    name: 'vendasta_platform_update_user',
+    description: '(WRITE — confirm with Dante first) Update an existing admin user. Pass { id, attributes: { ... } }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'User ID' },
+        attributes: { type: 'object', description: 'Fields to change' },
+        partnerId: { type: 'string' },
+      },
+      required: ['id', 'attributes'],
+    },
+  },
+  {
+    name: 'vendasta_platform_create_order',
+    description: '(WRITE — confirm with Dante first) Create a new order in Partner Center. Pass full JSON:API order payload as { attributes, relationships }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        partnerId: { type: 'string' },
+        attributes: { type: 'object' },
+        relationships: { type: 'object' },
+      },
+      required: ['attributes'],
+    },
+  },
+  {
+    name: 'vendasta_platform_assign_subscription',
+    description: '(WRITE — confirm with Dante first) Assign a subscription to a customer (creates a subscriptionAssignment).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        partnerId: { type: 'string' },
+        attributes: { type: 'object', description: 'Assignment attrs (start date, etc.)' },
+        relationships: { type: 'object', description: 'Required: subscription, customer (business location).' },
+      },
+      required: ['relationships'],
+    },
+  },
+  {
+    name: 'vendasta_platform_unassign_subscription',
+    description: '(WRITE — confirm with Dante first) Remove a subscription assignment by id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Subscription Assignment ID to delete' },
+        partnerId: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'vendasta_platform_activate_product',
+    description: '(WRITE — confirm with Dante first) Activate a product on your Partner Center (add it to your sellable catalog). Pass { productId, partnerId? }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        productId: { type: 'string' },
+        partnerId: { type: 'string' },
+      },
+      required: ['productId'],
+    },
+  },
 ];
 
 async function callTool(name, args) {
@@ -394,6 +639,82 @@ async function callTool(name, args) {
       if (args.subtype) body.subtype = args.subtype;
       return api('PATCH', `/${enc(ns(args))}/${enc(rt(args))}`, { body });
     }
+
+    // ── Platform Admin reads ─────────────────────────────────────────
+    // Scopes confirmed empirically from Vendasta API 403 messages. They
+    // are wildly inconsistent (some use `:read`, some bare, some `.list`)
+    // so the per-endpoint mapping is a literal lookup, not a pattern.
+    case 'vendasta_platform_list_users':
+      return platformList('users', 'user.list', { ...args, partnerId: args.partnerId || PARTNER_ID() });
+    case 'vendasta_platform_list_sales_accounts':
+      return platformList('salesAccounts', 'sales.account', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'businessPartner.id' });
+    case 'vendasta_platform_list_subscriptions': {
+      // Per Vendasta: subscriptions are per-customer, requires businessLocation.id
+      if (!args.businessLocationId) {
+        throw new Error('vendasta_platform_list_subscriptions requires businessLocationId (AG-...). Use vendasta_platform_list_business_locations to find IDs.');
+      }
+      return platformList('subscriptions', 'sales.account', { ...args, partnerId: null, filters: { ...args.filters, 'businessLocation.id': args.businessLocationId } });
+    }
+    case 'vendasta_platform_list_subscription_assignments': {
+      // Per Vendasta: requires filter[businessLocationId]; not a partner-wide list
+      if (!args.businessLocationId) {
+        throw new Error('vendasta_platform_list_subscription_assignments requires businessLocationId (AG-...). Use vendasta_platform_list_business_locations to find IDs.');
+      }
+      return platformList('subscriptionAssignments', 'sales.account', { ...args, partnerId: null, filters: { ...args.filters, businessLocationId: args.businessLocationId } });
+    }
+    case 'vendasta_platform_list_orders':
+      return platformList('orders', 'order:read', { ...args, partnerId: args.partnerId || PARTNER_ID() });
+    case 'vendasta_platform_list_purchases':
+      return platformList('purchases', 'financial', { ...args, partnerId: args.partnerId || PARTNER_ID() });
+    case 'vendasta_platform_list_activatable_products':
+      return platformList('partnerActivatableProducts', 'partner:read', { ...args, partnerId: args.partnerId || PARTNER_ID() });
+    case 'vendasta_platform_list_automations':
+      return platformList('automations', 'automation:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'namespace' });
+    case 'vendasta_platform_list_business_categories':
+      return platformList('businessCategories', 'business', { ...args, partnerId: args.partnerId || PARTNER_ID() });
+    case 'vendasta_platform_list_business_locations':
+      return platformList('businessLocations', 'business:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'businessPartner.id' });
+    // ── Platform Admin writes (Nikki MUST confirm with Dante first) ──
+    case 'vendasta_platform_create_user': {
+      const partnerId = args.partnerId || PARTNER_ID();
+      const body = { data: { type: 'users', attributes: args.attributes, relationships: { partner: { data: { type: 'partners', id: partnerId } } } } };
+      return platformWrite('POST', 'users', 'user.admin', body);
+    }
+    case 'vendasta_platform_update_user': {
+      const body = { data: { type: 'users', id: args.id, attributes: args.attributes } };
+      return platformWrite('PATCH', 'users', 'user.admin', body, args.id);
+    }
+    case 'vendasta_platform_create_order': {
+      const partnerId = args.partnerId || PARTNER_ID();
+      const relationships = args.relationships || {};
+      relationships.partner = relationships.partner || { data: { type: 'partners', id: partnerId } };
+      const body = { data: { type: 'orders', attributes: args.attributes, relationships } };
+      return platformWrite('POST', 'orders', 'order', body);
+    }
+    case 'vendasta_platform_assign_subscription': {
+      const partnerId = args.partnerId || PARTNER_ID();
+      const relationships = args.relationships || {};
+      relationships.partner = relationships.partner || { data: { type: 'partners', id: partnerId } };
+      const body = { data: { type: 'subscriptionAssignments', attributes: args.attributes || {}, relationships } };
+      return platformWrite('POST', 'subscriptionAssignments', 'sales.account', body);
+    }
+    case 'vendasta_platform_unassign_subscription':
+      return platformWrite('DELETE', 'subscriptionAssignments', 'sales.account', undefined, args.id);
+    case 'vendasta_platform_activate_product': {
+      const partnerId = args.partnerId || PARTNER_ID();
+      const body = {
+        data: {
+          type: 'partnerActivatableProducts',
+          attributes: { activated: true },
+          relationships: {
+            partner: { data: { type: 'partners', id: partnerId } },
+            product: { data: { type: 'products', id: args.productId } },
+          },
+        },
+      };
+      return platformWrite('POST', 'partnerActivatableProducts', 'partner', body);
+    }
+
     default:
       throw new Error(`unknown tool: ${name}`);
   }
