@@ -115,6 +115,7 @@ import { loadTickers, addTicker, removeTicker } from './stocks-tickers.js';
 import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
 import { getWeather } from './weather-data.js';
+import { getCleanedRevenue } from './vendasta-revenue.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
@@ -1397,6 +1398,19 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
+  // Vendasta "Real MRR" — customer-only retail (internal accounts stripped),
+  // fulfilled-only line items, no one-time fees. Cache 30min, ?force=1 bypasses.
+  app.get('/api/vendasta/revenue', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const snap = await getCleanedRevenue({ force });
+      return c.json(snap);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'vendasta revenue endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   // Weather snapshot driven by Cloudflare's "Add visitor location headers"
   // managed transform. Origin reads cf-iplatitude/lon/city/region/country
   // from the request. Falls back to Oakville, ON if headers are absent.

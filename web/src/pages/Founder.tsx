@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper, Plus, X, Sparkles, Library, RotateCcw } from 'lucide-preact';
+import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper, Plus, X, Sparkles, Library, RotateCcw, Receipt } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
@@ -22,6 +22,7 @@ const DEFAULT_SECTION_ORDER = [
   'brief',
   'nikki',
   'attention',
+  'real-mrr',
   'cash-pulse',
   'cash-pipeline',
   'outreach-members',
@@ -31,10 +32,8 @@ const DEFAULT_SECTION_ORDER = [
   'brain-proposals',
   'watchlist',
 ] as const;
-// Bumped to v2 when nikki was split out into its own section. Old saved
-// orders containing the legacy `stocks-news-nikki` id are discarded once,
-// then the new default applies. After that, user reorders save under v2.
-const SECTION_ORDER_KEY = 'founder-section-order-v2';
+// v3 adds the `real-mrr` Vendasta customer-only MRR tile.
+const SECTION_ORDER_KEY = 'founder-section-order-v3';
 
 function loadSectionOrder(): string[] {
   try {
@@ -216,6 +215,81 @@ function CashPulseTile({ cash, qb }: CashPulseProps) {
   );
 }
 
+// ── Real MRR tile ─────────────────────────────────────────────────────────
+// Vendasta customer-only retail MRR vs wholesale Vendasta cost. Strips
+// out Dante's own internal accounts (Pest WebPros = ImpactWorks, RocketLocal)
+// and filters to fulfilled + recurring line items only. Big top-line:
+// customer MRR + margin. Below: top 5 paying customers with margin each.
+
+interface RealMrrSnapshot {
+  asOf: number;
+  customerRetailMRR: number;
+  internalRetailMRR: number;
+  rawRetailMRR: number;
+  wholesaleMonthly: number;
+  grossMargin: number;
+  marginPct: number;
+  customerCount: number;
+  topCustomers: Array<{ agid: string; name: string | null; retailMRR: number; wholesaleMonthly: number; margin: number }>;
+}
+
+function RealMrrTile({ snap }: { snap: RealMrrSnapshot | null }) {
+  if (!snap) {
+    return (
+      <Tile icon={Receipt} title="Real MRR · Vendasta" href="/cash">
+        <div class="text-[12px] text-[var(--color-text-faint)]">Loading…</div>
+      </Tile>
+    );
+  }
+  const marginTone = snap.marginPct >= 60 ? 'good' : snap.marginPct >= 40 ? 'warn' : 'bad';
+  return (
+    <Tile icon={Receipt} title="Real MRR · Vendasta" href="/cash">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Stat
+          label="Customer MRR"
+          value={money(snap.customerRetailMRR)}
+          tone="good"
+          sub={`${snap.customerCount} paying`}
+        />
+        <Stat
+          label="Vendasta Cost"
+          value={money(snap.wholesaleMonthly)}
+          tone="warn"
+          sub="wholesale 31d"
+        />
+        <Stat
+          label="Gross Margin"
+          value={moneySigned(snap.grossMargin)}
+          tone={marginTone}
+          sub={`${snap.marginPct.toFixed(0)}%`}
+        />
+        <Stat
+          label="Internal"
+          value={money(snap.internalRetailMRR)}
+          tone="faint"
+          sub="excluded"
+        />
+      </div>
+      {snap.topCustomers.length > 0 && (
+        <div class="mt-3 pt-3 border-t border-[var(--color-border)]">
+          <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mb-1.5">Top customers</div>
+          <div class="space-y-1">
+            {snap.topCustomers.map((c) => (
+              <div key={c.agid} class="flex items-center justify-between text-[11px]">
+                <span class="truncate text-[var(--color-text-muted)] flex-1 mr-2">{c.name || c.agid}</span>
+                <span class="tabular-nums text-[var(--color-text)] font-medium">{money(c.retailMRR)}</span>
+                <span class="tabular-nums text-[var(--color-text-faint)] ml-2 w-14 text-right">
+                  +{money(c.margin)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Tile>
+  );
+}
+
 function StockRow({
   q, expanded, onToggle, onRemove,
 }: {
@@ -302,6 +376,8 @@ export function Founder() {
   const stocksFetch = useFetch<StocksSummary>('/api/stocks');
   const newsFetch = useFetch<NewsSummary>('/api/ai-news');
   const proposalsFetch = useFetch<{ proposals: BrainProposal[] }>('/api/brain/proposals', 5 * 60_000);
+  // 30-min cache server-side; refetch hourly client-side is plenty.
+  const realMrrFetch = useFetch<RealMrrSnapshot>('/api/vendasta/revenue', 60 * 60_000);
 
   // Promotion accept/dismiss state — local-only dismiss for now
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -462,6 +538,8 @@ export function Founder() {
         </a>
       </Link>
     ) : null,
+
+    'real-mrr': <RealMrrTile snap={realMrrFetch.data || null} />,
 
     'cash-pulse': <CashPulseTile cash={cash} qb={qb} />,
 
