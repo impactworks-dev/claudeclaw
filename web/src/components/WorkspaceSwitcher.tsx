@@ -90,7 +90,7 @@ export function WorkspaceSwitcher() {
               <button
                 key={name}
                 type="button"
-                onClick={() => setMode(name)}
+                onClick={() => { setMode(name); setOpen(false); }}
                 class="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px] hover:bg-[var(--color-elevated)] transition-colors"
               >
                 <div
@@ -111,7 +111,7 @@ export function WorkspaceSwitcher() {
               <button
                 key={name}
                 type="button"
-                onClick={() => setAccent(name)}
+                onClick={() => { setAccent(name); setOpen(false); }}
                 class="w-full flex items-center gap-2 px-3 py-1.5 text-[12.5px] hover:bg-[var(--color-elevated)] transition-colors"
               >
                 <div

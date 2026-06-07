@@ -2778,6 +2778,10 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       try { fs.mkdirSync(dirPath, { recursive: true }); } catch { /* ignore */ }
       const filePath = path.join(dirPath, noteName.replace(/[\\/]/g, '-') + '.md');
       if (fs.existsSync(filePath)) {
+        // Bust the proposals cache so this stale entry disappears from the
+        // next /api/brain/proposals call — otherwise the user could keep
+        // hitting the same duplicate for up to 15 min.
+        invalidateProposalsCache();
         return c.json({ error: 'note already exists', path: filePath }, 409);
       }
       const today = new Date().toISOString().slice(0, 10);

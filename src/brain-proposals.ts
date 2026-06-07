@@ -56,8 +56,25 @@ function fetchWikiTitles(): Set<string> {
   }
 }
 
+/** Filter a proposal list against the current wiki state. Cache may be
+ *  up to 15min old, but wiki state changes the moment a user clicks
+ *  "Add to wiki", so we always re-check live before returning. Matches
+ *  case-insensitively against both the raw topic and the title-cased
+ *  suggested note name so newly-added notes disappear immediately. */
+function filterAgainstLiveWiki(proposals: BrainProposal[]): BrainProposal[] {
+  const wikiTitles = fetchWikiTitles();
+  if (wikiTitles.size === 0) return proposals;
+  return proposals.filter((p) => {
+    const t = p.topic.toLowerCase();
+    const s = p.suggestedNoteName.toLowerCase();
+    return !wikiTitles.has(t) && !wikiTitles.has(s);
+  });
+}
+
 export function getBrainProposals(opts: { force?: boolean } = {}): BrainProposal[] {
-  if (!opts.force && _cache && Date.now() - _cache.asOf < TTL_MS) return _cache.proposals;
+  if (!opts.force && _cache && Date.now() - _cache.asOf < TTL_MS) {
+    return filterAgainstLiveWiki(_cache.proposals);
+  }
 
   const db = getDb();
   if (!db) return [];
@@ -117,7 +134,7 @@ export function getBrainProposals(opts: { force?: boolean } = {}): BrainProposal
     proposals.sort((a, b) => b.hitCount - a.hitCount || b.importance - a.importance);
 
     _cache = { asOf: Date.now(), proposals: proposals.slice(0, 10) };
-    return _cache.proposals;
+    return filterAgainstLiveWiki(_cache.proposals);
   } catch (e) {
     logger.warn({ err: String((e as Error)?.message || e) }, 'brain-proposals: scan failed');
     return [];

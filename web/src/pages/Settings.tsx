@@ -7,7 +7,9 @@ import { useFetch } from '@/lib/useFetch';
 import { apiPost } from '@/lib/api';
 import { pushToast } from '@/lib/toasts';
 import {
-  theme, themeMeta, setTheme, type ThemeName,
+  mode, accent, modeMeta, accentMeta,
+  setMode, setAccent,
+  type ThemeMode, type ThemeAccent,
   customAccent, setCustomAccent,
   uiScale, setUiScale,
   showCosts, setShowCosts,
@@ -56,7 +58,8 @@ const KILL_SWITCH_LABELS: Record<string, { label: string; description: string }>
   },
 };
 
-const THEME_ORDER: ThemeName[] = ['graphite', 'midnight', 'crimson'];
+const MODE_ORDER: ThemeMode[] = ['dark', 'light'];
+const ACCENT_ORDER: ThemeAccent[] = ['graphite', 'midnight', 'crimson'];
 
 export function Settings() {
   const health = useFetch<Health>('/api/health', 30_000);
@@ -83,8 +86,12 @@ export function Settings() {
                 <WorkspaceNameField />
               </Row>
               <Divider />
-              <Row label="Theme" hint="Switches CSS variables across the app.">
-                <ThemePicker />
+              <Row label="Mode" hint="Light or dark canvas — independent from the accent color.">
+                <ModePicker />
+              </Row>
+              <Divider />
+              <Row label="Accent" hint="Color used for highlights, links, and active states. Works with both modes.">
+                <AccentColorPicker />
               </Row>
               <Divider />
               <Row label="Custom accent" hint="Override the theme's accent with any hex. Reset clears it.">
@@ -199,17 +206,17 @@ function WorkspaceNameField() {
 
 // ── Theme picker ──────────────────────────────────────────────────────
 
-function ThemePicker() {
+function ModePicker() {
   return (
     <div class="flex items-center gap-1.5">
-      {THEME_ORDER.map((name) => {
-        const active = theme.value === name;
-        const meta = themeMeta[name];
+      {MODE_ORDER.map((name) => {
+        const active = mode.value === name;
+        const meta = modeMeta[name];
         return (
           <button
             key={name}
             type="button"
-            onClick={() => setTheme(name)}
+            onClick={() => setMode(name)}
             class={[
               'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12.5px] border transition-colors',
               active
@@ -219,6 +226,37 @@ function ThemePicker() {
           >
             <div
               class="w-3.5 h-3.5 rounded-sm shrink-0"
+              style={{ background: meta.swatch, border: '1px solid var(--color-border)' }}
+            />
+            {meta.label}
+            {active && <Check size={12} class="text-[var(--color-accent)]" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AccentColorPicker() {
+  return (
+    <div class="flex items-center gap-1.5">
+      {ACCENT_ORDER.map((name) => {
+        const active = accent.value === name;
+        const meta = accentMeta[name];
+        return (
+          <button
+            key={name}
+            type="button"
+            onClick={() => setAccent(name)}
+            class={[
+              'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12.5px] border transition-colors',
+              active
+                ? 'bg-[var(--color-accent-soft)] border-[var(--color-accent)] text-[var(--color-text)]'
+                : 'bg-[var(--color-card)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:border-[var(--color-border-strong)]',
+            ].join(' ')}
+          >
+            <div
+              class="w-3.5 h-3.5 rounded-full shrink-0"
               style={{ background: meta.swatch, border: '1px solid var(--color-border)' }}
             />
             {meta.label}
