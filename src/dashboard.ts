@@ -17,6 +17,7 @@ import {
   deleteScheduledTask,
   pauseScheduledTask,
   resumeScheduledTask,
+  updateScheduledTask,
   getConversationPage,
   getDashboardMemoryStats,
   getDashboardPinnedMemories,
@@ -79,6 +80,7 @@ import { extractViaClaude } from './memory-ingest.js';
 const WARROOM_TEXT_ID_RE = /^wr_[a-z0-9_]{4,64}$/i;
 const CLIENT_MSG_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import { generateContent, parseJsonResponse } from './gemini.js';
+import { computeNextRun } from './scheduler.js';
 import { getSecurityStatus } from './security.js';
 import {
   listAgentIds,
@@ -1737,6 +1739,46 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     const id = c.req.param('id');
     resumeScheduledTask(id);
     return c.json({ ok: true });
+  });
+
+  // Edit a scheduled task: prompt, schedule (cron), and/or agent_id.
+  // Returns the updated next_run so the UI can reflect the new firing time
+  // without waiting for the 30s poll. Ported from upstream a1622fa (osrepo).
+  app.patch('/api/tasks/:id', async (c) => {
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({})) as {
+      prompt?: string;
+      schedule?: string;
+      agent_id?: string;
+    };
+    const all = getAllScheduledTasks();
+    const existing = all.find((t) => t.id === id);
+    if (!existing) return c.json({ ok: false, error: 'task not found' }, 404);
+
+    const patch: { prompt?: string; schedule?: string; nextRun?: number; agentId?: string } = {};
+    if (typeof body.prompt === 'string') {
+      const trimmed = body.prompt.trim();
+      if (!trimmed) return c.json({ ok: false, error: 'prompt cannot be empty' }, 400);
+      patch.prompt = trimmed;
+    }
+    if (typeof body.schedule === 'string' && body.schedule.trim() !== existing.schedule) {
+      const cron = body.schedule.trim();
+      try {
+        patch.nextRun = computeNextRun(cron);
+        patch.schedule = cron;
+      } catch (err: any) {
+        return c.json({ ok: false, error: 'invalid cron: ' + (err?.message || String(err)) }, 400);
+      }
+    }
+    if (typeof body.agent_id === 'string') {
+      const agentId = body.agent_id.trim();
+      if (!agentId) return c.json({ ok: false, error: 'agent_id cannot be empty' }, 400);
+      patch.agentId = agentId;
+    }
+
+    updateScheduledTask(id, patch);
+    const updated = getAllScheduledTasks().find((t) => t.id === id);
+    return c.json({ ok: true, task: updated });
   });
 
   // ── Mission Control endpoints ────────────────────────────────────────
