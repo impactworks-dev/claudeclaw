@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'preact/hooks';
-import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper, Plus, X, Sparkles, Library } from 'lucide-preact';
+import { useEffect, useMemo, useState } from 'preact/hooks';
+import { RefreshCw, ArrowRight, AlertTriangle, AlertCircle, Info, Crown, Wallet, TrendingUp, Send, Store, LineChart, Newspaper, Plus, X, Sparkles, Library, RotateCcw } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
@@ -12,6 +12,46 @@ import { CalendarTile } from '@/components/CalendarTile';
 import { VendastaTile } from '@/components/VendastaTile';
 import { LatestBriefCard } from '@/components/LatestBriefCard';
 import { InboxCard } from '@/components/InboxCard';
+import { SortableSection } from '@/components/SortableSection';
+
+// Default order of the Founder Dashboard sections. The user can drag-reorder
+// them; the chosen order is persisted in localStorage under SECTION_ORDER_KEY.
+// To add a new section: add an id here, then add a matching entry to the
+// `sections` object inside the component.
+const DEFAULT_SECTION_ORDER = [
+  'brief',
+  'attention',
+  'cash-pulse',
+  'cash-pipeline',
+  'outreach-members',
+  'stocks-news-nikki',
+  'cal-vendasta',
+  'inbox',
+  'brain-proposals',
+  'watchlist',
+] as const;
+const SECTION_ORDER_KEY = 'founder-section-order-v1';
+
+function loadSectionOrder(): string[] {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SECTION_ORDER_KEY) : null;
+    if (!raw) return [...DEFAULT_SECTION_ORDER];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.some(x => typeof x !== 'string')) return [...DEFAULT_SECTION_ORDER];
+    // Append any sections the user hasn't seen yet (handles forward-compat
+    // when we add a new section to DEFAULT_SECTION_ORDER).
+    const known = new Set(parsed);
+    const merged = [...parsed];
+    for (const id of DEFAULT_SECTION_ORDER) if (!known.has(id)) merged.push(id);
+    // Drop any ids no longer recognized (handles removed sections).
+    const valid = new Set(DEFAULT_SECTION_ORDER as readonly string[]);
+    return merged.filter(id => valid.has(id));
+  } catch { return [...DEFAULT_SECTION_ORDER]; }
+}
+
+function saveSectionOrder(order: string[]): void {
+  try { localStorage.setItem(SECTION_ORDER_KEY, JSON.stringify(order)); } catch { /* private mode etc */ }
+}
 
 interface BrainProposal { topic: string; hitCount: number; importance: number; examples: string[]; suggestedNoteName: string; }
 
@@ -301,6 +341,29 @@ export function Founder() {
   const [newTicker, setNewTicker] = useState('');
   const [tickerError, setTickerError] = useState<string | null>(null);
 
+  // Section-order state for drag-and-drop reordering. Loaded from localStorage
+  // on mount; persisted on every change. `draggingId` is the id of the section
+  // currently being dragged (null when nothing is in flight).
+  const [sectionOrder, setSectionOrder] = useState<string[]>(() => loadSectionOrder());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  useEffect(() => { saveSectionOrder(sectionOrder); }, [sectionOrder]);
+
+  function handleReorder(fromId: string, toId: string) {
+    setSectionOrder(prev => {
+      const fromIdx = prev.indexOf(fromId);
+      const toIdx = prev.indexOf(toId);
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev;
+      const next = [...prev];
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, fromId);
+      return next;
+    });
+  }
+
+  function resetSectionOrder() {
+    setSectionOrder([...DEFAULT_SECTION_ORDER]);
+  }
+
   async function handleAddTicker() {
     const sym = newTicker.trim().toUpperCase();
     if (!sym) return;
@@ -327,355 +390,343 @@ export function Founder() {
     }
   }
 
+  // Brain proposals accept handler — declared here so the JSX in sectionContent
+  // can reference it. Wrapped in an IIFE in the old layout, hoisted here so the
+  // section map stays readable.
+  async function acceptProposal(p: BrainProposal) {
+    setAccepting(p.topic);
+    try {
+      await apiPost('/api/brain/proposals/accept', {
+        topic: p.suggestedNoteName,
+        folder: 'Decisions',
+        examples: p.examples,
+      });
+      setDismissed(prev => { const next = new Set(prev); next.add(p.topic); return next; });
+      proposalsFetch.refresh();
+      pushToast({
+        tone: 'success',
+        title: `Added "${p.suggestedNoteName}" to wiki`,
+        description: 'Created in Decisions/ — Syncthing will push it to Obsidian shortly.',
+        durationMs: 5000,
+      });
+    } catch (e: any) {
+      const status = e?.status;
+      if (status === 409) {
+        pushToast({
+          tone: 'warn',
+          title: 'Already in wiki',
+          description: `"${p.suggestedNoteName}" already exists in the vault.`,
+          durationMs: 6000,
+        });
+        setDismissed(prev => { const next = new Set(prev); next.add(p.topic); return next; });
+      } else {
+        pushToast({
+          tone: 'error',
+          title: 'Failed to add to wiki',
+          description: e?.message || String(e),
+          durationMs: 8000,
+        });
+      }
+      console.error('accept proposal', e);
+    } finally { setAccepting(null); }
+  }
+
+  // Map of section id → JSX content. Null entries are filtered out so empty
+  // sections (no primary attention, no proposals, etc.) don't show as empty
+  // draggable holes.
+  const brainProposalsList = (proposalsFetch.data?.proposals || []).filter(p => !dismissed.has(p.topic));
+  const sectionContent: Record<string, any> = {
+    'brief': <LatestBriefCard />,
+
+    'attention': data.primaryAttention ? (
+      <Link href={data.primaryAttention.href}>
+        <a class="block rounded-lg border-2 p-4 cursor-pointer hover:bg-[var(--color-elevated)]"
+           style={{ borderColor: TONE[SEV_TONE[data.primaryAttention.severity]] }}>
+          <div class="flex items-start gap-3">
+            {(() => { const Icon = SEV_ICON[data.primaryAttention.severity]; return <Icon size={20} class="shrink-0 mt-0.5" style={{ color: TONE[SEV_TONE[data.primaryAttention.severity]] }} />; })()}
+            <div class="flex-1">
+              <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mb-1">What needs your attention</div>
+              <div class="text-[16px] font-bold text-[var(--color-text)]">{data.primaryAttention.title}</div>
+              <div class="text-[12px] text-[var(--color-text-muted)] mt-1">{data.primaryAttention.detail}</div>
+            </div>
+            <ArrowRight size={18} class="text-[var(--color-text-faint)] mt-1" />
+          </div>
+        </a>
+      </Link>
+    ) : null,
+
+    'cash-pulse': <CashPulseTile cash={cash} qb={qb} />,
+
+    'cash-pipeline': (
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Tile icon={Wallet} title={qbConnected ? `Cash · QB (${qb!.company.name || 'ImpactWorks'})` : 'Cash'} href="/cash">
+          {data.cash.ok && cash ? (
+            cash.connectionStatus !== 'ok' ? (
+              <div class="text-[12px] text-[var(--color-text-muted)]">
+                Plaid not connected yet. <Link href="/cash"><a class="underline">Set up Cash →</a></Link>
+              </div>
+            ) : (
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <Stat label="Total Cash" value={money(cash.totalCashCents)} tone="good" />
+                <Stat label={qbConnected ? 'MTD Revenue · QB' : 'MTD Revenue'} value={money(displayMtdRevenueCents)} tone="good" />
+                <Stat label={qbConnected ? 'MTD Net · QB' : 'MTD Net'} value={moneySigned(displayMtdNetCents)} tone={netMTDTone} />
+                <Stat label="Runway" value={displayRunwayDays == null ? 'Cash+' : displayRunwayDays + 'd'} tone={runwayTone} sub={qbConnected ? 'QB 30d burn' : 'at 30d burn'} />
+              </div>
+            )
+          ) : (
+            <div class="text-[12px] text-[var(--color-text-faint)]">Cash data unavailable {data.cash.error ? '(' + data.cash.error + ')' : ''}</div>
+          )}
+        </Tile>
+        <Tile icon={TrendingUp} title="Sales Pipeline" href="/pipeline">
+          {data.pipeline.ok && pipe ? (
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <Stat label="Open Deals" value={pipe.openDealsCount} />
+              <Stat label="Pipeline Value" value={money(pipe.openDealsValueCents)} />
+              <Stat label="Weighted" value={money(pipe.openDealsWeightedCents)} tone="warn" />
+              <Stat label="Customers" value={pipe.customersCount} sub={pipe.customersMRRCents != null ? money(pipe.customersMRRCents) + '/mo MRR' : undefined} />
+            </div>
+          ) : (
+            <div class="text-[12px] text-[var(--color-text-faint)]">Pipeline data unavailable {data.pipeline.error ? '(' + data.pipeline.error + ')' : ''}</div>
+          )}
+        </Tile>
+      </div>
+    ),
+
+    'outreach-members': (
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Tile icon={Send} title="BID Outreach" href="/outreach">
+          {data.outreach.ok && outr ? (
+            <>
+              <div class="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-3">
+                <Stat label="Total" value={outr.totalBids} />
+                <Stat label="Untouched" value={outr.notContacted} tone={outr.notContacted > 0 ? 'warn' : 'faint'} />
+                <Stat label="Emailed" value={outr.emailed} tone="warn" />
+                <Stat label="Replied" value={outr.replied} tone="good" />
+                <Stat label="Webinar Booked" value={outr.webinarBooked} tone="good" />
+                <Stat label="Endorsed" value={outr.endorsed} tone="good" />
+              </div>
+              {outr.topPriority.length > 0 && (
+                <div class="border-t border-[var(--color-border)] pt-2">
+                  <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mb-1">Top priority today</div>
+                  {outr.topPriority.slice(0, 3).map(p => (
+                    <div key={p.email} class="flex items-center justify-between text-[11px] py-1">
+                      <div class="min-w-0 truncate">
+                        <span class="text-[var(--color-text)] font-medium">{p.entity}</span>
+                        {p.city && <span class="text-[var(--color-text-faint)]"> · {p.city}</span>}
+                      </div>
+                      <span class="text-[var(--color-text-muted)] shrink-0 ml-2">{p.nextAction}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div class="text-[12px] text-[var(--color-text-faint)]">Outreach data unavailable {data.outreach.error ? '(' + data.outreach.error + ')' : ''}</div>
+          )}
+        </Tile>
+        <Tile icon={Store} title="BID Members (Tier 2)" href="/members">
+          {data.members.ok && memb ? (
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <Stat label="BIDs Endorsed" value={memb.bidsEndorsed} />
+              <Stat label="Active Members" value={memb.activeMembers} />
+              <Stat label="Current MRR" value={money(memb.totalMRRCents)} tone="good" />
+              <Stat label="Pipeline Ceiling" value={money(memb.pipelineCeilingCents)} sub="at $169/mo × NC roster" />
+            </div>
+          ) : (
+            <div class="text-[12px] text-[var(--color-text-faint)]">Members data unavailable {data.members.error ? '(' + data.members.error + ')' : ''}</div>
+          )}
+        </Tile>
+      </div>
+    ),
+
+    'stocks-news-nikki': (
+      <div class="grid grid-cols-1 lg:grid-cols-8 gap-4">
+        <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <LineChart size={14} class="text-[var(--color-text-faint)]" />
+              <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">Stocks</div>
+            </div>
+            <div class="flex items-center gap-2">
+              {stocksFetch.data && (
+                <span class="text-[10px] text-[var(--color-text-faint)]">
+                  as of {new Date(stocksFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => { setAddingTicker(v => !v); setTickerError(null); }}
+                class="inline-flex items-center justify-center w-5 h-5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]"
+                aria-label="Add ticker"
+                title="Add ticker"
+              >
+                <Plus size={12} />
+              </button>
+            </div>
+          </div>
+          {addingTicker && (
+            <div class="mb-2 flex items-center gap-2">
+              <input
+                type="text"
+                value={newTicker}
+                onInput={(e: any) => setNewTicker(e.target.value.toUpperCase())}
+                onKeyDown={(e: any) => {
+                  if (e.key === 'Enter') handleAddTicker();
+                  if (e.key === 'Escape') { setAddingTicker(false); setNewTicker(''); setTickerError(null); }
+                }}
+                placeholder="e.g. ANTH"
+                maxLength={6}
+                autoFocus
+                class="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded px-2 py-1 text-[12px] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
+              />
+              <button type="button" onClick={handleAddTicker} class="px-2 py-1 rounded text-[11px] bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80">Add</button>
+              <button type="button" onClick={() => { setAddingTicker(false); setNewTicker(''); setTickerError(null); }} class="px-2 py-1 rounded text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]">Cancel</button>
+            </div>
+          )}
+          {tickerError && <div class="mb-2 text-[10px] text-[#dc2626]">{tickerError}</div>}
+          {stocksFetch.loading && !stocksFetch.data ? (
+            <div class="text-[11px] text-[var(--color-text-faint)]">Loading quotes…</div>
+          ) : stocksFetch.error ? (
+            <div class="text-[11px] text-[var(--color-text-faint)]">Stocks unavailable ({String(stocksFetch.error)})</div>
+          ) : stocksFetch.data && stocksFetch.data.quotes.length > 0 ? (
+            <div class="space-y-0">
+              {stocksFetch.data.quotes.map(q => (
+                <div key={q.symbol}>
+                  <StockRow q={q} expanded={expandedTicker === q.symbol} onToggle={() => setExpandedTicker(expandedTicker === q.symbol ? null : q.symbol)} onRemove={() => handleRemoveTicker(q.symbol)} />
+                  {expandedTicker === q.symbol && <StockChart symbol={q.symbol} onClose={() => setExpandedTicker(null)} />}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div class="text-[11px] text-[var(--color-text-faint)]">No tickers in your watchlist. Click + to add.</div>
+          )}
+          <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
+            Quotes from Stooq · Candles from Yahoo · Click a row to view candles · Edits persist on the Fly volume.
+          </div>
+        </div>
+        <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <Newspaper size={14} class="text-[var(--color-text-faint)]" />
+              <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">AI News · Past 24h</div>
+            </div>
+            {newsFetch.data && (
+              <span class="text-[10px] text-[var(--color-text-faint)]">
+                refreshed {new Date(newsFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+          {newsFetch.loading && !newsFetch.data ? (
+            <div class="text-[11px] text-[var(--color-text-faint)]">Loading news…</div>
+          ) : newsFetch.error ? (
+            <div class="text-[11px] text-[var(--color-text-faint)]">News unavailable ({String(newsFetch.error)})</div>
+          ) : newsFetch.data && newsFetch.data.items.length > 0 ? (
+            <div class="space-y-0 max-h-[260px] overflow-auto">
+              {newsFetch.data.items.slice(0, 8).map((n, i) => <NewsRow key={i} n={n} />)}
+            </div>
+          ) : (
+            <div class="text-[11px] text-[var(--color-text-faint)]">No news in the last 24h.</div>
+          )}
+          <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
+            Source: Google News · Query: "artificial intelligence" OR "AI", last 24 hours.
+          </div>
+        </div>
+        <div class="lg:col-span-2"><NikkiCard /></div>
+      </div>
+    ),
+
+    'cal-vendasta': (
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <CalendarTile />
+        <VendastaTile />
+      </div>
+    ),
+
+    'inbox': <InboxCard />,
+
+    'brain-proposals': brainProposalsList.length > 0 ? (
+      <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <Sparkles size={14} class="text-[var(--color-accent)]" />
+          <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">
+            Brain proposals · {brainProposalsList.length}
+          </div>
+          <Link href="/brain">
+            <a class="text-[10px] text-[var(--color-text-faint)] hover:text-[var(--color-text)] ml-auto inline-flex items-center gap-0.5">
+              open Brain <ArrowRight size={10} />
+            </a>
+          </Link>
+        </div>
+        <div class="space-y-1.5">
+          {brainProposalsList.slice(0, 4).map(p => (
+            <div key={p.topic} class="flex items-start gap-2 text-[11px] py-1.5 px-2 rounded bg-[var(--color-elevated)]">
+              <Library size={12} class="text-[var(--color-accent)] mt-0.5 shrink-0" />
+              <div class="flex-1 min-w-0">
+                <div class="text-[var(--color-text)] font-medium">{p.suggestedNoteName}</div>
+                <div class="text-[10px] text-[var(--color-text-faint)] truncate">
+                  Seen in {p.hitCount} memories · avg importance {p.importance.toFixed(1)} · e.g. "{p.examples[0]?.slice(0, 80)}…"
+                </div>
+              </div>
+              <button type="button" onClick={() => acceptProposal(p)} disabled={accepting === p.topic} class="text-[10px] px-2 py-1 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 disabled:opacity-40 shrink-0">
+                {accepting === p.topic ? 'Adding…' : 'Add to wiki'}
+              </button>
+              <button type="button" onClick={() => setDismissed(prev => { const n = new Set(prev); n.add(p.topic); return n; })} class="text-[10px] px-1.5 py-1 rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)] shrink-0" aria-label="Dismiss">×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null,
+
+    'watchlist': data.attentionList.length > 1 ? (
+      <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+        <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)] mb-2">Watchlist</div>
+        <div class="space-y-0.5">
+          {data.attentionList.slice(1).map((a, i) => <AttentionRow key={i} item={a} />)}
+        </div>
+      </div>
+    ) : null,
+  };
+
   return (
     <div class="flex h-full flex-col">
       <PageHeader
         title="Founder Dashboard"
         subtitle={today + ' · ImpactWorks + Rocket Local'}
-        actions={<button type="button" onClick={() => refresh()} disabled={refreshing} class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)] disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"><RefreshCw size={12} class={refreshing ? 'animate-spin' : ''} /> {refreshing ? 'Refreshing…' : 'Refresh'}</button>}
+        actions={<div class="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={resetSectionOrder}
+            disabled={JSON.stringify(sectionOrder) === JSON.stringify([...DEFAULT_SECTION_ORDER])}
+            class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)] disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            title="Reset card order to default"
+          >
+            <RotateCcw size={12} /> Reset layout
+          </button>
+          <button type="button" onClick={() => refresh()} disabled={refreshing} class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)] disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"><RefreshCw size={12} class={refreshing ? 'animate-spin' : ''} /> {refreshing ? 'Refreshing…' : 'Refresh'}</button>
+        </div>}
       />
 
       <div class="flex-1 overflow-auto p-4 space-y-4">
 
-        {/* Latest Morning Brief — promoted to the top so it's the first thing you see */}
-        <LatestBriefCard />
-
-        {/* Primary attention: the ONE thing right now */}
-        {data.primaryAttention && (
-          <Link href={data.primaryAttention.href}>
-            <a class="block rounded-lg border-2 p-4 cursor-pointer hover:bg-[var(--color-elevated)]"
-               style={{ borderColor: TONE[SEV_TONE[data.primaryAttention.severity]] }}>
-              <div class="flex items-start gap-3">
-                {(() => { const Icon = SEV_ICON[data.primaryAttention.severity]; return <Icon size={20} class="shrink-0 mt-0.5" style={{ color: TONE[SEV_TONE[data.primaryAttention.severity]] }} />; })()}
-                <div class="flex-1">
-                  <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mb-1">What needs your attention</div>
-                  <div class="text-[16px] font-bold text-[var(--color-text)]">{data.primaryAttention.title}</div>
-                  <div class="text-[12px] text-[var(--color-text-muted)] mt-1">{data.primaryAttention.detail}</div>
-                </div>
-                <ArrowRight size={18} class="text-[var(--color-text-faint)] mt-1" />
-              </div>
-            </a>
-          </Link>
-        )}
-
-        {/* Cash Pulse — compact balance / burn / runway at a glance */}
-        <CashPulseTile cash={cash} qb={qb} />
-
-        {/* Top row: Cash (full detail) + Pipeline */}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Tile icon={Wallet} title={qbConnected ? `Cash · QB (${qb!.company.name || 'ImpactWorks'})` : 'Cash'} href="/cash">
-            {data.cash.ok && cash ? (
-              cash.connectionStatus !== 'ok' ? (
-                <div class="text-[12px] text-[var(--color-text-muted)]">
-                  Plaid not connected yet. <Link href="/cash"><a class="underline">Set up Cash →</a></Link>
-                </div>
-              ) : (
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <Stat label="Total Cash" value={money(cash.totalCashCents)} tone="good" />
-                  <Stat label={qbConnected ? 'MTD Revenue · QB' : 'MTD Revenue'} value={money(displayMtdRevenueCents)} tone="good" />
-                  <Stat label={qbConnected ? 'MTD Net · QB' : 'MTD Net'} value={moneySigned(displayMtdNetCents)} tone={netMTDTone} />
-                  <Stat label="Runway" value={displayRunwayDays == null ? 'Cash+' : displayRunwayDays + 'd'} tone={runwayTone} sub={qbConnected ? 'QB 30d burn' : 'at 30d burn'} />
-                </div>
-              )
-            ) : (
-              <div class="text-[12px] text-[var(--color-text-faint)]">Cash data unavailable {data.cash.error ? '(' + data.cash.error + ')' : ''}</div>
-            )}
-          </Tile>
-
-          <Tile icon={TrendingUp} title="Sales Pipeline" href="/pipeline">
-            {data.pipeline.ok && pipe ? (
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <Stat label="Open Deals" value={pipe.openDealsCount} />
-                <Stat label="Pipeline Value" value={money(pipe.openDealsValueCents)} />
-                <Stat label="Weighted" value={money(pipe.openDealsWeightedCents)} tone="warn" />
-                <Stat label="Customers" value={pipe.customersCount} sub={pipe.customersMRRCents != null ? money(pipe.customersMRRCents) + '/mo MRR' : undefined} />
-              </div>
-            ) : (
-              <div class="text-[12px] text-[var(--color-text-faint)]">Pipeline data unavailable {data.pipeline.error ? '(' + data.pipeline.error + ')' : ''}</div>
-            )}
-          </Tile>
-        </div>
-
-        {/* Middle row: Outreach + Members */}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Tile icon={Send} title="BID Outreach" href="/outreach">
-            {data.outreach.ok && outr ? (
-              <>
-                <div class="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-3">
-                  <Stat label="Total" value={outr.totalBids} />
-                  <Stat label="Untouched" value={outr.notContacted} tone={outr.notContacted > 0 ? 'warn' : 'faint'} />
-                  <Stat label="Emailed" value={outr.emailed} tone="warn" />
-                  <Stat label="Replied" value={outr.replied} tone="good" />
-                  <Stat label="Webinar Booked" value={outr.webinarBooked} tone="good" />
-                  <Stat label="Endorsed" value={outr.endorsed} tone="good" />
-                </div>
-                {outr.topPriority.length > 0 && (
-                  <div class="border-t border-[var(--color-border)] pt-2">
-                    <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mb-1">Top priority today</div>
-                    {outr.topPriority.slice(0, 3).map(p => (
-                      <div key={p.email} class="flex items-center justify-between text-[11px] py-1">
-                        <div class="min-w-0 truncate">
-                          <span class="text-[var(--color-text)] font-medium">{p.entity}</span>
-                          {p.city && <span class="text-[var(--color-text-faint)]"> · {p.city}</span>}
-                        </div>
-                        <span class="text-[var(--color-text-muted)] shrink-0 ml-2">{p.nextAction}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div class="text-[12px] text-[var(--color-text-faint)]">Outreach data unavailable {data.outreach.error ? '(' + data.outreach.error + ')' : ''}</div>
-            )}
-          </Tile>
-
-          <Tile icon={Store} title="BID Members (Tier 2)" href="/members">
-            {data.members.ok && memb ? (
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <Stat label="BIDs Endorsed" value={memb.bidsEndorsed} />
-                <Stat label="Active Members" value={memb.activeMembers} />
-                <Stat label="Current MRR" value={money(memb.totalMRRCents)} tone="good" />
-                <Stat label="Pipeline Ceiling" value={money(memb.pipelineCeilingCents)} sub="at $169/mo × NC roster" />
-              </div>
-            ) : (
-              <div class="text-[12px] text-[var(--color-text-faint)]">Members data unavailable {data.members.error ? '(' + data.members.error + ')' : ''}</div>
-            )}
-          </Tile>
-        </div>
-
-        {/* Stocks + AI News + Nikki — 3/3/2 split on lg+ (stocks gets chart width it needs) */}
-        <div class="grid grid-cols-1 lg:grid-cols-8 gap-4">
-          <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <LineChart size={14} class="text-[var(--color-text-faint)]" />
-                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">Stocks</div>
-              </div>
-              <div class="flex items-center gap-2">
-                {stocksFetch.data && (
-                  <span class="text-[10px] text-[var(--color-text-faint)]">
-                    as of {new Date(stocksFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => { setAddingTicker(v => !v); setTickerError(null); }}
-                  class="inline-flex items-center justify-center w-5 h-5 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]"
-                  aria-label="Add ticker"
-                  title="Add ticker"
-                >
-                  <Plus size={12} />
-                </button>
-              </div>
-            </div>
-
-            {addingTicker && (
-              <div class="mb-2 flex items-center gap-2">
-                <input
-                  type="text"
-                  value={newTicker}
-                  onInput={(e: any) => setNewTicker(e.target.value.toUpperCase())}
-                  onKeyDown={(e: any) => {
-                    if (e.key === 'Enter') handleAddTicker();
-                    if (e.key === 'Escape') { setAddingTicker(false); setNewTicker(''); setTickerError(null); }
-                  }}
-                  placeholder="e.g. ANTH"
-                  maxLength={6}
-                  autoFocus
-                  class="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded px-2 py-1 text-[12px] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddTicker}
-                  class="px-2 py-1 rounded text-[11px] bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80"
-                >
-                  Add
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setAddingTicker(false); setNewTicker(''); setTickerError(null); }}
-                  class="px-2 py-1 rounded text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-            {tickerError && (
-              <div class="mb-2 text-[10px] text-[#dc2626]">{tickerError}</div>
-            )}
-
-            {stocksFetch.loading && !stocksFetch.data ? (
-              <div class="text-[11px] text-[var(--color-text-faint)]">Loading quotes…</div>
-            ) : stocksFetch.error ? (
-              <div class="text-[11px] text-[var(--color-text-faint)]">Stocks unavailable ({String(stocksFetch.error)})</div>
-            ) : stocksFetch.data && stocksFetch.data.quotes.length > 0 ? (
-              <div class="space-y-0">
-                {stocksFetch.data.quotes.map(q => (
-                  <div key={q.symbol}>
-                    <StockRow
-                      q={q}
-                      expanded={expandedTicker === q.symbol}
-                      onToggle={() => setExpandedTicker(expandedTicker === q.symbol ? null : q.symbol)}
-                      onRemove={() => handleRemoveTicker(q.symbol)}
-                    />
-                    {expandedTicker === q.symbol && (
-                      <StockChart
-                        symbol={q.symbol}
-                        onClose={() => setExpandedTicker(null)}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div class="text-[11px] text-[var(--color-text-faint)]">No tickers in your watchlist. Click + to add.</div>
-            )}
-            <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
-              Quotes from Stooq · Candles from Yahoo · Click a row to view candles · Edits persist on the Fly volume.
-            </div>
-          </div>
-
-          <div class="lg:col-span-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <Newspaper size={14} class="text-[var(--color-text-faint)]" />
-                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">AI News · Past 24h</div>
-              </div>
-              {newsFetch.data && (
-                <span class="text-[10px] text-[var(--color-text-faint)]">
-                  refreshed {new Date(newsFetch.data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
-            </div>
-            {newsFetch.loading && !newsFetch.data ? (
-              <div class="text-[11px] text-[var(--color-text-faint)]">Loading news…</div>
-            ) : newsFetch.error ? (
-              <div class="text-[11px] text-[var(--color-text-faint)]">News unavailable ({String(newsFetch.error)})</div>
-            ) : newsFetch.data && newsFetch.data.items.length > 0 ? (
-              <div class="space-y-0 max-h-[260px] overflow-auto">
-                {newsFetch.data.items.slice(0, 8).map((n, i) => <NewsRow key={i} n={n} />)}
-              </div>
-            ) : (
-              <div class="text-[11px] text-[var(--color-text-faint)]">No news in the last 24h.</div>
-            )}
-            <div class="text-[10px] text-[var(--color-text-faint)] mt-2 pt-2 border-t border-[var(--color-border)]">
-              Source: Google News · Query: "artificial intelligence" OR "AI", last 24 hours.
-            </div>
-          </div>
-
-          {/* Nikki — narrow column with live chat + stats */}
-          <div class="lg:col-span-2">
-            <NikkiCard />
-          </div>
-        </div>
-
-        {/* New row: Calendar + Vendasta CRM (ImpactWorks / Rocket Local toggle) */}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <CalendarTile />
-          <VendastaTile />
-        </div>
-
-        {/* Inbox — full-width row (long row of subjects reads better wide) */}
-        <InboxCard />
-
-        {/* Brain promotion proposals — patterns Nikki noticed in your memory DB
-            that aren't yet canonical wiki notes. One click to promote to canon. */}
-        {(() => {
-          const props = (proposalsFetch.data?.proposals || []).filter(p => !dismissed.has(p.topic));
-          if (props.length === 0) return null;
-          async function acceptProposal(p: BrainProposal) {
-            setAccepting(p.topic);
-            try {
-              await apiPost('/api/brain/proposals/accept', {
-                topic: p.suggestedNoteName,
-                folder: 'Decisions',
-                examples: p.examples,
-              });
-              setDismissed(prev => { const next = new Set(prev); next.add(p.topic); return next; });
-              proposalsFetch.refresh();
-              pushToast({
-                tone: 'success',
-                title: `Added "${p.suggestedNoteName}" to wiki`,
-                description: 'Created in Decisions/ — Syncthing will push it to Obsidian shortly.',
-                durationMs: 5000,
-              });
-            } catch (e: any) {
-              const status = e?.status;
-              if (status === 409) {
-                pushToast({
-                  tone: 'warn',
-                  title: 'Already in wiki',
-                  description: `"${p.suggestedNoteName}" already exists in the vault.`,
-                  durationMs: 6000,
-                });
-                // Still dismiss locally so the card goes away
-                setDismissed(prev => { const next = new Set(prev); next.add(p.topic); return next; });
-              } else {
-                pushToast({
-                  tone: 'error',
-                  title: 'Failed to add to wiki',
-                  description: e?.message || String(e),
-                  durationMs: 8000,
-                });
-              }
-              console.error('accept proposal', e);
-            } finally { setAccepting(null); }
-          }
+        {/* Reorderable sections — drag a section's grip handle to move it.
+            Order persists per-browser in localStorage (founder-section-order-v1).
+            Reset via the "Reset layout" button in the page header. */}
+        {sectionOrder.map(id => {
+          const content = sectionContent[id];
+          if (!content) return null;
           return (
-            <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
-              <div class="flex items-center gap-2 mb-2">
-                <Sparkles size={14} class="text-[var(--color-accent)]" />
-                <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">
-                  Brain proposals · {props.length}
-                </div>
-                <Link href="/brain">
-                  <a class="text-[10px] text-[var(--color-text-faint)] hover:text-[var(--color-text)] ml-auto inline-flex items-center gap-0.5">
-                    open Brain <ArrowRight size={10} />
-                  </a>
-                </Link>
-              </div>
-              <div class="space-y-1.5">
-                {props.slice(0, 4).map(p => (
-                  <div key={p.topic} class="flex items-start gap-2 text-[11px] py-1.5 px-2 rounded bg-[var(--color-elevated)]">
-                    <Library size={12} class="text-[var(--color-accent)] mt-0.5 shrink-0" />
-                    <div class="flex-1 min-w-0">
-                      <div class="text-[var(--color-text)] font-medium">{p.suggestedNoteName}</div>
-                      <div class="text-[10px] text-[var(--color-text-faint)] truncate">
-                        Seen in {p.hitCount} memories · avg importance {p.importance.toFixed(1)} · e.g. "{p.examples[0]?.slice(0, 80)}…"
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => acceptProposal(p)}
-                      disabled={accepting === p.topic}
-                      class="text-[10px] px-2 py-1 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 disabled:opacity-40 shrink-0"
-                    >
-                      {accepting === p.topic ? 'Adding…' : 'Add to wiki'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDismissed(prev => { const n = new Set(prev); n.add(p.topic); return n; })}
-                      class="text-[10px] px-1.5 py-1 rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)] shrink-0"
-                      aria-label="Dismiss"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <SortableSection
+              key={id}
+              id={id}
+              draggingId={draggingId}
+              setDraggingId={setDraggingId}
+              onReorder={handleReorder}
+            >
+              {content}
+            </SortableSection>
           );
-        })()}
+        })}
 
-        {/* Full attention list (excluding the primary, which is already prominent) */}
-        {data.attentionList.length > 1 && (
-          <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
-            <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)] mb-2">Watchlist</div>
-            <div class="space-y-0.5">
-              {data.attentionList.slice(1).map((a, i) => <AttentionRow key={i} item={a} />)}
-            </div>
-          </div>
-        )}
 
         {/* Quick links footer */}
         <div class="flex flex-wrap gap-3 text-[11px] text-[var(--color-text-faint)] border-t border-[var(--color-border)] pt-3 mt-2">
