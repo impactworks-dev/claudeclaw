@@ -123,6 +123,10 @@ function lookupCache(lat: number, lon: number): WeatherSnapshot | null {
   const row = cache.rows.find(r => r.key === key);
   if (!row) return null;
   if (Date.now() - row.snapshot.asOf > TTL_MS) return null;
+  // Schema-version check: if pre-nowcast cache rows exist, treat as miss
+  // so we re-fetch with the current field set. Cheaper than a migration.
+  if (typeof row.snapshot.nowcast !== 'string') return null;
+  if (!Array.isArray(row.snapshot.hourly)) return null;
   return row.snapshot;
 }
 
