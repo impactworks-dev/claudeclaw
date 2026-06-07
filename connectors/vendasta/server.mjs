@@ -134,6 +134,8 @@ async function revenueByAccount(partnerId) {
       for (const li of (a.lineItems || [])) {
         let amt = li.amount || 0;
         const iv = (li.intervalCode || 'monthly').toLowerCase();
+        // Skip one-time charges — they're install / setup fees, not MRR
+        if (iv === 'onetime' || iv === 'one-time' || iv === 'one_time') continue;
         if (iv === 'annually' || iv === 'yearly') amt = Math.round(amt / 12);
         e.retailMRR += amt;
       }
