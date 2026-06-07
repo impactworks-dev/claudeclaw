@@ -3,7 +3,7 @@ import { ChevronDown, Check } from 'lucide-preact';
 import { theme, themeMeta, setTheme, type ThemeName } from '@/lib/theme';
 import { workspaceName } from '@/lib/personalization';
 
-const THEME_ORDER: ThemeName[] = ['graphite', 'midnight', 'crimson'];
+const THEME_ORDER: ThemeName[] = ['graphite', 'midnight', 'crimson', 'light'];
 
 export function WorkspaceSwitcher() {
   const [open, setOpen] = useState(false);

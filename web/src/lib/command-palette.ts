@@ -28,6 +28,7 @@ export function buildActions(): PaletteAction[] {
     { id: 'theme:graphite', label: 'Theme: Graphite', group: 'Theme', run: () => setTheme('graphite') },
     { id: 'theme:midnight', label: 'Theme: Midnight', group: 'Theme', run: () => setTheme('midnight') },
     { id: 'theme:crimson',  label: 'Theme: Crimson',  group: 'Theme', run: () => setTheme('crimson')  },
+    { id: 'theme:light',    label: 'Theme: Light',    group: 'Theme', run: () => setTheme('light')    },
   ];
 
   const actions: PaletteAction[] = [
