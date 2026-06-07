@@ -119,6 +119,11 @@ async function revenueByAccount(partnerId) {
     const j = await platformGet(`/orders?${q}`, 'order');
     for (const o of (j.data || [])) {
       const a = o.attributes || {};
+      // Only count fulfilled orders toward MRR. draft / processing /
+      // declined / error orders are NOT live revenue. Empirically (audit
+      // 2026-06-07) these inflate MRR by ~$2,780/mo (44% of total).
+      const status = String(a.statusCode || '').toLowerCase();
+      if (status !== 'fulfilled') continue;
       let agid = (o.relationships && o.relationships.businessLocation && o.relationships.businessLocation.data && o.relationships.businessLocation.data.id) || null;
       let name = null;
       for (const form of (a.orderForms || [])) {
