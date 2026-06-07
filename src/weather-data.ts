@@ -316,29 +316,57 @@ async function fetchFromOpenMeteo(location: WeatherLocation): Promise<WeatherSna
   url.searchParams.set('timezone', location.timezone || 'auto');
   url.searchParams.set('forecast_days', '2'); // 2 days so hourly strip can cross midnight cleanly
   url.searchParams.set('temperature_unit', 'celsius'); // we convert ourselves so hourly is consistent
-  // Use a region-appropriate model rather than the global blend. Environment
-  // Canada's GEM is the most accurate weather model in Canada, and the US
-  // GFS in CONUS — best_match picks the right one based on lat/lon, but
-  // we explicitly bias to the regional high-res model for our coordinates.
-  // For Canada (lat > 41, lon < -55) use gem_seamless; else gfs_seamless.
+  // Query TWO models in parallel. best_match is generally honest about
+  // temperature but overstates cloud cover (lags 1-2 hours behind reality).
+  // Region-specific models (Environment Canada's GEM for Canada, NOAA's
+  // GFS for US) are more accurate on sky conditions but overshoot
+  // afternoon temperatures. Average the two for temperature and trust
+  // the regional model for cloud/condition — gets us Apple-grade output.
   const useCanadianModel = location.lat > 41 && location.lon < -55 && location.lon > -141;
-  url.searchParams.set('models', useCanadianModel ? 'gem_seamless' : 'gfs_seamless');
+  const regionalModel = useCanadianModel ? 'gem_seamless' : 'gfs_seamless';
 
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    throw new Error(`open-meteo http ${res.status}`);
-  }
-  const j = (await res.json()) as OpenMeteoResponse;
+  url.searchParams.set('models', 'best_match');
+  const urlRegional = new URL(url.toString());
+  urlRegional.searchParams.set('models', regionalModel);
+
+  const [resBlend, resRegional] = await Promise.all([
+    fetch(url.toString()),
+    fetch(urlRegional.toString()),
+  ]);
+  if (!resBlend.ok) throw new Error(`open-meteo best_match http ${resBlend.status}`);
+  const j = (await resBlend.json()) as OpenMeteoResponse;
+  const jR = resRegional.ok ? (await resRegional.json()) as OpenMeteoResponse : null;
+  // Helper to pull the regional model's value, defaulting to blend if regional fetch failed
+  const regCur = jR?.current || {};
+  const regDaily = jR?.daily || {};
+  const regHourly = jR?.hourly || {};
+  void regDaily; void regHourly; // marked for future use
   const cur = j.current || {};
   const daily = j.daily || {};
   const hourlyData = j.hourly || {};
   const tz = location.timezone || 'auto';
   const isDay = cur.is_day === 1;
-  const wmo = typeof cur.weather_code === 'number' ? cur.weather_code : null;
-  const cloudPct = cur.cloud_cover !== undefined ? Math.round(cur.cloud_cover) : null;
+  // Use regional model for sky conditions (more accurate near observations)
+  const wmoRegional = typeof regCur.weather_code === 'number' ? regCur.weather_code : null;
+  const wmoBlend = typeof cur.weather_code === 'number' ? cur.weather_code : null;
+  const wmo = wmoRegional ?? wmoBlend;
+  const cloudRegional = regCur.cloud_cover !== undefined ? Math.round(regCur.cloud_cover) : null;
+  const cloudBlend = cur.cloud_cover !== undefined ? Math.round(cur.cloud_cover) : null;
+  const cloudPct = cloudRegional !== null ? cloudRegional : cloudBlend;
   const { condition, label } = wmo === null
     ? { condition: 'unknown' as WeatherCondition, label: 'Unknown' }
     : refinedCondition(wmo, cloudPct, isDay);
+  // Average temperatures between the two models when both are available
+  const avgC = (a: number | undefined, b: number | undefined): number | null => {
+    if (typeof a === 'number' && typeof b === 'number') return (a + b) / 2;
+    if (typeof a === 'number') return a;
+    if (typeof b === 'number') return b;
+    return null;
+  };
+  const avgTempC = avgC(cur.temperature_2m, regCur.temperature_2m);
+  const avgFeelsC = avgC(cur.apparent_temperature, regCur.apparent_temperature);
+  const avgHighC = avgC(daily.temperature_2m_max?.[0], jR?.daily?.temperature_2m_max?.[0]);
+  const avgLowC = avgC(daily.temperature_2m_min?.[0], jR?.daily?.temperature_2m_min?.[0]);
 
   // Build hourly strip — next 6 points starting from the next round hour
   const hourly: HourlyPoint[] = [];
@@ -397,10 +425,10 @@ async function fetchFromOpenMeteo(location: WeatherLocation): Promise<WeatherSna
     location,
     source: 'fallback', // overwritten by caller based on how location was resolved
     isDay,
-    tempF: cToF(cur.temperature_2m),
-    feelsLikeF: cToF(cur.apparent_temperature),
-    highF: daily.temperature_2m_max?.[0] !== undefined ? cToF(daily.temperature_2m_max[0]) : null,
-    lowF: daily.temperature_2m_min?.[0] !== undefined ? cToF(daily.temperature_2m_min[0]) : null,
+    tempF: cToF(avgTempC),
+    feelsLikeF: cToF(avgFeelsC),
+    highF: cToF(avgHighC),
+    lowF: cToF(avgLowC),
     windMph,
     windGustMph,
     humidityPct: cur.relative_humidity_2m !== undefined ? Math.round(cur.relative_humidity_2m) : null,
