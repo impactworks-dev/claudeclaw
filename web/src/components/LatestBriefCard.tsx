@@ -7,7 +7,7 @@
 // button, and a strip of recent days.
 
 import { useState, useMemo, useEffect } from 'preact/hooks';
-import { Sunrise, Sun, Sunset, Moon, ArrowRight, Sparkles, Check, X, Loader2, ChevronDown, ChevronUp, MessageCircle, Cloud, CloudDrizzle, CloudRain, CloudSnow, CloudFog, CloudLightning, MapPin, RefreshCw } from 'lucide-preact';
+import { Sunrise, Sun, Sunset, Moon, ArrowRight, Sparkles, Check, X, Loader2, ChevronDown, ChevronUp, MessageCircle, Cloud, CloudDrizzle, CloudRain, CloudSnow, CloudFog, CloudLightning, MapPin, RefreshCw, Wind, Droplets } from 'lucide-preact';
 import { apiPost } from '@/lib/api';
 import { useFetch } from '@/lib/useFetch';
 
@@ -207,6 +207,15 @@ type WeatherCondition =
   | 'drizzle' | 'rain' | 'heavy-rain' | 'freezing-rain'
   | 'snow' | 'heavy-snow' | 'showers' | 'thunderstorm' | 'unknown';
 
+interface HourlyPoint {
+  time: number;
+  hourLabel: string;
+  tempF: number | null;
+  condition: WeatherCondition;
+  isDay: boolean;
+  precipChancePct: number | null;
+}
+
 interface WeatherSnapshot {
   asOf: number;
   location: { lat: number; lon: number; city: string | null; region: string | null; country: string | null; timezone: string };
@@ -217,11 +226,18 @@ interface WeatherSnapshot {
   highF: number | null;
   lowF: number | null;
   windMph: number | null;
+  windGustMph: number | null;
   humidityPct: number | null;
+  cloudCoverPct: number | null;
   precipChancePct: number | null;
+  precipNext6hPctMax: number | null;
   condition: WeatherCondition;
   conditionLabel: string;
   wmoCode: number | null;
+  nowcast: string;
+  sunriseTs: number | null;
+  sunsetTs: number | null;
+  hourly: HourlyPoint[];
 }
 
 const CLOUDY_CONDITIONS: WeatherCondition[] = ['cloudy', 'overcast', 'fog', 'drizzle', 'rain', 'heavy-rain', 'showers', 'thunderstorm', 'snow', 'heavy-snow', 'freezing-rain'];
@@ -751,61 +767,125 @@ export function LatestBriefCard() {
               </div>
             </div>
           </div>
-          <div class="relative flex flex-col items-end gap-1.5">
-            <div class="flex items-center gap-2">
-              {/* Weather chip — temp + condition */}
-              {weather && weather.tempF !== null && WeatherIcon && (
-                <span
-                  class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.85)',
-                    color: '#1f2937',
-                    backdropFilter: 'blur(4px)',
-                  }}
-                  title={`${weather.conditionLabel}${weather.feelsLikeF !== null && weather.feelsLikeF !== weather.tempF ? ` · feels like ${weather.feelsLikeF}°F` : ''}`}
-                >
-                  <WeatherIcon size={12} style={{ color: theme.badgeFrom }} />
-                  {weather.tempF}°F · {weather.conditionLabel}
-                </span>
-              )}
-              <span
-                class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.85)',
-                  color: status.color,
-                  backdropFilter: 'blur(4px)',
-                }}
-              >
-                <span class="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
-                {status.label}
-              </span>
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={generating}
-                title="Generate a fresh preview"
-                class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors disabled:opacity-50"
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.75)',
-                  color: '#1f2937',
-                  backdropFilter: 'blur(4px)',
-                }}
-              >
-                {generating ? <Loader2 size={11} class="animate-spin" /> : <Sparkles size={11} />}
-                {generating ? '…' : 'New'}
-              </button>
-            </div>
-            {/* Hi/Lo line — sits under the chip row */}
-            {weather && weather.highF !== null && weather.lowF !== null && (
-              <span
-                class="text-[10px] font-medium"
-                style={{ color: 'rgba(255,255,255,0.85)', textShadow: theme.textShadow }}
-              >
-                H {weather.highF}° · L {weather.lowF}°
-              </span>
-            )}
+          <div class="relative flex items-center gap-2">
+            <span
+              class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.85)',
+                color: status.color,
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              <span class="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
+              {status.label}
+            </span>
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={generating}
+              title="Generate a fresh preview"
+              class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors disabled:opacity-50"
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.75)',
+                color: '#1f2937',
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              {generating ? <Loader2 size={11} class="animate-spin" /> : <Sparkles size={11} />}
+              {generating ? '…' : 'New'}
+            </button>
           </div>
         </div>
+
+        {/* Weather hero — Apple-style. Big temp on left, condition + nowcast + hourly strip in the middle. */}
+        {weather && weather.tempF !== null && WeatherIcon && (
+          <div class="relative mb-4 flex flex-col gap-2.5">
+            <div class="flex items-end gap-3">
+              <div class="flex items-baseline gap-2">
+                <span
+                  class="text-[42px] leading-none font-light tracking-[-0.02em]"
+                  style={{ color: '#ffffff', textShadow: theme.textShadow }}
+                >
+                  {weather.tempF}°
+                </span>
+                <WeatherIcon size={22} style={{ color: 'rgba(255,255,255,0.9)' }} />
+              </div>
+              <div class="flex flex-col pb-1">
+                <span class="text-[13px] font-semibold leading-tight" style={{ color: '#ffffff', textShadow: theme.textShadow }}>
+                  {weather.conditionLabel}
+                </span>
+                {weather.highF !== null && weather.lowF !== null && (
+                  <span class="text-[11px] font-medium opacity-90" style={{ color: '#ffffff', textShadow: theme.textShadow }}>
+                    H {weather.highF}° · L {weather.lowF}°{weather.feelsLikeF !== null && weather.feelsLikeF !== weather.tempF ? ` · feels ${weather.feelsLikeF}°` : ''}
+                  </span>
+                )}
+              </div>
+            </div>
+            {/* Nowcast narrative */}
+            {weather.nowcast && (
+              <div
+                class="text-[11px] font-medium px-2.5 py-1.5 rounded-md inline-block"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.18)',
+                  color: 'rgba(255,255,255,0.95)',
+                  backdropFilter: 'blur(6px)',
+                  textShadow: theme.textShadow,
+                }}
+              >
+                {weather.nowcast}
+              </div>
+            )}
+            {/* Hourly strip — next 6 hours */}
+            {weather.hourly.length > 0 && (
+              <div
+                class="flex items-stretch gap-1 px-2 py-1.5 rounded-md"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  backdropFilter: 'blur(6px)',
+                }}
+              >
+                {weather.hourly.slice(0, 6).map((h, i) => {
+                  const HIcon = pickWeatherIcon(h.condition);
+                  return (
+                    <div key={i} class="flex-1 flex flex-col items-center gap-0.5 text-[10px]" style={{ color: '#ffffff', textShadow: theme.textShadow }}>
+                      <span class="font-medium opacity-90">{i === 0 ? 'Now' : h.hourLabel}</span>
+                      <HIcon size={14} style={{ color: 'rgba(255,255,255,0.95)' }} />
+                      <span class="font-semibold">{h.tempF !== null ? `${h.tempF}°` : '—'}</span>
+                      {h.precipChancePct !== null && h.precipChancePct >= 20 && (
+                        <span class="text-[8px] font-medium" style={{ color: '#bae6fd' }}>{h.precipChancePct}%</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Wind + precip + sunrise/sunset summary row */}
+            <div class="flex items-center gap-3 text-[10px] font-medium opacity-90" style={{ color: '#ffffff', textShadow: theme.textShadow }}>
+              {weather.windMph !== null && weather.windMph > 0 && (
+                <span class="inline-flex items-center gap-1" title={weather.windGustMph !== null && weather.windGustMph > weather.windMph ? `Gusts to ${weather.windGustMph} mph` : undefined}>
+                  <Wind size={10} /> {weather.windMph} mph
+                </span>
+              )}
+              {weather.precipNext6hPctMax !== null && weather.precipNext6hPctMax > 0 && (
+                <span class="inline-flex items-center gap-1">
+                  <Droplets size={10} /> {weather.precipNext6hPctMax}%
+                </span>
+              )}
+              {weather.sunriseTs && weather.sunsetTs && (() => {
+                // Show whichever is next — sunset if it's still ahead, otherwise tomorrow's sunrise
+                const now = Date.now();
+                const showSunset = weather.sunsetTs > now;
+                const label = showSunset ? 'Sunset' : 'Sunrise';
+                const ts = showSunset ? weather.sunsetTs : weather.sunriseTs;
+                const Icon = showSunset ? Sunset : Sunrise;
+                const time = new Intl.DateTimeFormat('en-US', {
+                  timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true,
+                }).format(new Date(ts));
+                return <span class="inline-flex items-center gap-1"><Icon size={10} /> {label} {time}</span>;
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Headline — sits on glass overlay so it reads against any backdrop */}
         <div
@@ -815,7 +895,7 @@ export function LatestBriefCard() {
           {headline}
         </div>
 
-        {/* Footer row — live clock left, last-refreshed + refresh right */}
+        {/* Footer row — location/clock left, last-refreshed right */}
         <div class="relative mt-4 flex items-end justify-between text-[10px]" style={{ color: 'rgba(255,255,255,0.85)', textShadow: theme.textShadow }}>
           <span class="inline-flex items-center gap-1.5 font-medium">
             <MapPin size={10} />

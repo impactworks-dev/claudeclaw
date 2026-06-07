@@ -54,6 +54,15 @@ export type WeatherCondition =
   | 'thunderstorm'
   | 'unknown';
 
+export interface HourlyPoint {
+  time: number;             // epoch ms
+  hourLabel: string;        // "2 PM" in local tz
+  tempF: number | null;
+  condition: WeatherCondition;
+  isDay: boolean;
+  precipChancePct: number | null;
+}
+
 export interface WeatherSnapshot {
   asOf: number;                     // epoch ms when we fetched from Open-Meteo
   location: WeatherLocation;
@@ -64,11 +73,18 @@ export interface WeatherSnapshot {
   highF: number | null;             // next 24h high
   lowF: number | null;              // next 24h low
   windMph: number | null;
+  windGustMph: number | null;
   humidityPct: number | null;
+  cloudCoverPct: number | null;     // 0-100, used to override flaky weather_code
   precipChancePct: number | null;   // next-hour probability
+  precipNext6hPctMax: number | null;
   condition: WeatherCondition;
   conditionLabel: string;           // human-readable, e.g., "Partly cloudy"
   wmoCode: number | null;           // raw WMO weather code from Open-Meteo
+  nowcast: string;                  // Apple-style narrative: "Mostly sunny. Cloudy by afternoon. Gusts to 10 mph."
+  sunriseTs: number | null;         // epoch ms today's sunrise
+  sunsetTs: number | null;          // epoch ms today's sunset
+  hourly: HourlyPoint[];            // next 6 hourly points
 }
 
 interface CacheRow {
@@ -184,7 +200,17 @@ interface OpenMeteoResponse {
     relative_humidity_2m?: number;
     is_day?: number;
     weather_code?: number;
+    cloud_cover?: number;
     wind_speed_10m?: number;
+    wind_gusts_10m?: number;
+  };
+  hourly?: {
+    time?: string[];
+    temperature_2m?: number[];
+    weather_code?: number[];
+    cloud_cover?: number[];
+    precipitation_probability?: number[];
+    is_day?: number[];
   };
   daily?: {
     time?: string[];
@@ -192,18 +218,100 @@ interface OpenMeteoResponse {
     temperature_2m_max?: number[];
     temperature_2m_min?: number[];
     precipitation_probability_max?: number[];
+    sunrise?: string[];
+    sunset?: string[];
   };
   timezone?: string;
+}
+
+/** Reconcile WMO weather code with cloud cover percentage. Open-Meteo's
+ *  model often returns weather_code=3 (overcast) when actual cloud cover
+ *  is moderate (40-60%) — the model's blend disagrees with reality. We
+ *  use cloud_cover as a tiebreaker for the "clear → overcast" cluster
+ *  (codes 0-3). Precipitation codes (>=45) are trusted as-is since they
+ *  represent actual weather events, not cloud bookkeeping. */
+function refinedCondition(wmo: number, cloudPct: number | null, isDay: boolean): { condition: WeatherCondition; label: string } {
+  // Precipitation codes — trust them
+  if (wmo >= 45) return interpretWMO(wmo, isDay);
+  // Cloud-progression codes 0-3 — override with cloud_cover when available
+  if (cloudPct === null) return interpretWMO(wmo, isDay);
+  if (cloudPct < 15) return { condition: 'clear', label: isDay ? 'Clear' : 'Clear night' };
+  if (cloudPct < 35) return { condition: 'clear', label: isDay ? 'Mostly sunny' : 'Mostly clear' };
+  if (cloudPct < 65) return { condition: 'partly-cloudy', label: 'Partly cloudy' };
+  if (cloudPct < 88) return { condition: 'cloudy', label: 'Mostly cloudy' };
+  return { condition: 'overcast', label: 'Overcast' };
+}
+
+function formatHour(d: Date, tz: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    hour12: true,
+  }).format(d);
+}
+
+/** Build an Apple-style nowcast: "Mostly sunny. Cloudy by afternoon. Gusts to 12 mph." */
+function buildNowcast(args: {
+  current: { condition: WeatherCondition; label: string; cloudPct: number | null };
+  hourly: HourlyPoint[];
+  windGustMph: number | null;
+  precipNext6hPctMax: number | null;
+}): string {
+  const parts: string[] = [];
+  parts.push(`${args.current.label}.`);
+
+  // Look ahead — is there a meaningful weather change in the next 6 hours?
+  const upcoming = args.hourly;
+  if (upcoming.length > 0) {
+    const cur = args.current.condition;
+    const turning = upcoming.find(h => {
+      if (h.condition === cur) return false;
+      // Only flag meaningful transitions
+      const sig = ['cloudy', 'overcast', 'rain', 'heavy-rain', 'showers', 'drizzle', 'thunderstorm', 'snow', 'heavy-snow', 'partly-cloudy', 'clear'];
+      return sig.includes(h.condition) && sig.includes(cur);
+    });
+    if (turning) {
+      const desc: Record<string, string> = {
+        'clear': 'Clear skies',
+        'partly-cloudy': 'Partly cloudy',
+        'cloudy': 'Cloudy',
+        'overcast': 'Overcast',
+        'rain': 'Rain',
+        'heavy-rain': 'Heavy rain',
+        'showers': 'Showers',
+        'drizzle': 'Drizzle',
+        'thunderstorm': 'Thunderstorms',
+        'snow': 'Snow',
+        'heavy-snow': 'Heavy snow',
+        'fog': 'Fog',
+      };
+      parts.push(`${desc[turning.condition] || turning.condition} by ${turning.hourLabel}.`);
+    }
+  }
+
+  // Precip mention if meaningful
+  if (args.precipNext6hPctMax !== null && args.precipNext6hPctMax >= 40) {
+    parts.push(`${args.precipNext6hPctMax}% chance of precipitation.`);
+  }
+
+  // Gust mention if windy
+  if (args.windGustMph !== null && args.windGustMph >= 15) {
+    parts.push(`Gusts to ${args.windGustMph} mph.`);
+  }
+
+  return parts.join(' ');
 }
 
 async function fetchFromOpenMeteo(location: WeatherLocation): Promise<WeatherSnapshot> {
   const url = new URL('https://api.open-meteo.com/v1/forecast');
   url.searchParams.set('latitude', String(location.lat));
   url.searchParams.set('longitude', String(location.lon));
-  url.searchParams.set('current', 'temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m');
-  url.searchParams.set('daily', 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max');
+  url.searchParams.set('current', 'temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,cloud_cover,wind_speed_10m,wind_gusts_10m');
+  url.searchParams.set('hourly', 'temperature_2m,weather_code,cloud_cover,precipitation_probability,is_day');
+  url.searchParams.set('daily', 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset');
   url.searchParams.set('timezone', location.timezone || 'auto');
-  url.searchParams.set('forecast_days', '1');
+  url.searchParams.set('forecast_days', '2'); // 2 days so hourly strip can cross midnight cleanly
+  url.searchParams.set('temperature_unit', 'celsius'); // we convert ourselves so hourly is consistent
 
   const res = await fetch(url.toString());
   if (!res.ok) {
@@ -212,11 +320,66 @@ async function fetchFromOpenMeteo(location: WeatherLocation): Promise<WeatherSna
   const j = (await res.json()) as OpenMeteoResponse;
   const cur = j.current || {};
   const daily = j.daily || {};
+  const hourlyData = j.hourly || {};
+  const tz = location.timezone || 'auto';
   const isDay = cur.is_day === 1;
   const wmo = typeof cur.weather_code === 'number' ? cur.weather_code : null;
+  const cloudPct = cur.cloud_cover !== undefined ? Math.round(cur.cloud_cover) : null;
   const { condition, label } = wmo === null
     ? { condition: 'unknown' as WeatherCondition, label: 'Unknown' }
-    : interpretWMO(wmo, isDay);
+    : refinedCondition(wmo, cloudPct, isDay);
+
+  // Build hourly strip — next 6 points starting from the next round hour
+  const hourly: HourlyPoint[] = [];
+  const now = Date.now();
+  if (Array.isArray(hourlyData.time)) {
+    for (let i = 0; i < hourlyData.time.length && hourly.length < 6; i++) {
+      const t = new Date(hourlyData.time[i] + ':00').getTime(); // Open-Meteo returns "2026-06-07T15:00" in tz
+      // We requested timezone in URL so times are local — convert back to absolute by adding tz offset
+      // Easier: use the timezone-aware format directly. Open-Meteo's `time` in local tz when timezone param is set.
+      // To get an epoch we parse it as UTC (no offset specified) and trust the relative order.
+      const tParsed = Date.parse(hourlyData.time[i]);
+      if (Number.isNaN(tParsed)) continue;
+      // Skip past hours — we want next 6 starting from now
+      if (tParsed < now - 30 * 60 * 1000) continue;
+      const tempC = hourlyData.temperature_2m?.[i];
+      const hWmo = hourlyData.weather_code?.[i];
+      const hCloud = hourlyData.cloud_cover?.[i] ?? null;
+      const hIsDay = hourlyData.is_day?.[i] === 1;
+      const hCondInfo = typeof hWmo === 'number'
+        ? refinedCondition(hWmo, hCloud, hIsDay)
+        : { condition: 'unknown' as WeatherCondition, label: 'Unknown' };
+      hourly.push({
+        time: tParsed,
+        hourLabel: formatHour(new Date(tParsed), tz),
+        tempF: cToF(tempC),
+        condition: hCondInfo.condition,
+        isDay: hIsDay,
+        precipChancePct: hourlyData.precipitation_probability?.[i] ?? null,
+      });
+      // Suppress unused var warning
+      void t;
+    }
+  }
+
+  // Max precip chance in next 6 hours
+  const precipNext6hMax = hourly.length > 0
+    ? hourly.reduce((max, h) => h.precipChancePct !== null && h.precipChancePct > max ? h.precipChancePct : max, 0)
+    : null;
+
+  // Sunrise / sunset for today
+  const sunriseTs = daily.sunrise?.[0] ? Date.parse(daily.sunrise[0]) : null;
+  const sunsetTs = daily.sunset?.[0] ? Date.parse(daily.sunset[0]) : null;
+
+  const windMph = kmhToMph(cur.wind_speed_10m);
+  const windGustMph = kmhToMph(cur.wind_gusts_10m);
+
+  const nowcast = buildNowcast({
+    current: { condition, label, cloudPct },
+    hourly,
+    windGustMph,
+    precipNext6hPctMax: precipNext6hMax,
+  });
 
   return {
     asOf: Date.now(),
@@ -227,12 +390,19 @@ async function fetchFromOpenMeteo(location: WeatherLocation): Promise<WeatherSna
     feelsLikeF: cToF(cur.apparent_temperature),
     highF: daily.temperature_2m_max?.[0] !== undefined ? cToF(daily.temperature_2m_max[0]) : null,
     lowF: daily.temperature_2m_min?.[0] !== undefined ? cToF(daily.temperature_2m_min[0]) : null,
-    windMph: kmhToMph(cur.wind_speed_10m),
+    windMph,
+    windGustMph,
     humidityPct: cur.relative_humidity_2m !== undefined ? Math.round(cur.relative_humidity_2m) : null,
+    cloudCoverPct: cloudPct,
     precipChancePct: daily.precipitation_probability_max?.[0] !== undefined ? daily.precipitation_probability_max[0] : null,
+    precipNext6hPctMax: precipNext6hMax,
     condition,
     conditionLabel: label,
     wmoCode: wmo,
+    nowcast,
+    sunriseTs,
+    sunsetTs,
+    hourly,
   };
 }
 
@@ -291,10 +461,14 @@ export async function getWeather(cfHeaders: CloudflareGeoHeaders): Promise<Weath
       source,
       isDay: true,
       tempF: null, feelsLikeF: null, highF: null, lowF: null,
-      windMph: null, humidityPct: null, precipChancePct: null,
+      windMph: null, windGustMph: null,
+      humidityPct: null, cloudCoverPct: null,
+      precipChancePct: null, precipNext6hPctMax: null,
       condition: 'unknown',
       conditionLabel: 'Unavailable',
       wmoCode: null,
+      nowcast: 'Weather data unavailable.',
+      sunriseTs: null, sunsetTs: null, hourly: [],
     };
   }
 }
