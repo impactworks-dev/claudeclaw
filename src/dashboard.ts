@@ -114,6 +114,7 @@ import { getStocksData, invalidateStocksCache } from './stocks-data.js';
 import { loadTickers, addTicker, removeTicker } from './stocks-tickers.js';
 import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
+import { getWeather } from './weather-data.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
@@ -1396,6 +1397,27 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
+  // Weather snapshot driven by Cloudflare's "Add visitor location headers"
+  // managed transform. Origin reads cf-iplatitude/lon/city/region/country
+  // from the request. Falls back to Oakville, ON if headers are absent.
+  // Cache: 10min on volume keyed by rounded coords.
+  app.get('/api/weather', async (c) => {
+    try {
+      const snap = await getWeather({
+        lat: c.req.header('cf-iplatitude'),
+        lon: c.req.header('cf-iplongitude'),
+        city: c.req.header('cf-ipcity'),
+        region: c.req.header('cf-ipregion'),
+        country: c.req.header('cf-ipcountry'),
+        timezone: c.req.header('cf-iptimezone'),
+      });
+      return c.json(snap);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'weather endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   // Stocks watchlist (Yahoo Finance v8 chart endpoint, no auth).
   // Cache: 5min. ?force=1 bypasses.
   app.get('/api/stocks', async (c) => {

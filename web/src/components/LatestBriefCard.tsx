@@ -6,8 +6,8 @@
 // breaks. Action chips for marking acted/ignored, "Generate now" preview
 // button, and a strip of recent days.
 
-import { useState, useMemo } from 'preact/hooks';
-import { Sunrise, Sun, Sunset, Moon, ArrowRight, Sparkles, Check, X, Loader2, ChevronDown, ChevronUp, MessageCircle } from 'lucide-preact';
+import { useState, useMemo, useEffect } from 'preact/hooks';
+import { Sunrise, Sun, Sunset, Moon, ArrowRight, Sparkles, Check, X, Loader2, ChevronDown, ChevronUp, MessageCircle, Cloud, CloudDrizzle, CloudRain, CloudSnow, CloudFog, CloudLightning, MapPin, RefreshCw } from 'lucide-preact';
 import { apiPost } from '@/lib/api';
 import { useFetch } from '@/lib/useFetch';
 
@@ -197,6 +197,243 @@ function Decoration({ kind }: { kind: BriefKind }) {
   }
 }
 
+// ── Weather overlay system ────────────────────────────────────────
+// Layers conditions on top of the time-of-day decoration. Clouds, rain,
+// snow, lightning, fog. Drives gradient overrides so an overcast day
+// reads gray-blue instead of golden, a rainy night dims the stars, etc.
+
+type WeatherCondition =
+  | 'clear' | 'partly-cloudy' | 'cloudy' | 'overcast' | 'fog'
+  | 'drizzle' | 'rain' | 'heavy-rain' | 'freezing-rain'
+  | 'snow' | 'heavy-snow' | 'showers' | 'thunderstorm' | 'unknown';
+
+interface WeatherSnapshot {
+  asOf: number;
+  location: { lat: number; lon: number; city: string | null; region: string | null; country: string | null; timezone: string };
+  source: 'cf-headers' | 'fallback';
+  isDay: boolean;
+  tempF: number | null;
+  feelsLikeF: number | null;
+  highF: number | null;
+  lowF: number | null;
+  windMph: number | null;
+  humidityPct: number | null;
+  precipChancePct: number | null;
+  condition: WeatherCondition;
+  conditionLabel: string;
+  wmoCode: number | null;
+}
+
+const CLOUDY_CONDITIONS: WeatherCondition[] = ['cloudy', 'overcast', 'fog', 'drizzle', 'rain', 'heavy-rain', 'showers', 'thunderstorm', 'snow', 'heavy-snow', 'freezing-rain'];
+const HEAVY_CONDITIONS: WeatherCondition[] = ['overcast', 'heavy-rain', 'thunderstorm', 'heavy-snow'];
+
+function pickWeatherIcon(c: WeatherCondition): typeof Sun {
+  switch (c) {
+    case 'clear': return Sun;
+    case 'partly-cloudy': return Cloud;
+    case 'cloudy': case 'overcast': return Cloud;
+    case 'fog': return CloudFog;
+    case 'drizzle': return CloudDrizzle;
+    case 'rain': case 'showers': case 'heavy-rain': case 'freezing-rain': return CloudRain;
+    case 'snow': case 'heavy-snow': return CloudSnow;
+    case 'thunderstorm': return CloudLightning;
+    default: return Sun;
+  }
+}
+
+/** Override the time-of-day gradient when weather is heavy/cloudy so the
+ *  card reads the weather as much as the time. Clear skies = original
+ *  gradient. Cloudy/overcast = grayer muted version. Storm = dark dramatic. */
+function gradientForWeather(kind: BriefKind, base: string, weather: WeatherSnapshot | null): string {
+  if (!weather || weather.condition === 'clear' || weather.condition === 'partly-cloudy' || weather.condition === 'unknown') return base;
+  const c = weather.condition;
+
+  // Thunderstorm — dark dramatic regardless of time
+  if (c === 'thunderstorm') {
+    return weather.isDay
+      ? 'linear-gradient(180deg, #475569 0%, #334155 60%, #1e293b 100%)'
+      : 'linear-gradient(180deg, #0f172a 0%, #1e293b 50%, #334155 100%)';
+  }
+  // Snow — cool blue-white
+  if (c === 'snow' || c === 'heavy-snow' || c === 'freezing-rain') {
+    return weather.isDay
+      ? 'linear-gradient(180deg, #cbd5e1 0%, #94a3b8 50%, #e2e8f0 100%)'
+      : 'linear-gradient(180deg, #1e293b 0%, #334155 50%, #475569 100%)';
+  }
+  // Rain — muted gray-blue
+  if (c === 'rain' || c === 'heavy-rain' || c === 'showers' || c === 'drizzle') {
+    return weather.isDay
+      ? 'linear-gradient(180deg, #64748b 0%, #475569 50%, #334155 100%)'
+      : 'linear-gradient(180deg, #0f172a 0%, #1e293b 50%, #334155 100%)';
+  }
+  // Fog — soft white-gray haze
+  if (c === 'fog') {
+    return weather.isDay
+      ? 'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 50%, #94a3b8 100%)'
+      : 'linear-gradient(180deg, #1e293b 0%, #334155 50%, #475569 100%)';
+  }
+  // Cloudy/overcast — desaturate the base by overlaying gray
+  if (c === 'cloudy' || c === 'overcast') {
+    // For night kinds keep dark; for day kinds use cooler gray-blue
+    if (kind === 'night') return 'linear-gradient(180deg, #1e1b4b 0%, #1e293b 50%, #334155 100%)';
+    return 'linear-gradient(180deg, #94a3b8 0%, #64748b 50%, #475569 100%)';
+  }
+  return base;
+}
+
+/** Whether to hide the sun/moon/stars decoration because clouds would
+ *  cover them. Returns true for heavy cloud cover and precipitation. */
+function decorationDimmedByWeather(weather: WeatherSnapshot | null): boolean {
+  if (!weather) return false;
+  return CLOUDY_CONDITIONS.includes(weather.condition);
+}
+
+/** Weather decoration overlay: drifting clouds, rain streaks, snowflakes,
+ *  lightning flash. Stacks ON TOP of (or replaces) the time-of-day decoration.
+ *  Pointer-events-none so it never blocks the chips. */
+function WeatherOverlay({ weather }: { weather: WeatherSnapshot | null }) {
+  if (!weather || weather.condition === 'clear' || weather.condition === 'unknown') return null;
+  const c = weather.condition;
+  const heavy = HEAVY_CONDITIONS.includes(c);
+
+  // Cloud helper — soft white blob with drift animation
+  const CloudPuff = ({ cx, cy, scale, dur, color = '#ffffff', opacity = 0.45 }: { cx: number; cy: number; scale: number; dur: string; color?: string; opacity?: number }) => (
+    <g transform={`translate(${cx} ${cy}) scale(${scale})`} opacity={opacity}>
+      <ellipse cx="0" cy="0" rx="34" ry="14" fill={color} />
+      <ellipse cx="-22" cy="4" rx="20" ry="11" fill={color} />
+      <ellipse cx="22" cy="4" rx="20" ry="11" fill={color} />
+      <ellipse cx="-8" cy="-10" rx="18" ry="10" fill={color} />
+      <ellipse cx="14" cy="-9" rx="16" ry="9" fill={color} />
+      <animateTransform attributeName="transform" type="translate" values={`${cx - 30} ${cy}; ${cx + 30} ${cy}; ${cx - 30} ${cy}`} dur={dur} repeatCount="indefinite" additive="sum" />
+    </g>
+  );
+
+  // Light cloud cover for partly cloudy days
+  if (c === 'partly-cloudy') {
+    return (
+      <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        <CloudPuff cx={150} cy={45} scale={0.65} dur="40s" opacity={0.5} />
+        <CloudPuff cx={280} cy={70} scale={0.55} dur="50s" opacity={0.42} />
+        <CloudPuff cx={70} cy={90} scale={0.45} dur="60s" opacity={0.35} />
+      </svg>
+    );
+  }
+
+  // Fog — soft white haze sweeping across
+  if (c === 'fog') {
+    return (
+      <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        <rect x="0" y="60" width="400" height="30" fill="#ffffff" opacity="0.25" />
+        <rect x="0" y="100" width="400" height="35" fill="#ffffff" opacity="0.28" />
+        <rect x="0" y="140" width="400" height="40" fill="#ffffff" opacity="0.22" />
+      </svg>
+    );
+  }
+
+  const cloudColor = heavy ? '#cbd5e1' : '#e2e8f0';
+
+  // Cloudy/overcast — full cloud cover, no precipitation
+  if (c === 'cloudy' || c === 'overcast') {
+    return (
+      <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        <CloudPuff cx={80} cy={50} scale={0.8} dur="50s" color={cloudColor} opacity={heavy ? 0.7 : 0.55} />
+        <CloudPuff cx={210} cy={40} scale={0.95} dur="45s" color={cloudColor} opacity={heavy ? 0.75 : 0.6} />
+        <CloudPuff cx={340} cy={55} scale={0.75} dur="55s" color={cloudColor} opacity={heavy ? 0.7 : 0.55} />
+        <CloudPuff cx={150} cy={85} scale={0.65} dur="60s" color={cloudColor} opacity={heavy ? 0.55 : 0.4} />
+        <CloudPuff cx={290} cy={95} scale={0.7} dur="65s" color={cloudColor} opacity={heavy ? 0.55 : 0.4} />
+      </svg>
+    );
+  }
+
+  // Rain (or showers/drizzle) — clouds + falling streaks
+  if (c === 'rain' || c === 'heavy-rain' || c === 'showers' || c === 'drizzle' || c === 'freezing-rain') {
+    const dropCount = c === 'heavy-rain' || c === 'showers' ? 22 : 14;
+    const drops = Array.from({ length: dropCount }).map((_, i) => {
+      const x = (i * 23) % 400 + (i % 3) * 7;
+      const delay = (i * 0.13) % 2;
+      return (
+        <line key={i} x1={x} y1={-10} x2={x - 4} y2={10} stroke="#dbeafe" strokeWidth={c === 'drizzle' ? 0.8 : 1.4} strokeLinecap="round" opacity="0.6">
+          <animate attributeName="y1" values="-10;210" dur="1.2s" begin={`${delay}s`} repeatCount="indefinite" />
+          <animate attributeName="y2" values="10;230" dur="1.2s" begin={`${delay}s`} repeatCount="indefinite" />
+        </line>
+      );
+    });
+    return (
+      <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        <CloudPuff cx={100} cy={35} scale={0.9} dur="60s" color={cloudColor} opacity={0.75} />
+        <CloudPuff cx={250} cy={28} scale={1.0} dur="55s" color={cloudColor} opacity={0.8} />
+        <CloudPuff cx={350} cy={40} scale={0.8} dur="58s" color={cloudColor} opacity={0.75} />
+        {drops}
+      </svg>
+    );
+  }
+
+  // Snow — clouds + falling flakes (drift sideways)
+  if (c === 'snow' || c === 'heavy-snow') {
+    const flakeCount = c === 'heavy-snow' ? 30 : 18;
+    const flakes = Array.from({ length: flakeCount }).map((_, i) => {
+      const x = (i * 21) % 400 + (i % 4) * 5;
+      const delay = (i * 0.17) % 3;
+      const size = 1.2 + (i % 3) * 0.4;
+      return (
+        <circle key={i} cx={x} cy={-5} r={size} fill="#ffffff" opacity="0.85">
+          <animate attributeName="cy" values="-5;210" dur={`${3 + (i % 4) * 0.5}s`} begin={`${delay}s`} repeatCount="indefinite" />
+          <animate attributeName="cx" values={`${x};${x + 6};${x - 4};${x}`} dur="4s" begin={`${delay}s`} repeatCount="indefinite" />
+        </circle>
+      );
+    });
+    return (
+      <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        <CloudPuff cx={120} cy={30} scale={0.85} dur="60s" color="#e2e8f0" opacity={0.6} />
+        <CloudPuff cx={280} cy={35} scale={0.95} dur="55s" color="#e2e8f0" opacity={0.65} />
+        {flakes}
+      </svg>
+    );
+  }
+
+  // Thunderstorm — dark clouds + intermittent lightning flash + rain
+  if (c === 'thunderstorm') {
+    return (
+      <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 400 200" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+        {/* Lightning flash overlay (flickers) */}
+        <rect x="0" y="0" width="400" height="200" fill="#fef9c3" opacity="0">
+          <animate attributeName="opacity" values="0;0;0;0;0;0;0.35;0;0.2;0;0;0;0;0" dur="7s" repeatCount="indefinite" />
+        </rect>
+        <CloudPuff cx={100} cy={35} scale={1.0} dur="50s" color="#475569" opacity={0.85} />
+        <CloudPuff cx={260} cy={28} scale={1.15} dur="55s" color="#475569" opacity={0.9} />
+        <CloudPuff cx={360} cy={40} scale={0.9} dur="60s" color="#475569" opacity={0.85} />
+        {/* Lightning bolt */}
+        <path d="M 200 60 L 195 90 L 205 90 L 195 130 L 215 90 L 205 90 L 215 60 Z" fill="#fef3c7" opacity="0">
+          <animate attributeName="opacity" values="0;0;0;0;0;0;0.95;0;0.7;0;0;0;0;0" dur="7s" repeatCount="indefinite" />
+        </path>
+        {/* Rain streaks */}
+        {Array.from({ length: 18 }).map((_, i) => {
+          const x = (i * 22) % 400 + (i % 3) * 6;
+          const delay = (i * 0.11) % 2;
+          return (
+            <line key={i} x1={x} y1={-10} x2={x - 4} y2={10} stroke="#dbeafe" strokeWidth="1.4" strokeLinecap="round" opacity="0.6">
+              <animate attributeName="y1" values="-10;210" dur="1.1s" begin={`${delay}s`} repeatCount="indefinite" />
+              <animate attributeName="y2" values="10;230" dur="1.1s" begin={`${delay}s`} repeatCount="indefinite" />
+            </line>
+          );
+        })}
+      </svg>
+    );
+  }
+
+  return null;
+}
+
+function formatRelativeTime(ts: number): string {
+  const diffMs = Date.now() - ts;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
 /** Pick a default theme based on the user's current local hour. Used for
  *  the "no brief yet" empty state and as a fallback when an old brief
  *  row has no brief_kind. */
@@ -349,10 +586,18 @@ function RecentChip({ row, isActive, onClick }: { row: RecentRow; isActive: bool
 
 export function LatestBriefCard() {
   const { data, loading, error, refresh } = useFetch<LatestBriefResponse>('/api/brief/latest', 60_000);
+  // Weather snapshot — refreshes every 10min (matches server-side cache TTL).
+  const { data: weather, refresh: refreshWeather } = useFetch<WeatherSnapshot>('/api/weather', 10 * 60_000);
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [previewedId, setPreviewedId] = useState<number | null>(null);
   const [previewBody, setPreviewBody] = useState<string | null>(null);
+  // Live clock — re-renders every minute so the displayed time stays current.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const latest = previewBody
     ? null  // showing a fresh preview, hide the archive view
@@ -402,10 +647,13 @@ export function LatestBriefCard() {
     const ekind = themeFromCurrentHour();
     const etheme = THEME_BY_KIND[ekind];
     const EIcon = etheme.icon;
+    const eHero = gradientForWeather(ekind, etheme.gradient, weather || null);
+    const eHideDeco = decorationDimmedByWeather(weather || null);
     return (
       <div class="relative rounded-xl border overflow-hidden" style={{ borderColor: etheme.accentRing }}>
-        <div class="relative px-6 py-8 text-center overflow-hidden" style={{ background: etheme.gradient }}>
-          <Decoration kind={ekind} />
+        <div class="relative px-6 py-8 text-center overflow-hidden" style={{ background: eHero }}>
+          {!eHideDeco && <Decoration kind={ekind} />}
+          <WeatherOverlay weather={weather || null} />
           <EIcon size={28} class="mx-auto text-white mb-2 relative" style={{ filter: 'drop-shadow(0 1px 6px rgba(0,0,0,0.25))' }} />
           <div class="relative text-[14px] font-semibold mb-1" style={{ color: '#ffffff', textShadow: etheme.textShadow }}>
             No {etheme.label.toLowerCase()} yet
@@ -451,6 +699,21 @@ export function LatestBriefCard() {
     : (latest?.brief_kind || 'morning');
   const theme = THEME_BY_KIND[kind];
   const HeroIcon = theme.icon;
+  // Weather modifies the hero gradient + decides whether to hide the
+  // sun/moon decoration (clouds would cover them anyway).
+  const heroGradient = gradientForWeather(kind, theme.gradient, weather || null);
+  const hideTimeOfDayDecoration = decorationDimmedByWeather(weather || null);
+  const WeatherIcon = weather ? pickWeatherIcon(weather.condition) : null;
+  // Live clock in the timezone the user is actually in (from CF headers,
+  // falls back to America/Toronto when source is fallback).
+  const tz = weather?.location.timezone || 'America/Toronto';
+  const clockNow = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(new Date());
+  const locationLabel = weather?.location.city
+    ? `${weather.location.city}${weather.location.region ? `, ${weather.location.region}` : ''}`
+    : 'Oakville, ON';
 
   return (
     <div
@@ -461,8 +724,9 @@ export function LatestBriefCard() {
       }}
     >
       {/* Hero — gradient + decoration + headline */}
-      <div class="relative px-5 pt-5 pb-6 overflow-hidden" style={{ background: theme.gradient }}>
-        <Decoration kind={kind} />
+      <div class="relative px-5 pt-5 pb-6 overflow-hidden" style={{ background: heroGradient }}>
+        {!hideTimeOfDayDecoration && <Decoration kind={kind} />}
+        <WeatherOverlay weather={weather || null} />
 
         <div class="relative flex items-start justify-between mb-3">
           <div class="flex items-center gap-2.5">
@@ -487,33 +751,59 @@ export function LatestBriefCard() {
               </div>
             </div>
           </div>
-          <div class="relative flex items-center gap-2">
-            <span
-              class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.85)',
-                color: status.color,
-                backdropFilter: 'blur(4px)',
-              }}
-            >
-              <span class="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
-              {status.label}
-            </span>
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={generating}
-              title="Generate a fresh preview"
-              class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors disabled:opacity-50"
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.75)',
-                color: '#1f2937',
-                backdropFilter: 'blur(4px)',
-              }}
-            >
-              {generating ? <Loader2 size={11} class="animate-spin" /> : <Sparkles size={11} />}
-              {generating ? '…' : 'New'}
-            </button>
+          <div class="relative flex flex-col items-end gap-1.5">
+            <div class="flex items-center gap-2">
+              {/* Weather chip — temp + condition */}
+              {weather && weather.tempF !== null && WeatherIcon && (
+                <span
+                  class="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.85)',
+                    color: '#1f2937',
+                    backdropFilter: 'blur(4px)',
+                  }}
+                  title={`${weather.conditionLabel}${weather.feelsLikeF !== null && weather.feelsLikeF !== weather.tempF ? ` · feels like ${weather.feelsLikeF}°F` : ''}`}
+                >
+                  <WeatherIcon size={12} style={{ color: theme.badgeFrom }} />
+                  {weather.tempF}°F · {weather.conditionLabel}
+                </span>
+              )}
+              <span
+                class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.85)',
+                  color: status.color,
+                  backdropFilter: 'blur(4px)',
+                }}
+              >
+                <span class="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
+                {status.label}
+              </span>
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={generating}
+                title="Generate a fresh preview"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors disabled:opacity-50"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.75)',
+                  color: '#1f2937',
+                  backdropFilter: 'blur(4px)',
+                }}
+              >
+                {generating ? <Loader2 size={11} class="animate-spin" /> : <Sparkles size={11} />}
+                {generating ? '…' : 'New'}
+              </button>
+            </div>
+            {/* Hi/Lo line — sits under the chip row */}
+            {weather && weather.highF !== null && weather.lowF !== null && (
+              <span
+                class="text-[10px] font-medium"
+                style={{ color: 'rgba(255,255,255,0.85)', textShadow: theme.textShadow }}
+              >
+                H {weather.highF}° · L {weather.lowF}°
+              </span>
+            )}
           </div>
         </div>
 
@@ -523,6 +813,30 @@ export function LatestBriefCard() {
           style={{ color: '#ffffff', textShadow: theme.textShadow }}
         >
           {headline}
+        </div>
+
+        {/* Footer row — live clock left, last-refreshed + refresh right */}
+        <div class="relative mt-4 flex items-end justify-between text-[10px]" style={{ color: 'rgba(255,255,255,0.85)', textShadow: theme.textShadow }}>
+          <span class="inline-flex items-center gap-1.5 font-medium">
+            <MapPin size={10} />
+            {locationLabel} · {clockNow}
+            {weather?.source === 'fallback' && (
+              <span class="ml-1 px-1 rounded text-[9px]" style={{ backgroundColor: 'rgba(0,0,0,0.25)' }} title="Cloudflare visitor location headers not flowing; using default">
+                default
+              </span>
+            )}
+          </span>
+          {weather && (
+            <button
+              type="button"
+              onClick={() => refreshWeather()}
+              class="inline-flex items-center gap-1 font-medium opacity-90 hover:opacity-100 transition-opacity"
+              title="Refresh weather"
+            >
+              <RefreshCw size={9} />
+              Updated {formatRelativeTime(weather.asOf)}
+            </button>
+          )}
         </div>
       </div>
 
