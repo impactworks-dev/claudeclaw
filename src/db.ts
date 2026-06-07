@@ -168,6 +168,7 @@ function createSchema(database: Database.Database): void {
       output_tokens   INTEGER NOT NULL DEFAULT 0,
       cache_read      INTEGER NOT NULL DEFAULT 0,
       context_tokens  INTEGER NOT NULL DEFAULT 0,
+      context_window  INTEGER,
       cost_usd        REAL NOT NULL DEFAULT 0,
       did_compact     INTEGER NOT NULL DEFAULT 0,
       created_at      INTEGER NOT NULL
@@ -510,6 +511,13 @@ function runMigrations(database: Database.Database): void {
   const hasContextTokens = cols.some((c) => c.name === 'context_tokens');
   if (!hasContextTokens) {
     database.exec(`ALTER TABLE token_usage ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0`);
+  }
+  // Add context_window column (the model's real window, e.g. Opus 4.8 = 1M).
+  // Nullable: NULL on old rows / engines that don't report one, so consumers
+  // fall back to CONTEXT_LIMIT. Ported from upstream 133d620 (osrepo PR #88).
+  const hasContextWindow = cols.some((c) => c.name === 'context_window');
+  if (!hasContextWindow) {
+    database.exec(`ALTER TABLE token_usage ADD COLUMN context_window INTEGER`);
   }
 
   // Multi-agent: migrate sessions table to composite primary key (chat_id, agent_id)
@@ -1870,12 +1878,13 @@ export function saveTokenUsage(
   costUsd: number,
   didCompact: boolean,
   agentId = 'main',
+  contextWindow: number | null = null,
 ): void {
   const now = Math.floor(Date.now() / 1000);
   db.prepare(
-    `INSERT INTO token_usage (chat_id, session_id, input_tokens, output_tokens, cache_read, context_tokens, cost_usd, did_compact, created_at, agent_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(chatId, sessionId ?? null, inputTokens, outputTokens, cacheRead, contextTokens, costUsd, didCompact ? 1 : 0, now, agentId);
+    `INSERT INTO token_usage (chat_id, session_id, input_tokens, output_tokens, cache_read, context_tokens, context_window, cost_usd, did_compact, created_at, agent_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(chatId, sessionId ?? null, inputTokens, outputTokens, cacheRead, contextTokens, contextWindow, costUsd, didCompact ? 1 : 0, now, agentId);
 }
 
 export interface SessionTokenSummary {

@@ -94,6 +94,36 @@ export interface UsageInfo {
    * history + tool results for that call. Use this for context warnings.
    */
   lastCallInputTokens: number;
+  /**
+   * The active model's real context window (tokens), from the SDK's
+   * `result.modelUsage`. Null when the SDK didn't report one — callers fall
+   * back to CONTEXT_LIMIT. Use this (not CONTEXT_LIMIT) to size the context
+   * gauge so it tracks the actual model (Opus 4.8 = 1M, Sonnet 4.6 = 200k).
+   * Ported from upstream 133d620 (osrepo PR #88).
+   */
+  contextWindow: number | null;
+}
+
+/**
+ * Pull the active model's real context window from a `result.modelUsage` map.
+ * Prefer the requested model's entry; otherwise take the largest reported
+ * window (the primary model dominates any sub-agent models). Returns null
+ * when nothing reports a window.
+ */
+function pickContextWindow(modelUsage: unknown, model: string | undefined): number | null {
+  if (!modelUsage || typeof modelUsage !== 'object') return null;
+  const usage = modelUsage as Record<string, { contextWindow?: number }>;
+  if (model) {
+    const exact = usage[model]?.contextWindow;
+    if (typeof exact === 'number' && exact > 0) return exact;
+  }
+  let max: number | null = null;
+  for (const v of Object.values(usage)) {
+    if (typeof v?.contextWindow === 'number' && v.contextWindow > 0 && (max === null || v.contextWindow > max)) {
+      max = v.contextWindow;
+    }
+  }
+  return max;
 }
 
 /** Progress event emitted during agent execution for Telegram feedback. */
@@ -179,6 +209,7 @@ export async function runAgent(
   abortController?: AbortController,
   onStreamText?: (accumulatedText: string) => void,
   mcpAllowlist?: string[],
+  agentSystemPrompt?: string,
 ): Promise<AgentResult> {
   // Read secrets from .env without polluting process.env.
   // CLAUDE_CODE_OAUTH_TOKEN is optional — the subprocess finds auth via ~/.claude/
@@ -217,6 +248,16 @@ export async function runAgent(
   let lastCallCacheRead = 0;
   let lastCallInputTokens = 0;
   let streamedText = '';
+
+  // Accumulate every top-level assistant text block across the turn. The SDK's
+  // final `result` field only carries the LAST assistant text block, so a turn
+  // shaped `text → tool_use → short text` (e.g. "Logged to hive mind.") would
+  // truncate to that trailing fragment and drop the real answer. Joining all
+  // top-level text blocks reconstructs the full response. Subagent text is
+  // excluded (parent_tool_use_id != null) so it never leaks into the reply.
+  // Ported from upstream commit 9f15b5d (osrepo PR #91) — applied to our
+  // flat agent.ts since we don't have their agent-engine module.
+  const turnTextBlocks: string[] = [];
 
   // Refresh typing indicator on an interval while Claude works.
   // Telegram's "typing..." action expires after ~5s.
@@ -260,6 +301,15 @@ export async function runAgent(
 
         // MCP servers loaded from .claude/settings.json and ~/.claude/settings.json
         ...(mcpServerSpecs ? { mcpServers: mcpServerSpecs } : {}),
+
+        // Persona-only system prompt (plain string = no claude_code preset).
+        // Pins identity/boundaries in the system layer so they're present every
+        // turn and survive compaction. Ported from upstream eedefbd (osrepo
+        // PR #90). Without this, persona was reachable only via CLAUDE.md
+        // (which loads on init but can fall out of context after compaction)
+        // and a turn-1 `[Agent role]` injection (now removed since systemPrompt
+        // is the durable channel).
+        ...(agentSystemPrompt ? { systemPrompt: agentSystemPrompt } : {}),
 
         // Stream partial text so Telegram can show progressive updates
         includePartialMessages: !!onStreamText,
@@ -305,9 +355,19 @@ export async function runAgent(
         }
 
         // Extract tool_use blocks from assistant content for progress reporting
-        if (onProgress) {
-          const content = msg?.['content'] as Array<{ type: string; name?: string }> | undefined;
-          if (Array.isArray(content)) {
+        // AND accumulate top-level text blocks for the truncation fix. Subagent
+        // text (parent_tool_use_id != null) is excluded so it doesn't leak
+        // into the user-facing reply.
+        const content = msg?.['content'] as Array<{ type: string; name?: string; text?: string }> | undefined;
+        if (Array.isArray(content)) {
+          if (ev['parent_tool_use_id'] == null) {
+            for (const block of content) {
+              if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+                turnTextBlocks.push(block.text);
+              }
+            }
+          }
+          if (onProgress) {
             for (const block of content) {
               if (block.type === 'tool_use' && block.name) {
                 onProgress({ type: 'tool_active', description: toolLabel(block.name) });
@@ -349,7 +409,12 @@ export async function runAgent(
       }
 
       if (ev['type'] === 'result') {
-        resultText = (ev['result'] as string | null | undefined) ?? null;
+        // Prefer the assembled turn text over the SDK's `result` field, which
+        // only holds the final assistant text block. Fall back to ev.result
+        // when no top-level text was captured (e.g. tool-use-only turns).
+        const assembledText = turnTextBlocks.join('\n\n').trim();
+        const sdkResult = (ev['result'] as string | null | undefined) ?? null;
+        resultText = assembledText || sdkResult;
 
         // Extract usage info from result event
         const evUsage = ev['usage'] as Record<string, number> | undefined;
@@ -374,6 +439,7 @@ export async function runAgent(
             preCompactTokens,
             lastCallCacheRead: finalLastCallCacheRead,
             lastCallInputTokens: finalLastCallInputTokens,
+            contextWindow: pickContextWindow(ev['modelUsage'], model),
           };
           logger.info(
             {
@@ -441,6 +507,7 @@ export async function runAgentWithRetry(
   onRetry?: (attempt: number, error: AgentError) => void,
   fallbackModels?: string[],
   mcpAllowlist?: string[],
+  agentSystemPrompt?: string,
 ): Promise<AgentResult> {
   let lastError: AgentError | undefined;
 
@@ -455,7 +522,7 @@ export async function runAgentWithRetry(
       return await runAgent(
         message, sessionId, onTyping, onProgress,
         currentModel, abortController, onStreamText,
-        mcpAllowlist,
+        mcpAllowlist, agentSystemPrompt,
       );
     } catch (err) {
       if (!(err instanceof AgentError)) throw err;

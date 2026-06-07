@@ -511,7 +511,9 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
   // Build memory context and prepend to message
   const { contextText: memCtx, surfacedMemoryIds, surfacedMemorySummaries, surfacedWikiPaths } = await buildMemoryContext(chatIdStr, message, AGENT_ID);
   const parts: string[] = [];
-  if (agentSystemPrompt && !sessionId) parts.push(`[Agent role — follow these instructions]\n${agentSystemPrompt}\n[End agent role]`);
+  // Persona is now pinned via the SDK's systemPrompt option (passed below to
+  // runAgentWithRetry), which is durable across compaction. The old turn-1
+  // [Agent role] injection has been removed — see upstream eedefbd / PR #90.
   if (memCtx) parts.push(memCtx);
 
   // Inject recent scheduled task outputs so the user can reply to them naturally.
@@ -629,6 +631,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
       },
       MODEL_FALLBACK_CHAIN.length > 0 ? MODEL_FALLBACK_CHAIN : undefined,
       agentMcpAllowlist,
+      agentSystemPrompt,
     );
 
     clearTimeout(timeoutId);
@@ -757,6 +760,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
           result.usage.totalCostUsd,
           result.usage.didCompact,
           AGENT_ID,
+          result.usage.contextWindow,
         );
       } catch (dbErr) {
         logger.error({ err: dbErr }, 'Failed to save token usage');
@@ -1857,7 +1861,8 @@ async function processDashboardMessage(
 
     const { contextText: memCtx, surfacedMemoryIds: dashSurfacedIds, surfacedMemorySummaries: dashSummaries, surfacedWikiPaths: dashWikiPaths } = await buildMemoryContext(chatIdStr, text, AGENT_ID);
     const dashParts: string[] = [];
-    if (agentSystemPrompt && !sessionId) dashParts.push(`[Agent role — follow these instructions]\n${agentSystemPrompt}\n[End agent role]`);
+    // Persona is now pinned via systemPrompt (see runAgent below). Old turn-1
+    // injection removed — see upstream eedefbd / PR #90.
     if (memCtx) dashParts.push(memCtx);
 
     const recentDashTasks = getRecentTaskOutputs(AGENT_ID, 30);
@@ -1892,6 +1897,7 @@ async function processDashboardMessage(
       abortCtrl,
       undefined, // no streaming for dashboard
       agentMcpAllowlist,
+      agentSystemPrompt,
     );
 
     clearTimeout(dashTimeout);
@@ -1943,6 +1949,7 @@ async function processDashboardMessage(
           result.usage.totalCostUsd,
           result.usage.didCompact,
           AGENT_ID,
+          result.usage.contextWindow,
         );
       } catch (dbErr) {
         logger.error({ err: dbErr }, 'Failed to save token usage');
