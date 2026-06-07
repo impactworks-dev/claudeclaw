@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.impactworks.messages-relay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/dantecrescenzi/claudeclaw/relay/dist/messages-relay.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/dantecrescenzi/claudeclaw/relay</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>MESSAGES_RELAY_PORT</key>
+    <string>7457</string>
+    <key>RELAY_SHARED_SECRET</key>
+    <string>e483c9b5e09998ede89afdd312477c34c151aadeabe54181731bd873d3968676</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/dantecrescenzi/Library/Logs/claudeclaw-relay/messages-relay.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/dantecrescenzi/Library/Logs/claudeclaw-relay/messages-relay.stderr.log</string>
+</dict>
+</plist>

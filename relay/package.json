@@ -8,7 +8,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/recall-relay.js",
+    "start:messages": "node dist/messages-relay.js",
     "dev": "tsx recall-relay.ts",
+    "dev:messages": "tsx messages-relay.ts",
     "auth": "tsx recall-auth.ts"
   },
   "dependencies": {
