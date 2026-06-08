@@ -1,0 +1,9 @@
+{
+  "_comment": "Manual handle → person overrides. Takes priority over contacts.json. Format: phone/email → 'Name' OR { name, org, relationship }. Add entries for important people who aren't in Contacts.app, or to add commercial/relationship context. Examples below; delete or replace.",
+  "+15551234567": {
+    "name": "Jane Doe",
+    "org": "ZAGG",
+    "relationship": "Customer, $780/mo, primary contact"
+  },
+  "jane@example.com": "Jane Doe"
+}

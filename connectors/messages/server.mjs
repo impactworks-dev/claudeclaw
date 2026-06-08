@@ -101,6 +101,17 @@ const tools = [
       required: ['handle'],
     },
   },
+  {
+    name: 'messages_resolve_handle',
+    description: 'Resolve a single phone number or email to a contact name + org using Dante\'s Contacts cache and people-map. Returns { handle, resolved: { name, org, source } | null }. Use when you see a raw handle in a message and want to know who it is.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        handle: { type: 'string', description: 'Phone (+15551234567) or email' },
+      },
+      required: ['handle'],
+    },
+  },
 ];
 
 async function callTool(name, args) {
@@ -118,6 +129,8 @@ async function callTool(name, args) {
       return relayGet(`/chat/${encodeURIComponent(args.chatGuid)}?limit=${args.limit || 50}`);
     case 'messages_get_contact':
       return relayGet(`/contact/${encodeURIComponent(args.handle)}?limit=${args.limit || 50}`);
+    case 'messages_resolve_handle':
+      return relayGet(`/resolve?handle=${encodeURIComponent(args.handle)}`);
     default:
       throw new Error(`unknown tool: ${name}`);
   }

@@ -29,6 +29,89 @@ const PORT = parseInt(process.env.MESSAGES_RELAY_PORT || '7457', 10);
 const SHARED_SECRET = process.env.RELAY_SHARED_SECRET || '';
 const CHAT_DB = path.join(os.homedir(), 'Library', 'Messages', 'chat.db');
 const SQLITE_BIN = '/usr/bin/sqlite3';
+const CONTACTS_CACHE = path.join(os.homedir(), 'claudeclaw', 'relay', 'contacts.json');
+const PEOPLE_MAP = path.join(os.homedir(), 'claudeclaw', 'relay', 'people-map.json');
+
+// In-memory handle → name lookup, built from contacts.json + people-map.json
+// at relay start. Reloads if either file changes mtime.
+interface ContactCache {
+  byHandle: Map<string, { name: string; org?: string | null; source: 'contacts' | 'people-map' }>;
+  loadedAt: number;
+  contactsMtime: number;
+  peopleMapMtime: number;
+}
+
+let contactCache: ContactCache = {
+  byHandle: new Map(),
+  loadedAt: 0,
+  contactsMtime: 0,
+  peopleMapMtime: 0,
+};
+
+function normalizeHandle(s: string): string {
+  if (!s) return '';
+  if (s.includes('@')) return s.toLowerCase();
+  return s.replace(/[^\d+]/g, '');
+}
+
+function loadContacts(): void {
+  const byHandle = new Map<string, { name: string; org?: string | null; source: 'contacts' | 'people-map' }>();
+  // 1. Load contacts.json — generated from vCard import
+  try {
+    const stat = fs.statSync(CONTACTS_CACHE);
+    if (stat.mtimeMs !== contactCache.contactsMtime) {
+      const arr = JSON.parse(fs.readFileSync(CONTACTS_CACHE, 'utf-8')) as Array<{
+        name: string; org?: string | null; phones?: string[]; emails?: string[];
+      }>;
+      for (const c of arr) {
+        const meta = { name: c.name, org: c.org || null, source: 'contacts' as const };
+        for (const p of (c.phones || [])) byHandle.set(normalizeHandle(p), meta);
+        for (const e of (c.emails || [])) byHandle.set(normalizeHandle(e), meta);
+      }
+      contactCache.contactsMtime = stat.mtimeMs;
+    }
+  } catch { /* file missing or invalid; skip */ }
+  // 2. Load people-map.json — manual overrides take priority
+  try {
+    const stat = fs.statSync(PEOPLE_MAP);
+    if (stat.mtimeMs !== contactCache.peopleMapMtime) {
+      const raw = JSON.parse(fs.readFileSync(PEOPLE_MAP, 'utf-8')) as Record<string, string | { name: string; org?: string; relationship?: string }>;
+      for (const [handle, val] of Object.entries(raw)) {
+        const meta = typeof val === 'string'
+          ? { name: val, org: null, source: 'people-map' as const }
+          : { name: val.name, org: val.org || null, source: 'people-map' as const };
+        byHandle.set(normalizeHandle(handle), meta);
+      }
+      contactCache.peopleMapMtime = stat.mtimeMs;
+    }
+  } catch { /* file missing or invalid; skip */ }
+  contactCache.byHandle = byHandle;
+  contactCache.loadedAt = Date.now();
+  console.log(`contacts cache: ${byHandle.size} handles loaded`);
+}
+
+function resolveHandle(raw: string | null | undefined): { name: string; org: string | null; source: string } | null {
+  if (!raw) return null;
+  const norm = normalizeHandle(raw);
+  if (!norm) return null;
+  // Re-check if files were updated since last load
+  try { if (fs.statSync(CONTACTS_CACHE).mtimeMs !== contactCache.contactsMtime) loadContacts(); } catch {}
+  try { if (fs.statSync(PEOPLE_MAP).mtimeMs !== contactCache.peopleMapMtime) loadContacts(); } catch {}
+  const hit = contactCache.byHandle.get(norm);
+  if (hit) return { name: hit.name, org: hit.org || null, source: hit.source };
+  // Phone fallback: try last-10-digit match (US numbers)
+  if (/^\+?\d+$/.test(norm)) {
+    const last10 = norm.replace(/^\+/, '').slice(-10);
+    for (const [k, v] of contactCache.byHandle) {
+      if (k.replace(/^\+/, '').endsWith(last10) && last10.length === 10) {
+        return { name: v.name, org: v.org || null, source: v.source };
+      }
+    }
+  }
+  return null;
+}
+
+loadContacts();
 
 if (!SHARED_SECRET) {
   console.error('FATAL: RELAY_SHARED_SECRET env var required.');
@@ -93,6 +176,8 @@ interface MessageOut {
   ts: number | null;
   isFromMe: boolean;
   handle: string | null;
+  handleName: string | null;   // resolved from contacts/people-map
+  handleOrg: string | null;
   service: string | null;
   text: string;
   hasAttachment: boolean;
@@ -120,12 +205,15 @@ function decodeAttributedBody(hex: string | null): string {
 
 function rowToMessage(r: any): MessageOut {
   const text = (r.text && String(r.text).trim()) ? String(r.text) : decodeAttributedBody(r.attributedBody_hex);
+  const resolved = resolveHandle(r.handle_id_str);
   return {
     rowid: r.rowid,
     guid: r.guid,
     ts: appleNsToEpochMs(r.date),
     isFromMe: !!r.is_from_me,
     handle: r.handle_id_str ?? null,
+    handleName: resolved?.name || null,
+    handleOrg: resolved?.org || null,
     service: r.service ?? null,
     text,
     hasAttachment: !!r.cache_has_attachments,
@@ -167,10 +255,32 @@ app.use('*', async (c, next) => {
 app.get('/health', async (c) => {
   try {
     const rows = await sqlQuery('SELECT COUNT(*) as n FROM message');
-    return c.json({ ok: true, db: CHAT_DB, messageCount: rows[0]?.n ?? 0 });
+    return c.json({
+      ok: true,
+      db: CHAT_DB,
+      messageCount: rows[0]?.n ?? 0,
+      contactsLoaded: contactCache.byHandle.size,
+    });
   } catch (e: any) {
     return c.json({ ok: false, error: String(e?.message || e) }, 500);
   }
+});
+
+app.get('/resolve', (c) => {
+  const handle = c.req.query('handle') || '';
+  if (!handle) return c.json({ error: 'handle query param required' }, 400);
+  const r = resolveHandle(handle);
+  return c.json({ handle, resolved: r });
+});
+
+app.get('/contacts', (c) => {
+  // Returns count + sample. Useful to confirm cache loaded after vCard import.
+  return c.json({
+    count: contactCache.byHandle.size,
+    contactsMtime: contactCache.contactsMtime,
+    peopleMapMtime: contactCache.peopleMapMtime,
+    sample: Array.from(contactCache.byHandle.entries()).slice(0, 10).map(([h, v]) => ({ handle: h, ...v })),
+  });
 });
 
 app.get('/', (c) => c.html('<h1>ClaudeClaw → iMessage Relay</h1><p>GET /health, /recent, /chats, /search, /chat/:guid, /contact/:handle with Bearer auth.</p>'));
