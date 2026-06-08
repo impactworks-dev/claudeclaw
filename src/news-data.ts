@@ -30,6 +30,14 @@ export interface NewsItem {
   source: string | null;     // Publisher name (parsed from <source> tag)
   pubDate: number | null;    // epoch ms
   description: string | null;
+  // Publisher logo/favicon for visual identification. We use Google's
+  // public s2/favicons proxy (no auth, cached on their CDN, returns a
+  // PNG square at the requested size). Frontend renders this as a small
+  // circular badge next to the story title.
+  iconUrl: string | null;
+  // Publisher domain (e.g. "politico.com") extracted from the source URL.
+  // Useful for sorting / grouping / showing a small text label too.
+  sourceDomain: string | null;
 }
 
 export interface NewsSummary {
@@ -102,6 +110,13 @@ function pickAttr(itemXml: string, tag: string, attr: string): string | null {
   return m ? m[1] : null;
 }
 
+// Extract the bare host from a URL, ignoring port + protocol.
+// Returns null if the URL is unparseable.
+function hostOf(url: string | null): string | null {
+  if (!url) return null;
+  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch { return null; }
+}
+
 function parseRss(xml: string): NewsItem[] {
   const items: NewsItem[] = [];
   const re = /<item>([\s\S]*?)<\/item>/g;
@@ -113,6 +128,10 @@ function parseRss(xml: string): NewsItem[] {
     const description = pick(block, 'description');
     const pubDateStr = pick(block, 'pubDate');
     const source = pick(block, 'source');
+    // Google News RSS items put the publisher's homepage URL on the <source>
+    // tag's url= attribute. We use that domain (not the news.google.com
+    // redirect link) to fetch the favicon.
+    const sourceUrl = pickAttr(block, 'source', 'url');
     if (!title || !link) continue;
 
     // Google News titles end in " - <Source>" — strip that for cleaner display
@@ -124,6 +143,13 @@ function parseRss(xml: string): NewsItem[] {
     }
 
     const pubDate = pubDateStr ? Date.parse(pubDateStr) : null;
+    const sourceDomain = hostOf(sourceUrl) || null;
+    // Google's public favicon proxy: returns a square PNG at the requested
+    // size. sz=64 is the smallest that still looks decent in a circular crop
+    // on retina displays. CDN-cached, no auth.
+    const iconUrl = sourceDomain
+      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(sourceDomain)}&sz=64`
+      : null;
 
     items.push({
       title: cleanedTitle,
@@ -131,6 +157,8 @@ function parseRss(xml: string): NewsItem[] {
       source: source || null,
       pubDate: pubDate && !isNaN(pubDate) ? pubDate : null,
       description: description || null,
+      iconUrl,
+      sourceDomain,
     });
   }
   return items;

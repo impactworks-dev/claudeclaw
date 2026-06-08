@@ -134,37 +134,65 @@ export async function getStocksData(opts: { force?: boolean } = {}): Promise<Sto
   }
   const tickers = getTickerList();
 
-  // Stooq multi-ticker URL: symbols separated by URL-encoded SPACE (%20).
+  // ─── 2026-06-08: switched from Stooq → Twelvedata /quote ─────────────
+  // Stooq added a JavaScript proof-of-work browser-verification challenge
+  // to their CSV endpoint. Every server-side fetch now returns 404. We
+  // were already using Twelvedata for chart history (stocks-history.ts),
+  // so reusing the same API for quotes keeps the provider count at one.
   //
-  // Stooq's multi-ticker separator is the space character. When curl sends
-  // a raw `+` in the query string, it travels as `+` but Stooq's RFC-3986
-  // parser decodes it to space → multi-ticker works. When we use Node's
-  // fetch, the `+` either survives literally (treated as a one-character
-  // symbol "+", concatenating tickers into one bogus symbol) or gets
-  // re-encoded as `%2B` (literal `+`, same problem). Sending `%20` (encoded
-  // space) is unambiguous — Stooq decodes it to space and splits cleanly.
+  // Twelvedata /quote takes a comma-separated symbol list. Returns either:
+  //   - { symbol, close, previous_close, percent_change, ... }   (single)
+  //   - { "NVDA": {...}, "MSFT": {...}, ... }                    (multi)
   //
-  // f=sd2t2cp keeps the field set minimal: Symbol, Date, Time, Close, Prev.
-  const symParam = tickers.map(t => t.toLowerCase() + '.us').join('%20');
-  const url = `https://stooq.com/q/l/?s=${symParam}&f=sd2t2cp&h&e=csv`;
+  // Free tier is 800 calls/day. We cache 5 min → 12 calls/hr → safe.
 
-  let parsed: Record<string, Partial<StockQuote>> = {};
+  const apikey = process.env.TWELVEDATA_API_KEY || process.env.TWELVE_DATA_API_KEY || '';
+  const symParam = tickers.map(t => t.toUpperCase()).join(',');
+  const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symParam)}&apikey=${encodeURIComponent(apikey)}`;
+
+  const parsed: Record<string, Partial<StockQuote>> = {};
   let fetchError: string | null = null;
-  try {
-    const r = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-        'Accept': 'text/csv, */*',
-      },
-    });
-    if (!r.ok) {
-      fetchError = `HTTP ${r.status}`;
-    } else {
-      const csv = await r.text();
-      parsed = parseStooqCsv(csv);
+  if (!apikey) {
+    fetchError = 'TWELVEDATA_API_KEY not set';
+  } else {
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) {
+        fetchError = `HTTP ${r.status}`;
+      } else {
+        const j = await r.json();
+        // Single-ticker responses come back as a flat object; multi-ticker
+        // as { SYM: {...}, SYM2: {...} }. Normalize to the multi shape.
+        const wrap = (tickers.length === 1) ? { [tickers[0].toUpperCase()]: j } : j;
+        // Detect a top-level error response (Twelvedata returns 200 + a
+        // { status: 'error', message: '...' } payload for invalid keys etc.)
+        if (wrap && typeof wrap === 'object' && (wrap as { status?: string }).status === 'error') {
+          fetchError = String((wrap as { message?: string }).message || 'twelvedata error');
+        } else {
+          for (const [sym, raw] of Object.entries(wrap as Record<string, unknown>)) {
+            if (!raw || typeof raw !== 'object') continue;
+            const q = raw as Record<string, unknown>;
+            if (q.status === 'error') continue;  // per-symbol error
+            const price = q.close != null ? parseFloat(String(q.close)) : null;
+            const prev = q.previous_close != null ? parseFloat(String(q.previous_close)) : null;
+            const changeAbs = (price != null && prev != null) ? +(price - prev).toFixed(4) : null;
+            const changePct = (price != null && prev != null && prev !== 0) ? +(((price - prev) / prev) * 100).toFixed(2) : null;
+            parsed[sym.toUpperCase()] = {
+              symbol: sym.toUpperCase(),
+              shortName: q.name ? String(q.name) : null,
+              price,
+              previousClose: prev,
+              changeAbs,
+              changePct,
+              currency: q.currency ? String(q.currency) : 'USD',
+              marketState: q.is_market_open === true ? 'REGULAR' : 'CLOSED',
+            };
+          }
+        }
+      }
+    } catch (e) {
+      fetchError = String((e as Error)?.message || e);
     }
-  } catch (e) {
-    fetchError = String((e as Error)?.message || e);
   }
 
   // Assemble in the requested ticker order. Tickers we couldn't fetch get

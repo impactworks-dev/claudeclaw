@@ -86,7 +86,7 @@ interface StockQuote {
 interface StocksSummary { asOf: number; tickers: string[]; quotes: StockQuote[]; }
 
 // AI news
-interface NewsItem { title: string; link: string; source: string | null; pubDate: number | null; description: string | null; }
+interface NewsItem { title: string; link: string; source: string | null; pubDate: number | null; description: string | null; iconUrl?: string | null; sourceDomain?: string | null; }
 interface NewsSummary { asOf: number; query: string; items: NewsItem[]; error?: string | null; }
 
 interface FounderData {
@@ -340,12 +340,37 @@ function timeAgo(ms: number | null): string {
 }
 
 function NewsRow({ n }: { n: NewsItem }) {
+  // Publisher initials for the avatar fallback (used when no icon URL OR
+  // when the favicon proxy returns the generic globe — onError swap below).
+  const fallbackInitial = (n.source || n.sourceDomain || '?').trim().charAt(0).toUpperCase();
   return (
-    <a href={n.link} target="_blank" rel="noopener noreferrer" class="block py-1.5 hover:bg-[var(--color-elevated)] px-1 -mx-1 rounded border-b border-[var(--color-border)] last:border-b-0">
-      <div class="text-[12px] text-[var(--color-text)] font-medium leading-snug line-clamp-2">{n.title}</div>
-      <div class="text-[10px] text-[var(--color-text-faint)] mt-0.5">
-        {n.source ?? 'Source unknown'}
-        {n.pubDate ? <span> · {timeAgo(n.pubDate)}</span> : null}
+    <a href={n.link} target="_blank" rel="noopener noreferrer" class="flex items-start gap-2 py-1.5 hover:bg-[var(--color-elevated)] px-1 -mx-1 rounded border-b border-[var(--color-border)] last:border-b-0">
+      {/* Circular publisher icon */}
+      <div class="shrink-0 mt-0.5 w-7 h-7 rounded-full overflow-hidden bg-[var(--color-elevated)] border border-[var(--color-border)] flex items-center justify-center text-[10px] text-[var(--color-text-muted)] font-semibold">
+        {n.iconUrl ? (
+          <img
+            src={n.iconUrl}
+            alt={n.source || ''}
+            class="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            onError={(e) => {
+              // Hide the broken image so the initial fallback shows through
+              const img = e.currentTarget as HTMLImageElement;
+              img.style.display = 'none';
+            }}
+          />
+        ) : null}
+        {/* Initial sits underneath; the img covers it when loaded. If img fails
+            (onError above), it's hidden and the initial becomes visible. */}
+        {!n.iconUrl && <span>{fallbackInitial}</span>}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-[12px] text-[var(--color-text)] font-medium leading-snug line-clamp-2">{n.title}</div>
+        <div class="text-[10px] text-[var(--color-text-faint)] mt-0.5">
+          {n.source ?? 'Source unknown'}
+          {n.pubDate ? <span> · {timeAgo(n.pubDate)}</span> : null}
+        </div>
       </div>
     </a>
   );
