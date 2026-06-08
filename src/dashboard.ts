@@ -1403,7 +1403,8 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   app.get('/api/vendasta/revenue', async (c) => {
     try {
       const force = c.req.query('force') === '1';
-      const snap = await getCleanedRevenue({ force });
+      const full = c.req.query('full') === '1';
+      const snap = await getCleanedRevenue({ force, full });
       return c.json(snap);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'vendasta revenue endpoint failed');

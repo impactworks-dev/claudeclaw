@@ -61,6 +61,16 @@ export interface CleanedRevenue {
     wholesaleMonthly: number;
     margin: number;
   }>;
+  // Full customer list with retail + wholesale + margin per account.
+  // Populated only when getCleanedRevenue({ full: true }) is called; omitted
+  // from the default cached payload to keep dashboard hits cheap.
+  customers?: Array<{
+    agid: string;
+    name: string | null;
+    retailMRR: number;
+    wholesaleMonthly: number;
+    margin: number;
+  }>;
 }
 
 function readCache(): CleanedRevenue | null {
@@ -103,7 +113,7 @@ function callConnector(): Promise<RevenueResponse> {
   });
 }
 
-function clean(raw: RevenueResponse): CleanedRevenue {
+function clean(raw: RevenueResponse, opts: { full?: boolean } = {}): CleanedRevenue {
   let customerRetailMRR = 0;
   let internalRetailMRR = 0;
   let customerCount = 0;
@@ -145,16 +155,20 @@ function clean(raw: RevenueResponse): CleanedRevenue {
     marginPct,
     customerCount,
     topCustomers,
+    ...(opts.full ? { customers } : {}),
   };
 }
 
-export async function getCleanedRevenue(opts: { force?: boolean } = {}): Promise<CleanedRevenue> {
-  if (!opts.force) {
+export async function getCleanedRevenue(opts: { force?: boolean; full?: boolean } = {}): Promise<CleanedRevenue> {
+  if (!opts.force && !opts.full) {
     const cached = readCache();
     if (cached) return cached;
   }
   const raw = await callConnector();
-  const snap = clean(raw);
-  writeCache(snap);
+  const snap = clean(raw, { full: opts.full });
+  // Only cache the slim version (without customers[]) to keep the cache file small.
+  const slim = { ...snap, customers: undefined };
+  delete (slim as { customers?: unknown }).customers;
+  writeCache(slim as CleanedRevenue);
   return snap;
 }
