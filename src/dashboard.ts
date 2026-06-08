@@ -1398,6 +1398,27 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
+  // QuickBooks chart of accounts — used by the Settlement Slip generator to
+  // look up account IDs for the journal entry. Returns a slim view: id, name,
+  // accountType, balance, active.
+  app.get('/api/qb/accounts', async (c) => {
+    try {
+      const qboServer = path.join(PROJECT_ROOT, 'connectors', 'quickbooks', 'server.mjs');
+      const { stdout } = await new Promise<{ stdout: string }>((resolve, reject) => {
+        execFile('node', [qboServer, '--call', 'qbo_get_chart_of_accounts', '{}'], { env: process.env, maxBuffer: 32 * 1024 * 1024 }, (err, out) => {
+          if (err) reject(err); else resolve({ stdout: out });
+        });
+      });
+      const j = JSON.parse(stdout);
+      const slim = (j.accounts || []).map((a: { id: string; name: string; type: string; balance: number; active: boolean }) => ({
+        id: a.id, name: a.name, type: a.type, balance: a.balance, active: a.active,
+      }));
+      return c.json({ asOf: Date.now(), accounts: slim });
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'qb accounts endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
   // Vendasta "Real MRR" — customer-only retail (internal accounts stripped),
   // fulfilled-only line items, no one-time fees. Cache 30min, ?force=1 bypasses.
   app.get('/api/vendasta/revenue', async (c) => {
