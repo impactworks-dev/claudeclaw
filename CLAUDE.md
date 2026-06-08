@@ -125,6 +125,28 @@ node "$PROJECT_ROOT/dist/gcal-cli.js" calendars
 
 # Verify auth
 node "$PROJECT_ROOT/dist/gcal-cli.js" status
+
+# WRITE — create a new event
+node "$PROJECT_ROOT/dist/gcal-cli.js" create-event \
+  --title "Q3 planning" \
+  --start "2026-06-15T14:00:00-04:00" \
+  --end "2026-06-15T15:00:00-04:00" \
+  --description "Quarterly review" \
+  --location "Zoom" \
+  --attendees "audra@impactworks.com,team@example.com" \
+  --timezone "America/New_York"
+
+# WRITE — all-day event
+node "$PROJECT_ROOT/dist/gcal-cli.js" create-event --title "Vacation" --start "2026-07-01" --end "2026-07-08" --all-day true
+
+# WRITE — modify (only the flags you pass get changed)
+node "$PROJECT_ROOT/dist/gcal-cli.js" update-event <eventId> --title "Updated title" --start ISO --end ISO
+
+# WRITE — delete
+node "$PROJECT_ROOT/dist/gcal-cli.js" delete-event <eventId>
+
+# WRITE — respond to an invite (accepted/declined/tentative or yes/no/maybe)
+node "$PROJECT_ROOT/dist/gcal-cli.js" respond-to-event <eventId> --response yes
 ```
 
 All commands print JSON to stdout. The morning brief uses this for the calendar block.
@@ -150,9 +172,38 @@ node "$PROJECT_ROOT/dist/gdrive-cli.js" read <fileId>
 
 # Verify auth
 node "$PROJECT_ROOT/dist/gdrive-cli.js" status
+
+# WRITE — upload local file as new Drive file
+node "$PROJECT_ROOT/dist/gdrive-cli.js" upload --name "Q3 plan.pdf" --file /tmp/plan.pdf
+
+# WRITE — upload inline content
+node "$PROJECT_ROOT/dist/gdrive-cli.js" upload --name "notes.txt" --content "Hello world" --mime text/plain
+
+# WRITE — create a Google Doc with initial body
+node "$PROJECT_ROOT/dist/gdrive-cli.js" create-doc --name "Meeting notes" --content "## Agenda\n- intro\n- review"
+
+# WRITE — create a Google Sheet from CSV
+node "$PROJECT_ROOT/dist/gdrive-cli.js" create-sheet --name "Q3 forecast" --csv "Month,Revenue\nApril,1000\nMay,1500"
+
+# WRITE — create a folder
+node "$PROJECT_ROOT/dist/gdrive-cli.js" create-folder --name "Client X" --parent <parentFolderId>
+
+# WRITE — overwrite an existing file Nikki created (drive.file scope)
+node "$PROJECT_ROOT/dist/gdrive-cli.js" update-content <fileId> --content "new body" --mime text/plain
+
+# WRITE — rename
+node "$PROJECT_ROOT/dist/gdrive-cli.js" rename <fileId> --name "Final version"
+
+# WRITE — delete
+node "$PROJECT_ROOT/dist/gdrive-cli.js" delete <fileId>
+
+# WRITE — share
+node "$PROJECT_ROOT/dist/gdrive-cli.js" share <fileId> --email someone@example.com --role writer --notify true
 ```
 
 Capped at 50K chars per read so the prompt budget stays sane.
+
+**Scope note:** Drive write operations use the `drive.file` OAuth scope. This means Nikki can only modify files SHE created, plus files Dante explicitly hands her by ID. She cannot list or modify random pre-existing files. If Dante asks Nikki to edit something she didn't create, she should ask him to share or paste the file ID first.
 
 ## Email (Gmail API)
 

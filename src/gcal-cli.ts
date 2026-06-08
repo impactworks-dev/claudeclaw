@@ -229,6 +229,140 @@ async function cmdCalendars(): Promise<void> {
   }
 }
 
+// ── Write commands ───────────────────────────────────────────────────
+
+async function cmdCreateEvent(): Promise<void> {
+  const calendarId = getFlag('calendar') || 'primary';
+  const title = getFlag('title');
+  const start = getFlag('start');  // ISO string or YYYY-MM-DD for all-day
+  const end = getFlag('end');
+  const description = getFlag('description');
+  const location = getFlag('location');
+  const attendeesFlag = getFlag('attendees'); // comma-separated emails
+  const allDay = getFlag('all-day') === 'true';
+  const timezoneFlag = getFlag('timezone');
+  if (!title || !start || !end) fail('create-event requires --title, --start, --end');
+  const cal = getCalendarApi();
+
+  const eventBody: calendar_v3.Schema$Event = {
+    summary: title!,
+    description: description || undefined,
+    location: location || undefined,
+  };
+  if (allDay) {
+    eventBody.start = { date: start! };
+    eventBody.end = { date: end! };
+  } else {
+    eventBody.start = { dateTime: start!, timeZone: timezoneFlag || 'America/New_York' };
+    eventBody.end = { dateTime: end!, timeZone: timezoneFlag || 'America/New_York' };
+  }
+  if (attendeesFlag) {
+    eventBody.attendees = attendeesFlag.split(',').map(e => ({ email: e.trim() })).filter(a => a.email);
+  }
+  try {
+    const r = await cal.events.insert({
+      calendarId,
+      requestBody: eventBody,
+      sendUpdates: attendeesFlag ? 'all' : 'none',
+    });
+    out({ ok: true, action: 'created', event: fmtEvent(r.data) });
+  } catch (err) {
+    fail(`create event failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdUpdateEvent(eventId: string): Promise<void> {
+  if (!eventId) fail('event id required');
+  const calendarId = getFlag('calendar') || 'primary';
+  const cal = getCalendarApi();
+  // Fetch the existing event then patch only the fields the caller specified.
+  try {
+    const existing = await cal.events.get({ calendarId, eventId });
+    const patch: calendar_v3.Schema$Event = {};
+    const title = getFlag('title');
+    const description = getFlag('description');
+    const location = getFlag('location');
+    const start = getFlag('start');
+    const end = getFlag('end');
+    const allDay = getFlag('all-day') === 'true';
+    const timezoneFlag = getFlag('timezone');
+    if (title) patch.summary = title;
+    if (description !== undefined) patch.description = description;
+    if (location !== undefined) patch.location = location;
+    if (start) {
+      patch.start = allDay
+        ? { date: start }
+        : { dateTime: start, timeZone: timezoneFlag || existing.data.start?.timeZone || 'America/New_York' };
+    }
+    if (end) {
+      patch.end = allDay
+        ? { date: end }
+        : { dateTime: end, timeZone: timezoneFlag || existing.data.end?.timeZone || 'America/New_York' };
+    }
+    const r = await cal.events.patch({
+      calendarId,
+      eventId,
+      requestBody: patch,
+      sendUpdates: 'all',
+    });
+    out({ ok: true, action: 'updated', event: fmtEvent(r.data) });
+  } catch (err) {
+    fail(`update event failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdDeleteEvent(eventId: string): Promise<void> {
+  if (!eventId) fail('event id required');
+  const calendarId = getFlag('calendar') || 'primary';
+  const cal = getCalendarApi();
+  try {
+    await cal.events.delete({ calendarId, eventId, sendUpdates: 'all' });
+    out({ ok: true, action: 'deleted', eventId });
+  } catch (err) {
+    fail(`delete event failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdRespondToEvent(eventId: string): Promise<void> {
+  if (!eventId) fail('event id required');
+  const responseFlag = (getFlag('response') || '').toLowerCase();
+  const calendarId = getFlag('calendar') || 'primary';
+  const valid = new Set(['accepted', 'declined', 'tentative', 'needsAction']);
+  // Allow "yes/no/maybe" as aliases
+  const aliasMap: Record<string, string> = {
+    yes: 'accepted', accept: 'accepted',
+    no: 'declined', decline: 'declined',
+    maybe: 'tentative', tentative: 'tentative',
+  };
+  const responseStatus = aliasMap[responseFlag] || responseFlag;
+  if (!valid.has(responseStatus)) {
+    fail('--response must be one of: accepted/declined/tentative (or yes/no/maybe)');
+  }
+  const cal = getCalendarApi();
+  try {
+    const existing = await cal.events.get({ calendarId, eventId });
+    // Find self in attendee list; need our own email.
+    const me = await cal.calendarList.list({ maxResults: 1 });
+    const myEmail = me.data.items?.find(c => c.primary)?.id;
+    if (!myEmail) fail('could not determine self email');
+    const attendees = (existing.data.attendees || []).map(a =>
+      a.email === myEmail ? { ...a, responseStatus } : a,
+    );
+    if (!attendees.find(a => a.email === myEmail)) {
+      attendees.push({ email: myEmail!, responseStatus });
+    }
+    const r = await cal.events.patch({
+      calendarId,
+      eventId,
+      requestBody: { attendees },
+      sendUpdates: 'all',
+    });
+    out({ ok: true, action: 'responded', response: responseStatus, event: fmtEvent(r.data) });
+  } catch (err) {
+    fail(`respond failed: ${(err as Error).message}`);
+  }
+}
+
 async function cmdStatus(): Promise<void> {
   try {
     const cal = getCalendarApi();
@@ -249,6 +383,7 @@ async function main(): Promise<void> {
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     process.stdout.write(`Google Calendar CLI
 
+READ:
   node dist/gcal-cli.js today                                today's events on primary calendar
   node dist/gcal-cli.js week                                 next 7 days
   node dist/gcal-cli.js list-events --from DATE --to DATE    custom range (ISO date or YYYY-MM-DD)
@@ -256,9 +391,16 @@ async function main(): Promise<void> {
   node dist/gcal-cli.js calendars                            list your calendars
   node dist/gcal-cli.js status                               verify auth
 
+WRITE:
+  node dist/gcal-cli.js create-event --title T --start ISO --end ISO [--description D] [--location L] [--attendees a@b,c@d] [--all-day true] [--timezone TZ]
+  node dist/gcal-cli.js update-event EVENT_ID [--title T] [--start ISO] [--end ISO] [--description D] [--location L] [--all-day true]
+  node dist/gcal-cli.js delete-event EVENT_ID
+  node dist/gcal-cli.js respond-to-event EVENT_ID --response (accepted|declined|tentative | yes|no|maybe)
+
 Flags:
   --calendar ID   non-primary calendar (default: primary)
   --max N         max events to return (default: 25)
+  --timezone TZ   IANA tz for create/update timed events (default: America/New_York)
 `);
     process.exit(0);
   }
@@ -269,6 +411,10 @@ Flags:
     else if (command === 'list-events') await cmdListEvents();
     else if (command === 'get-event') await cmdGetEvent(pos[1]);
     else if (command === 'calendars') await cmdCalendars();
+    else if (command === 'create-event') await cmdCreateEvent();
+    else if (command === 'update-event') await cmdUpdateEvent(pos[1]);
+    else if (command === 'delete-event') await cmdDeleteEvent(pos[1]);
+    else if (command === 'respond-to-event') await cmdRespondToEvent(pos[1]);
     else if (command === 'status') await cmdStatus();
     else fail(`unknown command: ${command}`);
   } catch (err) {

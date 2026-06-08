@@ -204,6 +204,198 @@ async function cmdRead(fileId: string): Promise<void> {
   }
 }
 
+// ── Write commands ───────────────────────────────────────────────────
+//
+// Scope is drive.file — Nikki can create new files and modify files she
+// created (or files Dante explicitly hands her by ID via Drive UI). She
+// CANNOT modify random pre-existing files she didn't create.
+
+async function cmdUpload(): Promise<void> {
+  const localPath = getFlag('file');
+  const contentFlag = getFlag('content');
+  const name = getFlag('name');
+  const parentId = getFlag('parent');
+  const mimeOverride = getFlag('mime');
+  if (!name) fail('upload requires --name (the Drive filename)');
+  if (!localPath && !contentFlag) fail('upload requires --file PATH or --content STRING');
+  const drive = getDriveApi();
+  try {
+    let body: NodeJS.ReadableStream | string;
+    let mimeType = mimeOverride;
+    if (localPath) {
+      const fs = await import('node:fs');
+      body = fs.createReadStream(localPath);
+      if (!mimeType) {
+        // Crude extension → mime mapping; users can override with --mime
+        const ext = localPath.split('.').pop()?.toLowerCase() || '';
+        const map: Record<string, string> = {
+          pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown',
+          csv: 'text/csv', json: 'application/json', html: 'text/html',
+          png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        };
+        mimeType = map[ext] || 'application/octet-stream';
+      }
+    } else {
+      body = contentFlag!;
+      mimeType = mimeType || 'text/plain';
+    }
+    const r = await drive.files.create({
+      requestBody: {
+        name: name!,
+        ...(parentId ? { parents: [parentId] } : {}),
+      },
+      media: { mimeType, body },
+      fields: 'id,name,mimeType,webViewLink,createdTime',
+    });
+    out({ ok: true, action: 'uploaded', file: r.data });
+  } catch (err) {
+    fail(`upload failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdCreateDoc(): Promise<void> {
+  const name = getFlag('name');
+  const content = getFlag('content');
+  const parentId = getFlag('parent');
+  if (!name) fail('create-doc requires --name');
+  const drive = getDriveApi();
+  try {
+    const r = await drive.files.create({
+      requestBody: {
+        name: name!,
+        mimeType: 'application/vnd.google-apps.document',
+        ...(parentId ? { parents: [parentId] } : {}),
+      },
+      media: content ? { mimeType: 'text/plain', body: content } : undefined,
+      fields: 'id,name,mimeType,webViewLink,createdTime',
+    });
+    out({ ok: true, action: 'created', file: r.data });
+  } catch (err) {
+    fail(`create-doc failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdCreateSheet(): Promise<void> {
+  const name = getFlag('name');
+  const csv = getFlag('csv'); // initial CSV content
+  const parentId = getFlag('parent');
+  if (!name) fail('create-sheet requires --name');
+  const drive = getDriveApi();
+  try {
+    const r = await drive.files.create({
+      requestBody: {
+        name: name!,
+        mimeType: 'application/vnd.google-apps.spreadsheet',
+        ...(parentId ? { parents: [parentId] } : {}),
+      },
+      media: csv ? { mimeType: 'text/csv', body: csv } : undefined,
+      fields: 'id,name,mimeType,webViewLink,createdTime',
+    });
+    out({ ok: true, action: 'created', file: r.data });
+  } catch (err) {
+    fail(`create-sheet failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdCreateFolder(): Promise<void> {
+  const name = getFlag('name');
+  const parentId = getFlag('parent');
+  if (!name) fail('create-folder requires --name');
+  const drive = getDriveApi();
+  try {
+    const r = await drive.files.create({
+      requestBody: {
+        name: name!,
+        mimeType: 'application/vnd.google-apps.folder',
+        ...(parentId ? { parents: [parentId] } : {}),
+      },
+      fields: 'id,name,webViewLink',
+    });
+    out({ ok: true, action: 'created', folder: r.data });
+  } catch (err) {
+    fail(`create-folder failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdUpdateContent(fileId: string): Promise<void> {
+  if (!fileId) fail('file id required');
+  const localPath = getFlag('file');
+  const content = getFlag('content');
+  const mimeOverride = getFlag('mime');
+  if (!localPath && !content) fail('update-content requires --file PATH or --content STRING');
+  const drive = getDriveApi();
+  try {
+    let body: NodeJS.ReadableStream | string;
+    let mimeType = mimeOverride || 'text/plain';
+    if (localPath) {
+      const fs = await import('node:fs');
+      body = fs.createReadStream(localPath);
+    } else {
+      body = content!;
+    }
+    const r = await drive.files.update({
+      fileId,
+      media: { mimeType, body },
+      fields: 'id,name,mimeType,modifiedTime,webViewLink',
+    });
+    out({ ok: true, action: 'updated', file: r.data });
+  } catch (err) {
+    fail(`update-content failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdRename(fileId: string): Promise<void> {
+  if (!fileId) fail('file id required');
+  const name = getFlag('name');
+  if (!name) fail('rename requires --name');
+  const drive = getDriveApi();
+  try {
+    const r = await drive.files.update({
+      fileId,
+      requestBody: { name: name! },
+      fields: 'id,name,modifiedTime',
+    });
+    out({ ok: true, action: 'renamed', file: r.data });
+  } catch (err) {
+    fail(`rename failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdDelete(fileId: string): Promise<void> {
+  if (!fileId) fail('file id required');
+  const drive = getDriveApi();
+  try {
+    await drive.files.delete({ fileId });
+    out({ ok: true, action: 'deleted', fileId });
+  } catch (err) {
+    fail(`delete failed: ${(err as Error).message}`);
+  }
+}
+
+async function cmdShare(fileId: string): Promise<void> {
+  if (!fileId) fail('file id required');
+  const email = getFlag('email');
+  const role = getFlag('role') || 'reader'; // reader | commenter | writer
+  const type = getFlag('type') || 'user';   // user | group | anyone
+  const notify = (getFlag('notify') || 'false') === 'true';
+  const drive = getDriveApi();
+  try {
+    const r = await drive.permissions.create({
+      fileId,
+      requestBody: {
+        role,
+        type,
+        ...(type !== 'anyone' && email ? { emailAddress: email } : {}),
+      },
+      sendNotificationEmail: notify,
+      fields: 'id,role,type,emailAddress',
+    });
+    out({ ok: true, action: 'shared', permission: r.data });
+  } catch (err) {
+    fail(`share failed: ${(err as Error).message}`);
+  }
+}
+
 async function cmdStatus(): Promise<void> {
   try {
     const drive = getDriveApi();
@@ -223,15 +415,27 @@ async function main(): Promise<void> {
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     process.stdout.write(`Google Drive CLI
 
+READ:
   node dist/gdrive-cli.js search QUERY     fulltext + name search
   node dist/gdrive-cli.js recent           recently modified files
   node dist/gdrive-cli.js get FILE_ID      file metadata
   node dist/gdrive-cli.js read FILE_ID     file content as text (Docs/Sheets/Slides auto-exported)
   node dist/gdrive-cli.js status           verify auth
 
+WRITE (drive.file scope — limited to files Nikki creates):
+  node dist/gdrive-cli.js upload --name N (--file PATH | --content STR) [--mime T] [--parent FOLDER_ID]
+  node dist/gdrive-cli.js create-doc --name N [--content "initial text"] [--parent FOLDER_ID]
+  node dist/gdrive-cli.js create-sheet --name N [--csv "a,b\\n1,2"] [--parent FOLDER_ID]
+  node dist/gdrive-cli.js create-folder --name N [--parent FOLDER_ID]
+  node dist/gdrive-cli.js update-content FILE_ID (--file PATH | --content STR) [--mime T]
+  node dist/gdrive-cli.js rename FILE_ID --name N
+  node dist/gdrive-cli.js delete FILE_ID
+  node dist/gdrive-cli.js share FILE_ID --email a@b.com [--role reader|commenter|writer] [--notify true]
+
 Flags:
   --max N         max results (default: 20)
-  --mime TYPE     mimeType filter for search/recent (e.g. application/vnd.google-apps.document)
+  --mime TYPE     mimeType filter for search/recent OR override for write commands
+  --parent ID     Drive folder ID to place a created file under
 `);
     process.exit(0);
   }
@@ -241,6 +445,14 @@ Flags:
     else if (command === 'recent') await cmdRecent();
     else if (command === 'get') await cmdGet(pos[1]);
     else if (command === 'read') await cmdRead(pos[1]);
+    else if (command === 'upload') await cmdUpload();
+    else if (command === 'create-doc') await cmdCreateDoc();
+    else if (command === 'create-sheet') await cmdCreateSheet();
+    else if (command === 'create-folder') await cmdCreateFolder();
+    else if (command === 'update-content') await cmdUpdateContent(pos[1]);
+    else if (command === 'rename') await cmdRename(pos[1]);
+    else if (command === 'delete') await cmdDelete(pos[1]);
+    else if (command === 'share') await cmdShare(pos[1]);
     else if (command === 'status') await cmdStatus();
     else fail(`unknown command: ${command}`);
   } catch (err) {
