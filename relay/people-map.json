@@ -8,5 +8,70 @@
   "audra@impactworks.com":       { "name": "Audra Crescenzi", "relationship": "wife" },
 
   "robynbea@verizon.net":  { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
-  "robyndulys@gmail.com":  { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" }
+  "robyndulys@gmail.com":  { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
+  "+13014521993":          { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
+  "3014521993":            { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
+
+  "+13017045015": { "name": "Dad", "relationship": "father" },
+  "3017045015":   { "name": "Dad", "relationship": "father" },
+
+  "+15144447578": { "name": "Vincent Crescenzi", "relationship": "son" },
+  "5144447578":   { "name": "Vincent Crescenzi", "relationship": "son" },
+
+  "+19102627341": { "name": "Emily Crescenzi", "relationship": "daughter" },
+  "9102627341":   { "name": "Emily Crescenzi", "relationship": "daughter" },
+
+  "+13014670202": { "name": "Ralph Caparotti", "relationship": "client / business partner" },
+  "3014670202":   { "name": "Ralph Caparotti", "relationship": "client / business partner" },
+
+  "+12408203396": { "name": "ZAGG Phone Repair", "relationship": "client", "org": "ZAGG" },
+  "2408203396":   { "name": "ZAGG Phone Repair", "relationship": "client", "org": "ZAGG" },
+
+  "+15165510799": { "name": "John Fenrich", "relationship": "client" },
+  "5165510799":   { "name": "John Fenrich", "relationship": "client" },
+
+  "+19194284957": { "name": "Jim Roberts", "relationship": "close friend / business community", "org": "Network for Entrepreneurs in Wilmington (NEW)", "notes": "ex-roommate, NEW founder" },
+  "9194284957":   { "name": "Jim Roberts", "relationship": "close friend / business community", "org": "Network for Entrepreneurs in Wilmington (NEW)" },
+
+  "+13653384811": { "name": "Tessa Harvey", "relationship": "stepdaughter" },
+  "3653384811":   { "name": "Tessa Harvey", "relationship": "stepdaughter" },
+
+  "+16316558883": { "name": "William Harvey", "relationship": "stepson" },
+  "6316558883":   { "name": "William Harvey", "relationship": "stepson" },
+
+  "+13012753692": { "name": "Jennifer Johnson", "relationship": "cousin" },
+  "3012753692":   { "name": "Jennifer Johnson", "relationship": "cousin" },
+
+  "+13018028905": { "name": "Bill Johnson", "relationship": "uncle", "notes": "Jennifer Johnson is his daughter (Dante's cousin)" },
+  "3018028905":   { "name": "Bill Johnson", "relationship": "uncle" },
+
+  "+14168052389": { "name": "Amy Matheson", "relationship": "friend, Audra's boss" },
+  "4168052389":   { "name": "Amy Matheson", "relationship": "friend, Audra's boss" },
+
+  "+15403796306": { "name": "Will Wilcox", "relationship": "friend, high school" },
+  "5403796306":   { "name": "Will Wilcox", "relationship": "friend, high school" },
+
+  "+12409611212": { "name": "Ashly", "relationship": "client contact", "org": "Reesource Pest" },
+  "2409611212":   { "name": "Ashly", "relationship": "client contact", "org": "Reesource Pest" },
+
+  "+14168194187": { "name": "Cam Matheson", "relationship": "friend, Audra's boss", "notes": "married to Amy Matheson" },
+  "4168194187":   { "name": "Cam Matheson", "relationship": "friend, Audra's boss" },
+
+  "+19193697031": { "name": "Bill Warner", "relationship": "friend, mentor" },
+  "9193697031":   { "name": "Bill Warner", "relationship": "friend, mentor" },
+
+  "+19102972657": { "name": "Nicole Wilcox", "relationship": "friend, business associate", "notes": "not related to Will Wilcox" },
+  "9102972657":   { "name": "Nicole Wilcox", "relationship": "friend, business associate" },
+
+  "+19195250612": { "name": "Jeffrey Blanchard", "relationship": "close friend, since high school" },
+  "9195250612":   { "name": "Jeffrey Blanchard", "relationship": "close friend, since high school" },
+
+  "+16164019057": { "name": "Faith Vanzalen", "relationship": "mother-in-law", "notes": "Audra's mother" },
+  "6164019057":   { "name": "Faith Vanzalen", "relationship": "mother-in-law" },
+
+  "+13018488128": { "name": "Patty Morrison", "relationship": "aunt", "notes": "Robyn's sister (Dante's mother's sister)" },
+  "3018488128":   { "name": "Patty Morrison", "relationship": "aunt" },
+
+  "+19109940121": { "name": "ImpactWorks Marketing Line", "relationship": "self / business line", "notes": "Dante's own Twilio/SMS business line, not a person" },
+  "9109940121":   { "name": "ImpactWorks Marketing Line", "relationship": "self / business line" }
 }

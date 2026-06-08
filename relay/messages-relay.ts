@@ -289,7 +289,7 @@ app.get('/contacts', (c) => {
 app.get('/', (c) => c.html('<h1>ClaudeClaw → iMessage Relay</h1><p>GET /health, /recent, /chats, /search, /chat/:guid, /contact/:handle with Bearer auth.</p>'));
 
 app.get('/recent', async (c) => {
-  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 200);
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 5000);
   const rows = await sqlQuery(`${BASE_SELECT} ORDER BY m.date DESC LIMIT :p0`, [limit]);
   return c.json({ messages: rows.map(rowToMessage) });
 });
