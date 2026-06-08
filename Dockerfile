@@ -91,6 +91,11 @@ COPY connectors ./connectors
 COPY scripts/notify.sh ./scripts/notify.sh
 COPY CLAUDE.md ./CLAUDE.md
 COPY agents ./agents
+# Relay data files (people-map.json, contacts.json) are consumed by the
+# server-side people-resolver. The relay's TypeScript runtime lives on Dante's
+# Mac, but the JSON data files are committed to the repo and shipped here so
+# Nikki can resolve handles to relationships.
+COPY relay/people-map.json relay/contacts.json ./relay/
 
 # War Room: source files + the pre-built Python venv
 COPY warroom ./warroom
