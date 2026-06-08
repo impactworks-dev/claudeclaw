@@ -107,9 +107,40 @@ function nextCursor(j) {
 // Amounts are returned in cents. retailMRR = sum of monthly line-item amounts
 // (annual normalized to /12). wholesaleLifetime = all purchase line totals;
 // wholesaleMonthly = purchase line totals in the trailing 31 days.
+// Paginate the CRM companies endpoint and build an AGID → market-slug map.
+// Vendasta tags every company with `system__company_group_id` ("pwps" =
+// ImpactWorks customers, "default" = Rocket Local). The Platform API revenue
+// endpoints don't carry this tag, so we join against the CRM record here.
+async function fetchAgidToMarketSlug() {
+  const slugByAgid = new Map();
+  let cursor = '';
+  for (let pg = 0; pg < 30; pg++) {  // covers ~3000 records
+    const body = {
+      returnFields: [
+        'platform__company_account_group_id',
+        'system__company_group_id',
+      ],
+      page: { limit: 100, ...(cursor ? { cursor } : {}) },
+    };
+    const j = await api('POST', `/list/${enc(ns({}))}/${enc('companies')}`, { body });
+    for (const o of (j.objects || [])) {
+      const flds = (o.attributes && o.attributes.fields) || o.fields || [];
+      let agid = '', slug = '';
+      for (const f of flds) {
+        if (f.id === 'platform__company_account_group_id') agid = String(f.value || '');
+        if (f.id === 'system__company_group_id') slug = String(f.value || '');
+      }
+      if (agid && slug) slugByAgid.set(agid, slug);
+    }
+    if (!j.has_more || !j.next_cursor) break;
+    cursor = j.next_cursor;
+  }
+  return slugByAgid;
+}
+
 async function revenueByAccount(partnerId) {
   const acct = {};
-  const ensure = (id) => (acct[id] ||= { name: null, retailMRR: 0, wholesaleLifetime: 0, wholesaleMonthly: 0 });
+  const ensure = (id) => (acct[id] ||= { name: null, marketSlug: null, retailMRR: 0, wholesaleLifetime: 0, wholesaleMonthly: 0 });
   const pidQ = `filter[partner.id]=${encodeURIComponent(partnerId)}`;
 
   // Retail — orders (scope: order)
@@ -199,10 +230,40 @@ async function revenueByAccount(partnerId) {
     // Name backfill is best-effort; don't fail the whole rollup if this errors
   }
 
+  // Market attribution — join AGID → marketSlug from the CRM company list so
+  // every revenue line carries 'pwps' (ImpactWorks) or 'default' (Rocket Local).
+  try {
+    const slugByAgid = await fetchAgidToMarketSlug();
+    for (const id of Object.keys(acct)) {
+      const slug = slugByAgid.get(id);
+      if (slug) acct[id].marketSlug = slug;
+    }
+  } catch (e) {
+    // Best effort — if CRM is down, accounts simply lack marketSlug
+  }
+
+  // Per-market aggregation: surface as `byMarket` so the downstream cleaner
+  // can render the ImpactWorks vs Rocket Local split without re-walking.
+  const byMarket = {};
+  const ensureMarket = (slug) => (byMarket[slug] ||= {
+    retailMRR: 0, wholesaleMonthly: 0, wholesaleLifetime: 0, accounts: 0, accountsWithRetail: 0,
+  });
   let totRetailMRR = 0, totWholesaleMonthly = 0;
-  for (const id of Object.keys(acct)) { totRetailMRR += acct[id].retailMRR; totWholesaleMonthly += acct[id].wholesaleMonthly; }
+  for (const id of Object.keys(acct)) {
+    const a = acct[id];
+    totRetailMRR += a.retailMRR;
+    totWholesaleMonthly += a.wholesaleMonthly;
+    const slug = a.marketSlug || 'unknown';
+    const m = ensureMarket(slug);
+    m.retailMRR += a.retailMRR;
+    m.wholesaleMonthly += a.wholesaleMonthly;
+    m.wholesaleLifetime += a.wholesaleLifetime;
+    m.accounts += 1;
+    if (a.retailMRR > 0) m.accountsWithRetail += 1;
+  }
   return {
     byAccount: acct,
+    byMarket,
     totals: { retailMRR: totRetailMRR, wholesaleMonthly: totWholesaleMonthly, accounts: Object.keys(acct).length },
     currency: 'USD', unit: 'cents',
   };

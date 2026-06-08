@@ -31,16 +31,38 @@ const INTERNAL_AG_IDS = new Set([
 
 interface AccountTotals {
   name: string | null;
+  marketSlug: string | null;  // 'pwps' = ImpactWorks, 'default' = Rocket Local
   retailMRR: number;       // cents
   wholesaleLifetime: number;
   wholesaleMonthly: number;
 }
 
+interface MarketTotals {
+  retailMRR: number;
+  wholesaleMonthly: number;
+  wholesaleLifetime: number;
+  accounts: number;
+  accountsWithRetail: number;
+}
+
 interface RevenueResponse {
   byAccount: Record<string, AccountTotals>;
+  byMarket?: Record<string, MarketTotals>;
   totals: { retailMRR: number; wholesaleMonthly: number; accounts: number };
   currency: string;
   unit: string;
+}
+
+export interface BrandTotals {
+  // 'ImpactWorks' (pwps) or 'Rocket Local' (default)
+  label: string;
+  slug: string;
+  customerRetailMRR: number;
+  wholesaleMonthly: number;
+  grossMargin: number;
+  marginPct: number;
+  customerCount: number;
+  retailShare: number;   // % of total customer retail attributable to this brand
 }
 
 export interface CleanedRevenue {
@@ -54,6 +76,9 @@ export interface CleanedRevenue {
   grossMargin: number;         // customerRetailMRR - wholesaleMonthly
   marginPct: number;           // 0-100
   customerCount: number;       // accounts with retail > 0, excluding internals
+  // Per-market split for QBO Class-based booking. Internal AG-IDs are
+  // excluded from this aggregation just like the top-line numbers.
+  brands?: BrandTotals[];
   topCustomers: Array<{
     agid: string;
     name: string | null;
@@ -113,17 +138,36 @@ function callConnector(): Promise<RevenueResponse> {
   });
 }
 
+// Vendasta CRM slugs → brand labels used in QBO Classes.
+const MARKET_LABELS: Record<string, string> = {
+  pwps: 'ImpactWorks',
+  default: 'Rocket Local',
+};
+
 function clean(raw: RevenueResponse, opts: { full?: boolean } = {}): CleanedRevenue {
   let customerRetailMRR = 0;
   let internalRetailMRR = 0;
   let customerCount = 0;
   const customers: Array<{ agid: string; name: string | null; retailMRR: number; wholesaleMonthly: number; margin: number }> = [];
 
+  // Accumulate per-market totals as we walk byAccount, so we don't iterate twice.
+  const perBrand: Record<string, { retail: number; wholesale: number; count: number }> = {};
+  const bumpBrand = (slug: string, retail: number, wholesale: number) => {
+    const key = slug || 'unknown';
+    if (!perBrand[key]) perBrand[key] = { retail: 0, wholesale: 0, count: 0 };
+    perBrand[key].retail += retail;
+    perBrand[key].wholesale += wholesale;
+    if (retail > 0) perBrand[key].count += 1;
+  };
+
   for (const [agid, totals] of Object.entries(raw.byAccount || {})) {
     if (INTERNAL_AG_IDS.has(agid)) {
       internalRetailMRR += totals.retailMRR;
       continue;
     }
+    // Bucket every customer (even zero-retail) into its brand so the count
+    // matches what's on the Vendasta CRM widget.
+    bumpBrand(totals.marketSlug || 'unknown', totals.retailMRR, totals.wholesaleMonthly);
     if ((totals.retailMRR || 0) <= 0) continue;
     customerRetailMRR += totals.retailMRR;
     customerCount += 1;
@@ -143,6 +187,26 @@ function clean(raw: RevenueResponse, opts: { full?: boolean } = {}): CleanedReve
   const grossMargin = customerRetailMRR - wholesaleMonthly;
   const marginPct = customerRetailMRR > 0 ? (grossMargin / customerRetailMRR) * 100 : 0;
 
+  // Build the per-brand split. Only emit the known brands (pwps, default) so
+  // 'unknown' (untagged customers) gets surfaced as its own row for triage.
+  const brands: BrandTotals[] = [];
+  for (const slug of Object.keys(perBrand)) {
+    const p = perBrand[slug];
+    const margin = p.retail - p.wholesale;
+    brands.push({
+      label: MARKET_LABELS[slug] || (slug === 'unknown' ? 'Unknown / untagged' : slug),
+      slug,
+      customerRetailMRR: p.retail,
+      wholesaleMonthly: p.wholesale,
+      grossMargin: margin,
+      marginPct: p.retail > 0 ? (margin / p.retail) * 100 : 0,
+      customerCount: p.count,
+      retailShare: customerRetailMRR > 0 ? (p.retail / customerRetailMRR) * 100 : 0,
+    });
+  }
+  // Sort so ImpactWorks > Rocket Local > Unknown by retail
+  brands.sort((a, b) => b.customerRetailMRR - a.customerRetailMRR);
+
   return {
     asOf: Date.now(),
     currency: 'USD',
@@ -154,6 +218,7 @@ function clean(raw: RevenueResponse, opts: { full?: boolean } = {}): CleanedReve
     grossMargin,
     marginPct,
     customerCount,
+    brands,
     topCustomers,
     ...(opts.full ? { customers } : {}),
   };
