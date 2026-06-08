@@ -219,6 +219,26 @@ async function qboGet(endpoint, params = {}) {
   return data;
 }
 
+async function qboPost(endpoint, body) {
+  const t = await getValidAccessToken();
+  const url = `${API_BASE}/v3/company/${encodeURIComponent(t.realm_id)}/${endpoint}?minorversion=70`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${t.access_token}`,
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!res.ok) {
+    throw new Error(`QBO POST ${endpoint} failed: ${res.status} ${data?.Fault?.Error?.[0]?.Message || data?.Fault?.Error?.[0]?.Detail || text.slice(0, 400)}`);
+  }
+  return data;
+}
+
 /** Flatten a QBO report's nested Rows structure into [{label, values: {col -> num}}]
  *  so downstream code doesn't have to walk Intuit's two-level array shape. */
 function flattenReportRows(rows, colCount) {
@@ -275,6 +295,7 @@ const TOOLS = [
   { name: 'qbo_get_chart_of_accounts', description: 'Full chart of accounts with account type, sub-type, current balance, and whether the account is active. No args.' },
   { name: 'qbo_get_sales_by_customer', description: 'Sales totals by customer for a date range. Use to answer "who are my biggest customers" or "what is customer concentration". Required: start_date, end_date (YYYY-MM-DD).' },
   { name: 'qbo_query', description: 'Run a raw QBO SQL-like query. Required: query (e.g. "SELECT * FROM Customer WHERE Active = true MAXRESULTS 50"). For power users; most callers should use the named report tools above.' },
+  { name: 'qbo_create_journal_entry', description: 'WRITE: create a journal entry in QBO. Required: TxnDate (YYYY-MM-DD), Line (array of journal entry lines). Each line: { Amount: number (dollars), DetailType: "JournalEntryLineDetail", JournalEntryLineDetail: { PostingType: "Debit"|"Credit", AccountRef: { value: "<account-id>" } }, Description: string }. Optional: DocNumber, PrivateNote. Returns the created JournalEntry with its assigned Id and a transaction link. Always confirm with Dante before posting — this writes to live books.' },
 ];
 
 async function callTool(name, args) {
@@ -350,6 +371,43 @@ async function callTool(name, args) {
     case 'qbo_query': {
       if (!args.query) throw new Error('query required (QBO SQL-like)');
       return qboGet('query', { query: args.query });
+    }
+    case 'qbo_create_journal_entry': {
+      // Required: TxnDate (YYYY-MM-DD), Line[] (each with Amount, DetailType,
+      // JournalEntryLineDetail{PostingType, AccountRef{value}}).
+      if (!args.TxnDate) throw new Error('TxnDate required (YYYY-MM-DD)');
+      if (!Array.isArray(args.Line) || args.Line.length < 2) throw new Error('Line[] required (at least 2 entries)');
+      // Validate balance — totals must match. Float rounding aside, QBO will
+      // reject any entry where Σ(Debit) != Σ(Credit).
+      const totals = args.Line.reduce((acc, l) => {
+        const amt = Number(l.Amount) || 0;
+        const post = l?.JournalEntryLineDetail?.PostingType;
+        if (post === 'Debit') acc.dr += amt;
+        else if (post === 'Credit') acc.cr += amt;
+        return acc;
+      }, { dr: 0, cr: 0 });
+      if (Math.abs(totals.dr - totals.cr) > 0.01) {
+        throw new Error(`Journal entry unbalanced: DR ${totals.dr.toFixed(2)} vs CR ${totals.cr.toFixed(2)}`);
+      }
+      const body = {
+        TxnDate: args.TxnDate,
+        Line: args.Line,
+        ...(args.DocNumber ? { DocNumber: args.DocNumber } : {}),
+        ...(args.PrivateNote ? { PrivateNote: args.PrivateNote } : {}),
+      };
+      const r = await qboPost('journalentry', body);
+      const je = r?.JournalEntry || {};
+      const t = await getValidAccessToken();
+      const link = `https://${API_BASE.includes('sandbox') ? 'sandbox.qbo' : 'qbo'}.intuit.com/app/journal?txnId=${je.Id}`;
+      return {
+        id: je.Id,
+        doc_number: je.DocNumber,
+        txn_date: je.TxnDate,
+        total_amount: totals.dr,
+        sync_token: je.SyncToken,
+        link,
+        raw: je,
+      };
     }
     default:
       throw new Error(`unknown tool: ${name}`);

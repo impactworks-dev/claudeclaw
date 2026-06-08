@@ -1410,8 +1410,8 @@ export function startDashboard(botApi?: Api<RawApi>): void {
         });
       });
       const j = JSON.parse(stdout);
-      const slim = (j.accounts || []).map((a: { id: string; name: string; type: string; balance: number; active: boolean }) => ({
-        id: a.id, name: a.name, type: a.type, balance: a.balance, active: a.active,
+      const slim = (j.accounts || []).map((a: { id: string; name: string; type: string; current_balance: number; active: boolean }) => ({
+        id: a.id, name: a.name, type: a.type, balance: a.current_balance, active: a.active,
       }));
       return c.json({ asOf: Date.now(), accounts: slim });
     } catch (e) {
