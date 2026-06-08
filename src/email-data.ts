@@ -261,16 +261,35 @@ export async function findStaleImportantEmails(opts: { minHours: number; knownOn
 }
 
 /** Top N unreplied / unread emails for the morning brief, formatted as a
- *  short context block. */
+ *  short context block. Senders are enriched with their relationship
+ *  (wife / client / cousin / etc.) via the people-resolver when known. */
 export async function buildBriefEmailBlock(limit = 3): Promise<string> {
+  // Lazy-import so this module doesn't fail to load if the resolver isn't
+  // available in a minimal build (e.g. tests).
+  const { resolvePerson, categorize } = await import('./people-resolver.js');
+
   const inbox = await getInbox({ limit: 25 });
   if (!inbox.emails.length) return '';
   const unread = inbox.emails.filter(e => e.unread).slice(0, limit);
   if (unread.length === 0) return 'Inbox: zero unread.';
   const lines = unread.map(e => {
-    const who = e.fromName || e.fromEmail;
+    // Resolve sender by email first, then fall back to display name.
+    const person = resolvePerson(e.fromEmail);
+    const cat = categorize(person);
+    let who: string;
+    if (person) {
+      who = person.relationship ? `${person.name} (${person.relationship})` : person.name;
+    } else {
+      who = e.fromName || e.fromEmail;
+    }
+    // Prefix with a category badge so the brief skims well
+    const badge = cat === 'family' ? '👪 ' :
+                  cat === 'inner-circle' ? '⭐ ' :
+                  cat === 'client' ? '💼 ' :
+                  cat === 'self' || cat === 'business-line' ? '🔄 ' :
+                  '';
     const age = e.ageHours > 24 ? `${Math.round(e.ageHours / 24)}d` : `${Math.round(e.ageHours)}h`;
-    return `  · ${who} (${age} old): ${e.subject}`;
+    return `  · ${badge}${who} (${age} old): ${e.subject}`;
   });
   return `Inbox: ${unread.length} unread worth eyeing.\n${lines.join('\n')}`;
 }

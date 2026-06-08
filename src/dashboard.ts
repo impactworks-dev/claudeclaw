@@ -1398,6 +1398,21 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
+  // People resolver — verify the relay/people-map.json + relay/contacts.json
+  // loaded correctly and resolve any handle on demand. Useful for confirming
+  // a tagging session worked end-to-end without re-running the relay.
+  app.get('/api/people/stats', async (c) => {
+    const { resolverStats } = await import('./people-resolver.js');
+    return c.json(resolverStats());
+  });
+  app.get('/api/people/resolve', async (c) => {
+    const handle = c.req.query('handle');
+    if (!handle) return c.json({ error: 'handle query param required' }, 400);
+    const { resolvePerson, categorize } = await import('./people-resolver.js');
+    const person = resolvePerson(handle);
+    return c.json({ handle, person, category: categorize(person) });
+  });
+
   // QuickBooks chart of accounts — used by the Settlement Slip generator to
   // look up account IDs for the journal entry. Returns a slim view: id, name,
   // accountType, balance, active.
