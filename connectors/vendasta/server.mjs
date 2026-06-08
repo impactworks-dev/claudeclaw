@@ -135,7 +135,10 @@ async function revenueByAccount(partnerId) {
       if (!agid && o.id) { const m = String(o.id).match(/^(AG-[A-Z0-9]+):/); if (m) agid = m[1]; }
       if (!agid) continue;
       const e = ensure(agid);
-      if (name) e.name = name;
+      // Treat literal "null"/"undefined"/empty as no name. Some order forms
+      // had those values written verbatim by upstream tooling.
+      const bad = new Set(['', 'null', 'undefined', 'NULL', 'Null']);
+      if (name && !bad.has(name.trim())) e.name = name;
       for (const li of (a.lineItems || [])) {
         let amt = li.amount || 0;
         const iv = (li.intervalCode || 'monthly').toLowerCase();
@@ -169,6 +172,31 @@ async function revenueByAccount(partnerId) {
     }
     cursor = nextCursor(j);
     if (!cursor) break;
+  }
+
+  // Backfill names from the canonical businessLocations resource. Order forms
+  // often have business_name blank (customer didn't fill it in), but every
+  // AG-ID has an attributes.name on its businessLocation. We paginate the
+  // full businessLocations list filtered by partner and merge names by AG-ID.
+  // ~3-5 page hits for an average partner, dwarfed by orders/purchases pagination.
+  try {
+    let cursorBL = '';
+    for (let pg = 0; pg < 50; pg++) {
+      const q = `filter[businessPartner.id]=${encodeURIComponent(partnerId)}&page[limit]=200${cursorBL ? `&page[cursor]=${encodeURIComponent(cursorBL)}` : ''}`;
+      const j = await platformGet(`/businessLocations?${q}`, 'business:read');
+      for (const bl of (j.data || [])) {
+        const blId = bl.id;
+        if (!blId || !acct[blId]) continue;
+        const canonicalName = bl.attributes?.name || (bl.attributes?.commonNames || [])[0] || null;
+        // Canonical name always wins — overrides any name set from order forms,
+        // which can be "null"/empty or stale customer-typed input.
+        if (canonicalName && canonicalName.trim()) acct[blId].name = canonicalName.trim();
+      }
+      cursorBL = nextCursor(j);
+      if (!cursorBL) break;
+    }
+  } catch (e) {
+    // Name backfill is best-effort; don't fail the whole rollup if this errors
   }
 
   let totRetailMRR = 0, totWholesaleMonthly = 0;
