@@ -1,77 +1,350 @@
 {
+  "2408203396": {
+    "name": "ZAGG Phone Repair",
+    "relationship": "client",
+    "org": "ZAGG"
+  },
+  "2409611212": {
+    "name": "Ashly",
+    "relationship": "client contact",
+    "org": "Reesource Pest"
+  },
+  "3012753692": {
+    "name": "Jennifer Johnson",
+    "relationship": "cousin"
+  },
+  "3014521993": {
+    "name": "Robyn Beaulieu-Dulys",
+    "relationship": "mother"
+  },
+  "3014670202": {
+    "name": "Ralph Caparotti",
+    "relationship": "client / business partner"
+  },
+  "3017045015": {
+    "name": "Silvio Vincent Crescenzi (Sr.)",
+    "relationship": "father",
+    "notes": "Dante's father. Goes by Dad. Shares full name with Dante's son (who is named after him). vincent@impactworks.com belongs to the SON, not the father"
+  },
+  "3018028905": {
+    "name": "Bill Johnson",
+    "relationship": "uncle"
+  },
+  "3018488128": {
+    "name": "Patty Morrison",
+    "relationship": "aunt"
+  },
+  "3653384811": {
+    "name": "Tessa Harvey",
+    "relationship": "stepdaughter"
+  },
+  "4168052389": {
+    "name": "Amy Matheson",
+    "relationship": "friend, Audra's boss"
+  },
+  "4168194187": {
+    "name": "Cam Matheson",
+    "relationship": "friend, Audra's boss"
+  },
   "_comment": "Manual handle → person overrides. Takes priority over contacts.json. Relay watches mtime — edits take effect on next message (no restart needed). Format: phone/email → 'Name' OR { name, org, relationship }. Add as many handles as a person has — each maps independently.",
-
-  "+19055999012": { "name": "Audra Crescenzi", "relationship": "wife" },
-  "9055999012":   { "name": "Audra Crescenzi", "relationship": "wife" },
-  "audraharvey@hotmail.com":     { "name": "Audra Crescenzi", "relationship": "wife" },
-  "audra@recolorpaints.com":     { "name": "Audra Crescenzi", "relationship": "wife" },
-  "audra@impactworks.com":       { "name": "Audra Crescenzi", "relationship": "wife" },
-
-  "robynbea@verizon.net":  { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
-  "robyndulys@gmail.com":  { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
-  "+13014521993":          { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
-  "3014521993":            { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
-
-  "+13017045015": { "name": "Dad", "relationship": "father" },
-  "3017045015":   { "name": "Dad", "relationship": "father" },
-
-  "+15144447578": { "name": "Vincent Crescenzi", "relationship": "son" },
-  "5144447578":   { "name": "Vincent Crescenzi", "relationship": "son" },
-
-  "+19102627341": { "name": "Emily Crescenzi", "relationship": "daughter" },
-  "9102627341":   { "name": "Emily Crescenzi", "relationship": "daughter" },
-
-  "+13014670202": { "name": "Ralph Caparotti", "relationship": "client / business partner" },
-  "3014670202":   { "name": "Ralph Caparotti", "relationship": "client / business partner" },
-
-  "+12408203396": { "name": "ZAGG Phone Repair", "relationship": "client", "org": "ZAGG" },
-  "2408203396":   { "name": "ZAGG Phone Repair", "relationship": "client", "org": "ZAGG" },
-
-  "+15165510799": { "name": "John Fenrich", "relationship": "client" },
-  "5165510799":   { "name": "John Fenrich", "relationship": "client" },
-
-  "+19194284957": { "name": "Jim Roberts", "relationship": "close friend / business community", "org": "Network for Entrepreneurs in Wilmington (NEW)", "notes": "ex-roommate, NEW founder" },
-  "9194284957":   { "name": "Jim Roberts", "relationship": "close friend / business community", "org": "Network for Entrepreneurs in Wilmington (NEW)" },
-
-  "+13653384811": { "name": "Tessa Harvey", "relationship": "stepdaughter" },
-  "3653384811":   { "name": "Tessa Harvey", "relationship": "stepdaughter" },
-
-  "+16316558883": { "name": "William Harvey", "relationship": "stepson" },
-  "6316558883":   { "name": "William Harvey", "relationship": "stepson" },
-
-  "+13012753692": { "name": "Jennifer Johnson", "relationship": "cousin" },
-  "3012753692":   { "name": "Jennifer Johnson", "relationship": "cousin" },
-
-  "+13018028905": { "name": "Bill Johnson", "relationship": "uncle", "notes": "Jennifer Johnson is his daughter (Dante's cousin)" },
-  "3018028905":   { "name": "Bill Johnson", "relationship": "uncle" },
-
-  "+14168052389": { "name": "Amy Matheson", "relationship": "friend, Audra's boss" },
-  "4168052389":   { "name": "Amy Matheson", "relationship": "friend, Audra's boss" },
-
-  "+15403796306": { "name": "Will Wilcox", "relationship": "friend, high school" },
-  "5403796306":   { "name": "Will Wilcox", "relationship": "friend, high school" },
-
-  "+12409611212": { "name": "Ashly", "relationship": "client contact", "org": "Reesource Pest" },
-  "2409611212":   { "name": "Ashly", "relationship": "client contact", "org": "Reesource Pest" },
-
-  "+14168194187": { "name": "Cam Matheson", "relationship": "friend, Audra's boss", "notes": "married to Amy Matheson" },
-  "4168194187":   { "name": "Cam Matheson", "relationship": "friend, Audra's boss" },
-
-  "+19193697031": { "name": "Bill Warner", "relationship": "friend, mentor" },
-  "9193697031":   { "name": "Bill Warner", "relationship": "friend, mentor" },
-
-  "+19102972657": { "name": "Nicole Wilcox", "relationship": "friend, business associate", "notes": "not related to Will Wilcox" },
-  "9102972657":   { "name": "Nicole Wilcox", "relationship": "friend, business associate" },
-
-  "+19195250612": { "name": "Jeffrey Blanchard", "relationship": "close friend, since high school" },
-  "9195250612":   { "name": "Jeffrey Blanchard", "relationship": "close friend, since high school" },
-
-  "+16164019057": { "name": "Faith Vanzalen", "relationship": "mother-in-law", "notes": "Audra's mother" },
-  "6164019057":   { "name": "Faith Vanzalen", "relationship": "mother-in-law" },
-
-  "+13018488128": { "name": "Patty Morrison", "relationship": "aunt", "notes": "Robyn's sister (Dante's mother's sister)" },
-  "3018488128":   { "name": "Patty Morrison", "relationship": "aunt" },
-
-  "+19109940121": { "name": "ImpactWorks Marketing Line", "relationship": "self / business line", "notes": "Dante's own Twilio/SMS business line, not a person" },
-  "9109940121":   { "name": "ImpactWorks Marketing Line", "relationship": "self / business line" }
+  "+19055999012": {
+    "name": "Audra Crescenzi",
+    "relationship": "wife"
+  },
+  "9055999012": {
+    "name": "Audra Crescenzi",
+    "relationship": "wife"
+  },
+  "audraharvey@hotmail.com": {
+    "name": "Audra Crescenzi",
+    "relationship": "wife"
+  },
+  "audra@recolorpaints.com": {
+    "name": "Audra Crescenzi",
+    "relationship": "wife"
+  },
+  "audra@impactworks.com": {
+    "name": "Audra Crescenzi",
+    "relationship": "wife"
+  },
+  "robynbea@verizon.net": {
+    "name": "Robyn Beaulieu-Dulys",
+    "relationship": "mother"
+  },
+  "robyndulys@gmail.com": {
+    "name": "Robyn Beaulieu-Dulys",
+    "relationship": "mother"
+  },
+  "+13014521993": {
+    "name": "Robyn Beaulieu-Dulys",
+    "relationship": "mother"
+  },
+  "+13017045015": {
+    "name": "Silvio Vincent Crescenzi (Sr.)",
+    "relationship": "father",
+    "notes": "Dante's father. Goes by Dad. Shares full name with Dante's son (who is named after him). vincent@impactworks.com belongs to the SON, not the father"
+  },
+  "+15144447578": {
+    "name": "Silvio Vincent Crescenzi",
+    "relationship": "son",
+    "notes": "named after grandfather. goes by Vincent. email: vincent@impactworks.com"
+  },
+  "5144447578": {
+    "name": "Silvio Vincent Crescenzi",
+    "relationship": "son"
+  },
+  "vincent@impactworks.com": {
+    "name": "Silvio Vincent Crescenzi",
+    "relationship": "son",
+    "notes": "Dante's son's work email at ImpactWorks (re-tagged from father)"
+  },
+  "+19102627341": {
+    "name": "Emily Crescenzi",
+    "relationship": "daughter"
+  },
+  "9102627341": {
+    "name": "Emily Crescenzi",
+    "relationship": "daughter"
+  },
+  "+13014670202": {
+    "name": "Ralph Caparotti",
+    "relationship": "client / business partner"
+  },
+  "+12408203396": {
+    "name": "ZAGG Phone Repair",
+    "relationship": "client",
+    "org": "ZAGG"
+  },
+  "+15165510799": {
+    "name": "John Fenrich",
+    "relationship": "client"
+  },
+  "5165510799": {
+    "name": "John Fenrich",
+    "relationship": "client"
+  },
+  "+19194284957": {
+    "name": "Jim Roberts",
+    "relationship": "close friend / business community",
+    "org": "Network for Entrepreneurs in Wilmington (NEW)",
+    "notes": "ex-roommate, NEW founder"
+  },
+  "9194284957": {
+    "name": "Jim Roberts",
+    "relationship": "close friend / business community",
+    "org": "Network for Entrepreneurs in Wilmington (NEW)"
+  },
+  "+13653384811": {
+    "name": "Tessa Harvey",
+    "relationship": "stepdaughter"
+  },
+  "+16316558883": {
+    "name": "William Harvey",
+    "relationship": "stepson"
+  },
+  "6316558883": {
+    "name": "William Harvey",
+    "relationship": "stepson"
+  },
+  "+13012753692": {
+    "name": "Jennifer Johnson",
+    "relationship": "cousin"
+  },
+  "+13018028905": {
+    "name": "Bill Johnson",
+    "relationship": "uncle",
+    "notes": "Jennifer Johnson is his daughter (Dante's cousin)"
+  },
+  "+14168052389": {
+    "name": "Amy Matheson",
+    "relationship": "friend, Audra's boss"
+  },
+  "+15403796306": {
+    "name": "Will Wilcox",
+    "relationship": "friend, high school"
+  },
+  "5403796306": {
+    "name": "Will Wilcox",
+    "relationship": "friend, high school"
+  },
+  "+12409611212": {
+    "name": "Ashly",
+    "relationship": "client contact",
+    "org": "Reesource Pest"
+  },
+  "+14168194187": {
+    "name": "Cam Matheson",
+    "relationship": "friend, Audra's boss",
+    "notes": "married to Amy Matheson"
+  },
+  "+19193697031": {
+    "name": "Bill Warner",
+    "relationship": "friend, mentor"
+  },
+  "9193697031": {
+    "name": "Bill Warner",
+    "relationship": "friend, mentor"
+  },
+  "+19102972657": {
+    "name": "Nicole Wilcox",
+    "relationship": "friend, business associate",
+    "notes": "not related to Will Wilcox"
+  },
+  "9102972657": {
+    "name": "Nicole Wilcox",
+    "relationship": "friend, business associate"
+  },
+  "+19195250612": {
+    "name": "Jeffrey Blanchard",
+    "relationship": "close friend, since high school"
+  },
+  "9195250612": {
+    "name": "Jeffrey Blanchard",
+    "relationship": "close friend, since high school"
+  },
+  "+16164019057": {
+    "name": "Faith Vanzalen",
+    "relationship": "mother-in-law",
+    "notes": "Audra's mother"
+  },
+  "6164019057": {
+    "name": "Faith Vanzalen",
+    "relationship": "mother-in-law"
+  },
+  "+13018488128": {
+    "name": "Patty Morrison",
+    "relationship": "aunt",
+    "notes": "Robyn's sister (Dante's mother's sister)"
+  },
+  "+19109940121": {
+    "name": "ImpactWorks Marketing Line",
+    "relationship": "self / business line",
+    "notes": "Dante's own Twilio/SMS business line, not a person"
+  },
+  "9109940121": {
+    "name": "ImpactWorks Marketing Line",
+    "relationship": "self / business line"
+  },
+  "jenkjo88@aol.com": {
+    "name": "Jennifer Johnson",
+    "relationship": "cousin"
+  },
+  "caparottir@gmail.com": {
+    "name": "Ralph Caparotti",
+    "relationship": "client / business partner"
+  },
+  "ralph@zaggdowntowncrown.com": {
+    "name": "Ralph Caparotti",
+    "relationship": "client / business partner"
+  },
+  "perks@zaggdowntowncrown.com": {
+    "name": "Ralph Caparotti",
+    "relationship": "client / business partner"
+  },
+  "svc@cbmcpa.com": {
+    "name": "Silvio Vincent Crescenzi (Sr.)",
+    "relationship": "father",
+    "notes": "Dante's father. Goes by Dad. Shares full name with Dante's son (who is named after him). vincent@impactworks.com belongs to the SON, not the father"
+  },
+  "svcrescenzi@gmail.com": {
+    "name": "Silvio Vincent Crescenzi (Sr.)",
+    "relationship": "father",
+    "notes": "Dante's father. Goes by Dad. Shares full name with Dante's son (who is named after him). vincent@impactworks.com belongs to the SON, not the father"
+  },
+  "vincent@primereset.com": {
+    "name": "Silvio Vincent Crescenzi (Sr.)",
+    "relationship": "father",
+    "notes": "Dante's father. Goes by Dad. Shares full name with Dante's son (who is named after him). vincent@impactworks.com belongs to the SON, not the father"
+  },
+  "vincent@rocketlocal.io": {
+    "name": "Silvio Vincent Crescenzi (Sr.)",
+    "relationship": "father",
+    "notes": "Dante's father. Goes by Dad. Shares full name with Dante's son (who is named after him). vincent@impactworks.com belongs to the SON, not the father"
+  },
+  "vincent@pestwebpros.com": {
+    "name": "Silvio Vincent Crescenzi (Sr.)",
+    "relationship": "father",
+    "notes": "Dante's father. Goes by Dad. Shares full name with Dante's son (who is named after him). vincent@impactworks.com belongs to the SON, not the father"
+  },
+  "matheson22@hotmail.com": {
+    "name": "Cam Matheson",
+    "relationship": "friend, Audra's boss"
+  },
+  "emilymcrescenzi@gmail.com": {
+    "name": "Emily Crescenzi",
+    "relationship": "daughter"
+  },
+  "fenrich55@gmail.com": {
+    "name": "John Fenrich",
+    "relationship": "client"
+  },
+  "jimrroberts@yahoo.com": {
+    "name": "Jim Roberts",
+    "relationship": "close friend / business community",
+    "org": "Network for Entrepreneurs in Wilmington (NEW)",
+    "notes": "ex-roommate, NEW founder"
+  },
+  "redspire4@gmail.com": {
+    "name": "Jim Roberts",
+    "relationship": "close friend / business community",
+    "org": "Network for Entrepreneurs in Wilmington (NEW)",
+    "notes": "ex-roommate, NEW founder"
+  },
+  "newilm910@gmail.com": {
+    "name": "Jim Roberts",
+    "relationship": "close friend / business community",
+    "org": "Network for Entrepreneurs in Wilmington (NEW)",
+    "notes": "ex-roommate, NEW founder"
+  },
+  "walenc910@gmail.com": {
+    "name": "Jim Roberts",
+    "relationship": "close friend / business community",
+    "org": "Network for Entrepreneurs in Wilmington (NEW)",
+    "notes": "ex-roommate, NEW founder"
+  },
+  "bwarner@entredot.org": {
+    "name": "Bill Warner",
+    "relationship": "friend, mentor"
+  },
+  "wewarner@earthlink.net": {
+    "name": "Bill Warner",
+    "relationship": "friend, mentor"
+  },
+  "contentcreatornicolewilcox@gmail.com": {
+    "name": "Nicole Wilcox",
+    "relationship": "friend, business associate",
+    "notes": "not related to Will Wilcox"
+  },
+  "jeffrey.blanchard@microsoft.com": {
+    "name": "Jeffrey Blanchard",
+    "relationship": "close friend, since high school"
+  },
+  "jeffrey.blanchard@live.com": {
+    "name": "Jeffrey Blanchard",
+    "relationship": "close friend, since high school"
+  },
+  "jeffrey.blanchard@gmail.com": {
+    "name": "Jeffrey Blanchard",
+    "relationship": "close friend, since high school"
+  },
+  "admin@impactworks.com": {
+    "name": "ImpactWorks Admin Alias",
+    "relationship": "self / business alias",
+    "notes": "ImpactWorks admin email alias"
+  },
+  "dante@impactworks.com": {
+    "name": "Dante Crescenzi",
+    "relationship": "self",
+    "notes": "Dante's primary email"
+  },
+  "finance@impactworks.com": {
+    "name": "Dante Crescenzi",
+    "relationship": "self",
+    "notes": "Dante's finance alias"
+  },
+  "dante+ai@impactworks.com": {
+    "name": "Dante Crescenzi",
+    "relationship": "self",
+    "notes": "Dante's own email (Plus addressing for AI-related inbox)"
+  }
 }
