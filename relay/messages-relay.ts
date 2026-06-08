@@ -35,14 +35,14 @@ const PEOPLE_MAP = path.join(os.homedir(), 'claudeclaw', 'relay', 'people-map.js
 // In-memory handle → name lookup, built from contacts.json + people-map.json
 // at relay start. Reloads if either file changes mtime.
 interface ContactCache {
-  byHandle: Map<string, { name: string; org?: string | null; source: 'contacts' | 'people-map' }>;
+  byHandle: Map<string, { name: string; org?: string | null; relationship?: string | null; source: 'contacts' | 'people-map' }>;
   loadedAt: number;
   contactsMtime: number;
   peopleMapMtime: number;
 }
 
 let contactCache: ContactCache = {
-  byHandle: new Map(),
+  byHandle: new Map<string, { name: string; org?: string | null; relationship?: string | null; source: 'contacts' | 'people-map' }>(),
   loadedAt: 0,
   contactsMtime: 0,
   peopleMapMtime: 0,
@@ -77,9 +77,10 @@ function loadContacts(): void {
     if (stat.mtimeMs !== contactCache.peopleMapMtime) {
       const raw = JSON.parse(fs.readFileSync(PEOPLE_MAP, 'utf-8')) as Record<string, string | { name: string; org?: string; relationship?: string }>;
       for (const [handle, val] of Object.entries(raw)) {
+        if (handle.startsWith('_')) continue; // skip _comment etc.
         const meta = typeof val === 'string'
-          ? { name: val, org: null, source: 'people-map' as const }
-          : { name: val.name, org: val.org || null, source: 'people-map' as const };
+          ? { name: val, org: null, relationship: null, source: 'people-map' as const }
+          : { name: val.name, org: val.org || null, relationship: val.relationship || null, source: 'people-map' as const };
         byHandle.set(normalizeHandle(handle), meta);
       }
       contactCache.peopleMapMtime = stat.mtimeMs;
@@ -90,7 +91,7 @@ function loadContacts(): void {
   console.log(`contacts cache: ${byHandle.size} handles loaded`);
 }
 
-function resolveHandle(raw: string | null | undefined): { name: string; org: string | null; source: string } | null {
+function resolveHandle(raw: string | null | undefined): { name: string; org: string | null; relationship: string | null; source: string } | null {
   if (!raw) return null;
   const norm = normalizeHandle(raw);
   if (!norm) return null;
@@ -98,13 +99,13 @@ function resolveHandle(raw: string | null | undefined): { name: string; org: str
   try { if (fs.statSync(CONTACTS_CACHE).mtimeMs !== contactCache.contactsMtime) loadContacts(); } catch {}
   try { if (fs.statSync(PEOPLE_MAP).mtimeMs !== contactCache.peopleMapMtime) loadContacts(); } catch {}
   const hit = contactCache.byHandle.get(norm);
-  if (hit) return { name: hit.name, org: hit.org || null, source: hit.source };
+  if (hit) return { name: hit.name, org: hit.org || null, relationship: hit.relationship || null, source: hit.source };
   // Phone fallback: try last-10-digit match (US numbers)
   if (/^\+?\d+$/.test(norm)) {
     const last10 = norm.replace(/^\+/, '').slice(-10);
     for (const [k, v] of contactCache.byHandle) {
       if (k.replace(/^\+/, '').endsWith(last10) && last10.length === 10) {
-        return { name: v.name, org: v.org || null, source: v.source };
+        return { name: v.name, org: v.org || null, relationship: v.relationship || null, source: v.source };
       }
     }
   }
@@ -176,8 +177,9 @@ interface MessageOut {
   ts: number | null;
   isFromMe: boolean;
   handle: string | null;
-  handleName: string | null;   // resolved from contacts/people-map
+  handleName: string | null;          // resolved from contacts/people-map
   handleOrg: string | null;
+  handleRelationship: string | null;  // wife/mother/customer/etc. from people-map
   service: string | null;
   text: string;
   hasAttachment: boolean;
@@ -214,6 +216,7 @@ function rowToMessage(r: any): MessageOut {
     handle: r.handle_id_str ?? null,
     handleName: resolved?.name || null,
     handleOrg: resolved?.org || null,
+    handleRelationship: resolved?.relationship || null,
     service: r.service ?? null,
     text,
     hasAttachment: !!r.cache_has_attachments,

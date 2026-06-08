@@ -1,9 +1,12 @@
 {
-  "_comment": "Manual handle → person overrides. Takes priority over contacts.json. Format: phone/email → 'Name' OR { name, org, relationship }. Add entries for important people who aren't in Contacts.app, or to add commercial/relationship context. Examples below; delete or replace.",
-  "+15551234567": {
-    "name": "Jane Doe",
-    "org": "ZAGG",
-    "relationship": "Customer, $780/mo, primary contact"
-  },
-  "jane@example.com": "Jane Doe"
+  "_comment": "Manual handle → person overrides. Takes priority over contacts.json. Relay watches mtime — edits take effect on next message (no restart needed). Format: phone/email → 'Name' OR { name, org, relationship }. Add as many handles as a person has — each maps independently.",
+
+  "+19055999012": { "name": "Audra Crescenzi", "relationship": "wife" },
+  "9055999012":   { "name": "Audra Crescenzi", "relationship": "wife" },
+  "audraharvey@hotmail.com":     { "name": "Audra Crescenzi", "relationship": "wife" },
+  "audra@recolorpaints.com":     { "name": "Audra Crescenzi", "relationship": "wife" },
+  "audra@impactworks.com":       { "name": "Audra Crescenzi", "relationship": "wife" },
+
+  "robynbea@verizon.net":  { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" },
+  "robyndulys@gmail.com":  { "name": "Robyn Beaulieu-Dulys", "relationship": "mother" }
 }
