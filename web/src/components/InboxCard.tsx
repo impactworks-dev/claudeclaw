@@ -9,6 +9,13 @@ import { Inbox, Mail, AlertTriangle, ExternalLink, X, Clock, RefreshCw } from 'l
 import { useFetch } from '@/lib/useFetch';
 import { apiGet } from '@/lib/api';
 
+interface SenderPerson {
+  name: string;
+  relationship?: string;
+  org?: string;
+  category: string;  // family | inner-circle | self | client | vendor | professional | community | business-line | other
+}
+
 interface EmailRow {
   id: string;
   threadId: string;
@@ -23,6 +30,7 @@ interface EmailRow {
   unread: boolean;
   ageHours: number;
   hasUrgentKeyword: boolean;
+  senderPerson?: SenderPerson | null;
 }
 
 interface InboxResponse {
@@ -54,8 +62,25 @@ function relTime(ms: number): string {
   return `${d}d`;
 }
 
+// Category → emoji badge for quick visual scanning. Falls back to no badge
+// for unknown / "other" so the inbox doesn't get noisy with neutral senders.
+function categoryBadge(cat?: string): string {
+  switch (cat) {
+    case 'family': return '👪';
+    case 'inner-circle': return '⭐';
+    case 'client': return '💼';
+    case 'self':
+    case 'business-line': return '🔄';
+    case 'vendor': return '🏷️';
+    case 'professional': return '🎓';
+    default: return '';
+  }
+}
+
 function EmailRowView({ e, onClick }: { e: EmailRow; onClick: () => void }) {
-  const who = e.fromName || e.fromEmail.split('@')[0];
+  const sp = e.senderPerson;
+  const who = sp?.name || e.fromName || e.fromEmail.split('@')[0];
+  const badge = categoryBadge(sp?.category);
   return (
     <button
       type="button"
@@ -66,7 +91,13 @@ function EmailRowView({ e, onClick }: { e: EmailRow; onClick: () => void }) {
       <div class="flex-1 min-w-0">
         <div class="flex items-baseline justify-between gap-2">
           <div class={`text-[12px] truncate ${e.unread ? 'font-semibold text-[var(--color-text)]' : 'text-[var(--color-text-muted)]'}`}>
+            {badge && <span class="mr-1">{badge}</span>}
             {who}
+            {sp?.relationship && (
+              <span class="ml-1 text-[10px] text-[var(--color-text-faint)] font-normal">
+                ({sp.relationship})
+              </span>
+            )}
           </div>
           <div class="text-[10px] text-[var(--color-text-faint)] tabular-nums shrink-0 inline-flex items-center gap-1">
             {e.hasUrgentKeyword && <AlertTriangle size={9} class="text-[#ca8a04]" />}

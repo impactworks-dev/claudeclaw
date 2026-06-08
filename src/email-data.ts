@@ -20,6 +20,8 @@ const INBOX_TTL_MS = 2 * 60 * 1000;
 const THREAD_TTL_MS = 10 * 60 * 1000;
 const KNOWN_CONTACT_TTL_MS = 30 * 60 * 1000;
 
+import { resolvePerson, categorize } from './people-resolver.js';
+
 export interface EmailRow {
   id: string;
   threadId: string;
@@ -34,6 +36,16 @@ export interface EmailRow {
   unread: boolean;
   ageHours: number;
   hasUrgentKeyword: boolean;
+  // Server-resolved sender context: name + relationship + category.
+  // Populated by people-resolver when known; null/undefined for unknown senders.
+  // Lets the frontend render "Audra (wife)" with a category badge without
+  // doing per-row resolver lookups.
+  senderPerson?: {
+    name: string;
+    relationship?: string;
+    org?: string;
+    category: string;  // family | inner-circle | self | client | vendor | professional | community | business-line | other
+  } | null;
 }
 
 export interface ThreadMessage {
@@ -110,6 +122,19 @@ function shapeRow(raw: any): EmailRow {
   const { name, email } = parseFromHeader(raw.from || '');
   const receivedAt = parseGmailDate(raw.date || '');
   const ageHours = (Date.now() - receivedAt) / 3600000;
+  // Resolve sender via people-resolver (in-memory cache hit, fast).
+  let senderPerson: EmailRow['senderPerson'] = null;
+  try {
+    const p = resolvePerson(email);
+    if (p) {
+      senderPerson = {
+        name: p.name,
+        relationship: p.relationship,
+        org: p.org,
+        category: categorize(p),
+      };
+    }
+  } catch { /* resolver not available — keep null */ }
   return {
     id: raw.id,
     threadId: raw.threadId || raw.id,
@@ -124,6 +149,7 @@ function shapeRow(raw: any): EmailRow {
     unread: !!raw.unread,
     ageHours,
     hasUrgentKeyword: hasUrgent(raw.subject || '', raw.snippet || '', raw.from || ''),
+    senderPerson,
   };
 }
 
@@ -264,10 +290,6 @@ export async function findStaleImportantEmails(opts: { minHours: number; knownOn
  *  short context block. Senders are enriched with their relationship
  *  (wife / client / cousin / etc.) via the people-resolver when known. */
 export async function buildBriefEmailBlock(limit = 3): Promise<string> {
-  // Lazy-import so this module doesn't fail to load if the resolver isn't
-  // available in a minimal build (e.g. tests).
-  const { resolvePerson, categorize } = await import('./people-resolver.js');
-
   const inbox = await getInbox({ limit: 25 });
   if (!inbox.emails.length) return '';
   const unread = inbox.emails.filter(e => e.unread).slice(0, limit);
