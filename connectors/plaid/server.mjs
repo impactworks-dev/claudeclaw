@@ -259,14 +259,34 @@ async function callTool(name, args) {
       const allHoldings = [];
       const securitiesById = new Map();  // security_id -> security object
       const itemErrors = [];
+      // Backfill institution names for items that don't have one yet. We
+      // do this once per item — call /institutions/get_by_id, persist the
+      // result. Subsequent calls hit the cached name on disk.
+      const items = loadItems();
+      let itemsDirty = false;
       for (const t of allAccessTokens()) {
         try {
           const r = await api('/investments/holdings/get', { access_token: t.access_token });
+          // Resolve + persist institution name if missing on this item.
+          let resolvedName = t.institution;
+          if (!resolvedName && r.item?.institution_id && items[t.item_id]) {
+            try {
+              const inst = await api('/institutions/get_by_id', {
+                institution_id: r.item.institution_id,
+                country_codes: ['US'],
+              });
+              if (inst?.institution?.name) {
+                resolvedName = inst.institution.name;
+                items[t.item_id].institution_name = resolvedName;
+                itemsDirty = true;
+              }
+            } catch (_) { /* leave as null if Plaid rejects the lookup */ }
+          }
           for (const a of (r.accounts || [])) {
             allAccounts.push({
               item_id: t.item_id,
-              institution: t.institution || r.item?.institution_id || null,
-              institution_name: t.institution_name || null,
+              institution: resolvedName || r.item?.institution_id || null,
+              institution_name: resolvedName || null,
               account_id: a.account_id,
               name: a.name,
               official_name: a.official_name,
@@ -289,6 +309,7 @@ async function callTool(name, args) {
           itemErrors.push({ item_id: t.item_id, institution_name: t.institution_name, error: msg });
         }
       }
+      if (itemsDirty) saveItems(items);
       return {
         accounts: allAccounts,
         holdings: allHoldings,

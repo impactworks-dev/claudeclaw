@@ -623,26 +623,55 @@ export function Founder() {
                   Today: {fmtDelta(data.totalDayChange, data.totalDayChangePct)}
                 </div>
               </div>
-              {/* Per-account list */}
-              <div class="space-y-1.5 mb-3 pb-3 border-b border-[var(--color-border)]">
-                {data.perAccount.slice(0, 6).map(a => (
-                  <div class="flex items-center justify-between gap-2 text-[12px]">
-                    <div class="min-w-0 flex-1">
-                      <div class="text-[var(--color-text)] truncate">{a.name}</div>
-                      <div class="text-[10px] text-[var(--color-text-faint)]">
-                        {a.institution_name || a.subtype || a.type || ''}{a.mask ? ` · …${a.mask}` : ''}
-                      </div>
-                    </div>
-                    <div class="text-right shrink-0">
-                      <div class="text-[var(--color-text)] tabular-nums">{fmtMoney(a.currentValue)}</div>
-                      {a.dayChange !== 0 && (
-                        <div class={`text-[10px] tabular-nums ${positive(a.dayChange) ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                          {fmtDelta(a.dayChange)}
+              {/* Per-account list, grouped by institution. Each row shows
+                  the institution name prominently up top, then the brokerage
+                  account name and subtype underneath. */}
+              <div class="space-y-2.5 mb-3 pb-3 border-b border-[var(--color-border)]">
+                {(() => {
+                  // Group accounts by institution_name for display
+                  const groups = new Map<string, typeof data.perAccount>();
+                  for (const a of data.perAccount.slice(0, 12)) {
+                    const key = a.institution_name || 'Unknown institution';
+                    if (!groups.has(key)) groups.set(key, []);
+                    groups.get(key)!.push(a);
+                  }
+                  const groupArr = [...groups.entries()].sort(([, ax], [, bx]) => {
+                    const aTotal = ax.reduce((s, x) => s + x.currentValue, 0);
+                    const bTotal = bx.reduce((s, x) => s + x.currentValue, 0);
+                    return bTotal - aTotal;
+                  });
+                  return groupArr.map(([inst, accounts]) => {
+                    const instTotal = accounts.reduce((s, a) => s + a.currentValue, 0);
+                    return (
+                      <div>
+                        <div class="flex items-baseline justify-between gap-2 mb-0.5">
+                          <div class="text-[11px] font-semibold text-[var(--color-text)] uppercase tracking-wide">{inst}</div>
+                          <div class="text-[11px] text-[var(--color-text-muted)] tabular-nums">{fmtMoney(instTotal)}</div>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                        {accounts.map(a => (
+                          <div class="flex items-center justify-between gap-2 text-[11px] pl-2">
+                            <div class="min-w-0 flex-1">
+                              <div class="text-[var(--color-text-muted)] truncate">
+                                {a.name}
+                                <span class="text-[var(--color-text-faint)] ml-1">
+                                  · {a.subtype || a.type}{a.mask ? ` · …${a.mask}` : ''}
+                                </span>
+                              </div>
+                            </div>
+                            <div class="text-right shrink-0">
+                              <div class="text-[var(--color-text-muted)] tabular-nums">{fmtMoney(a.currentValue)}</div>
+                              {a.dayChange !== 0 && (
+                                <div class={`text-[10px] tabular-nums ${positive(a.dayChange) ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
+                                  {fmtDelta(a.dayChange)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
               {/* Top holdings */}
               {data.topHoldings.length > 0 && (
