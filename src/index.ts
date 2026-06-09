@@ -369,15 +369,33 @@ async function main(): Promise<void> {
       }
 
       if (fs.existsSync(venvPython) && fs.existsSync(serverScript)) {
-        // Pre-flight: verify Python dependencies are actually installed
+        // Pre-flight: verify Python dependencies are actually installed.
+        // Pipecat pulls in heavy ML/audio deps and can take 20-30s to import
+        // on a cold container — the previous 10s timeout produced false
+        // "deps missing" alarms during normal boot, spamming Telegram. We:
+        //  1. Bump the timeout to 60s
+        //  2. Log only — don't Telegram-spam on transient failures
+        //  3. Distinguish ENOENT (real missing venv) from import timeout
         const { spawnSync } = await import('child_process');
-        const depCheck = spawnSync(venvPython, ['-c', 'import pipecat'], { stdio: 'pipe', timeout: 10000 });
-        if (depCheck.status !== 0) {
-          const msg = 'War Room Python dependencies not installed. Run:\n\n'
+        const depCheck = spawnSync(venvPython, ['-c', 'import pipecat'], { stdio: 'pipe', timeout: 60_000 });
+        const importStderr = (depCheck.stderr || '').toString();
+        const isRealMissingDeps = depCheck.status !== 0
+          && depCheck.signal !== 'SIGTERM'
+          && /ModuleNotFoundError|ImportError/.test(importStderr);
+        if (depCheck.status !== 0 && !isRealMissingDeps) {
+          // Probably a cold-import timeout. Log it and skip War Room this
+          // boot, but DON'T Telegram-spam — the next boot will likely succeed.
+          logger.warn({
+            status: depCheck.status,
+            signal: depCheck.signal,
+            stderr: importStderr.slice(0, 200),
+          }, 'War Room dep check did not return 0 (likely cold-import timeout) — skipping War Room this boot');
+        } else if (isRealMissingDeps) {
+          const msg = 'War Room Python dependencies actually missing (ModuleNotFoundError). Run:\n\n'
             + 'source warroom/.venv/bin/activate\n'
             + 'pip install -r warroom/requirements.txt\n\n'
             + 'Then restart the bot.';
-          logger.error(msg);
+          logger.error({ stderr: importStderr.slice(0, 500) }, msg);
           void sendToPrimary(`War Room could not start.\n\n${msg}`);
         } else {
         // Dedicated log file for the warroom subprocess
