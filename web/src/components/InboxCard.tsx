@@ -4,7 +4,7 @@
 // Click any row to open the thread in a modal. Read-only — no sending.
 // "All inbox" link in the header points to a future /inbox page (TBD).
 
-import { useState } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { Inbox, Mail, AlertTriangle, ExternalLink, X, Clock, RefreshCw } from 'lucide-preact';
 import { useFetch } from '@/lib/useFetch';
 import { apiGet } from '@/lib/api';
@@ -115,17 +115,21 @@ function EmailRowView({ e, onClick }: { e: EmailRow; onClick: () => void }) {
   );
 }
 
-function ThreadModal({ threadId, onClose }: { threadId: string; onClose: () => void }) {
+function ThreadModal({ messageId, threadId, onClose }: { messageId: string; threadId: string; onClose: () => void }) {
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch on mount
-  if (loading && !thread && !error) {
-    apiGet<ThreadDetail>(`/api/email/thread/${encodeURIComponent(threadId)}`)
-      .then((r) => { setThread(r); setLoading(false); })
-      .catch((e) => { setError(String(e?.message || e)); setLoading(false); });
-  }
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setThread(null);
+    setError(null);
+    apiGet<ThreadDetail>(`/api/email/thread/${encodeURIComponent(messageId)}`)
+      .then((r) => { if (!cancelled) { setThread(r); setLoading(false); } })
+      .catch((e) => { if (!cancelled) { setError(String(e?.message || e)); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [messageId]);
 
   return (
     <div
@@ -179,7 +183,7 @@ function ThreadModal({ threadId, onClose }: { threadId: string; onClose: () => v
 
 export function InboxCard() {
   const { data, loading, error, refresh, refreshing } = useFetch<InboxResponse>('/api/email/inbox?limit=15', 2 * 60_000);
-  const [openThread, setOpenThread] = useState<string | null>(null);
+  const [openThread, setOpenThread] = useState<{ id: string; threadId: string } | null>(null);
 
   const emails = data?.emails || [];
   const unreadCount = emails.filter(e => e.unread).length;
@@ -229,7 +233,7 @@ export function InboxCard() {
       ) : (
         <div class="space-y-0 max-h-[360px] overflow-auto">
           {emails.map(e => (
-            <EmailRowView key={e.id} e={e} onClick={() => setOpenThread(e.threadId)} />
+            <EmailRowView key={e.id} e={e} onClick={() => setOpenThread({ id: e.id, threadId: e.threadId })} />
           ))}
         </div>
       )}
@@ -246,7 +250,7 @@ export function InboxCard() {
         </a>
       </div>
 
-      {openThread && <ThreadModal threadId={openThread} onClose={() => setOpenThread(null)} />}
+      {openThread && <ThreadModal messageId={openThread.id} threadId={openThread.threadId} onClose={() => setOpenThread(null)} />}
     </div>
   );
 }
