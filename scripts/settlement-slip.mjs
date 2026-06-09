@@ -34,7 +34,9 @@ const ENV = Object.fromEntries(
     .split('\n').filter(l => l.includes('=') && !l.startsWith('#'))
     .map(l => { const i = l.indexOf('='); return [l.slice(0,i).trim(), l.slice(i+1).trim()]; })
 );
-const DASHBOARD_URL = ENV.DASHBOARD_URL || 'https://claudeclaw.impactworks.com';
+// Force the live host. ENV.DASHBOARD_URL still points at the old claw.
+// hostname for some users (pre-2026-05-30 cutover).
+const DASHBOARD_URL = 'https://claudeclaw.impactworks.com';
 const DASHBOARD_TOKEN = ENV.DASHBOARD_TOKEN;
 
 // Account-name patterns we resolve against /api/qb/accounts. Match is first
@@ -97,7 +99,9 @@ function saveJson(file, data) {
 // --- fetch revenue ---
 console.error(`Generating slip for ${monthLabel} (${month})`);
 console.error(`Fetching revenue split...`);
-const rev = await curl(`${DASHBOARD_URL}/api/vendasta/revenue?full=1`, { timeout: 240 });
+// Use cached endpoint (no force, no full) — brands[] is in the slim cache
+// and avoids the slow connector path that Fly proxy times out on.
+const rev = await curl(`${DASHBOARD_URL}/api/vendasta/revenue`, { timeout: 30 });
 if (!rev.brands || rev.brands.length === 0) {
   console.error('No brands[] in response. Per-market data layer not deployed yet.');
   process.exit(3);

@@ -480,6 +480,9 @@ export function initDatabase(): void {
   getEncryptionKey();
 
   db = new Database(dbPath);
+  // Retry on SQLITE_BUSY for up to 30s — prevents crash when multiple agents
+  // open the DB simultaneously on container boot (WAL contention fix).
+  db.pragma('busy_timeout = 30000');
   db.pragma('journal_mode = WAL');
   fixIncompatibleTables(db);
   createSchema(db);

@@ -173,18 +173,43 @@ syncthing serve \
 
 echo "Started syncthing in background (PID $!)"
 
-# ── Spawn the four sub-agents in the background ─────────────────────────
-# Mirrors the Mac launchd setup. Each sub-agent runs the same dist/index.js
-# with --agent <name>, picking up its own Telegram bot token from .env.
-# Logs go to /app/store/logs so they survive restarts and can be tailed.
+# ── Startup sequencing: main FIRST, sub-agents after DB is ready ─────────
+# Root cause of prior crashes: all five agents (main + 4 sub) hit
+# initDatabase() simultaneously on boot, racing on WAL writes with no
+# busy_timeout set. Fix is two-pronged:
+#   1. db.ts sets busy_timeout=30000 so SQLite retries on SQLITE_BUSY.
+#   2. Main agent starts first and owns schema init; sub-agents start 5s
+#      later when the DB is guaranteed ready.
 mkdir -p /app/store/logs
+
+# Checkpoint any WAL left from a prior unclean shutdown before anyone opens
+# the DB. sqlite3 CLI is installed in the image (Dockerfile line 71).
+DB_PATH="${CLAUDECLAW_STORE_DIR:-/app/store}/claudeclaw.db"
+if [ -f "$DB_PATH" ]; then
+  sqlite3 "$DB_PATH" "PRAGMA wal_checkpoint(TRUNCATE);" \
+    && echo "WAL checkpoint: done" \
+    || echo "WAL checkpoint: failed (non-fatal, DB still safe)"
+else
+  echo "WAL checkpoint: no DB yet (first boot), skipping"
+fi
+
+# Start main agent first — it runs initDatabase(), creates schema, migrations
+node dist/index.js &
+MAIN_PID=$!
+echo "Started main agent (PID $MAIN_PID)"
+
+# Give main time to finish DB initialization before sub-agents connect.
+# Schema creation + migrations complete in well under 1s; 5s is conservative.
+sleep 5
+
+# Spawn sub-agents now that the DB schema is stable
 for AGENT in comms content ops research; do
   CLAUDECLAW_AGENT_ID="$AGENT" node dist/index.js --agent "$AGENT" \
     >> /app/store/logs/agent-$AGENT.log 2>&1 &
   echo "Spawned sub-agent '$AGENT' (PID $!)"
 done
 
-# Hand off to the real command (node dist/index.js by default — the main agent).
-# When main exits, this script exits, killing the backgrounded sub-agents and
-# triggering Fly's machine supervisor to restart the whole container.
-exec "$@"
+# Wait for the main agent. When it exits, tini reaps background children
+# and Fly's supervisor restarts the container — same behavior as exec "$@"
+# but main gets exclusive DB access on boot.
+wait $MAIN_PID
