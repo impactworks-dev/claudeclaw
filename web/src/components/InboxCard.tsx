@@ -115,6 +115,25 @@ function EmailRowView({ e, onClick }: { e: EmailRow; onClick: () => void }) {
   );
 }
 
+// Strip script tags, on* event handlers, javascript: URLs, and form elements
+// from Gmail HTML before we dangerouslySetInnerHTML. We're rendering email
+// the user already received in their inbox — assume the sender is trustworthy
+// enough to pass the spam filter, but don't execute scripts or steal focus.
+function sanitizeEmailHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, (m) => m) // keep styles, emails depend on them
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+    .replace(/javascript:/gi, 'about:blank#')
+    .replace(/<form\b/gi, '<div data-was-form ')
+    .replace(/<\/form>/gi, '</div>')
+    .replace(/<input\b[^>]*>/gi, '')
+    // Cap at 2MB so a malicious 100MB email can't lock up the browser.
+    .slice(0, 2_000_000);
+}
+
 function ThreadModal({ messageId, threadId, onClose }: { messageId: string; threadId: string; onClose: () => void }) {
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -155,10 +174,13 @@ function ThreadModal({ messageId, threadId, onClose }: { messageId: string; thre
               <div class="text-[11px] text-[var(--color-text-muted)] mb-2">
                 <span class="font-medium text-[var(--color-text)]">{m.from}</span> · {m.date}
               </div>
-              {m.bodyText ? (
-                <pre class="text-[12px] text-[var(--color-text)] whitespace-pre-wrap font-sans leading-relaxed">{m.bodyText.slice(0, 8000)}</pre>
-              ) : m.bodyHtml ? (
-                <div class="text-[12px] text-[var(--color-text)] leading-relaxed" dangerouslySetInnerHTML={{ __html: m.bodyHtml.slice(0, 50000) }} />
+              {m.bodyHtml ? (
+                <div
+                  class="email-html-body text-[13px] text-[var(--color-text)] leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(m.bodyHtml) }}
+                />
+              ) : m.bodyText ? (
+                <pre class="text-[12px] text-[var(--color-text)] whitespace-pre-wrap font-sans leading-relaxed">{m.bodyText.slice(0, 20000)}</pre>
               ) : (
                 <div class="text-[12px] text-[var(--color-text-muted)] italic">{m.snippet || '(no body)'}</div>
               )}
