@@ -203,25 +203,26 @@ export async function getThread(threadId: string, force = false): Promise<Thread
     if (cached && Date.now() - cached.asOf < THREAD_TTL_MS) return cached.data;
   }
   try {
-    // The gmail-cli has a `read` command for a single message; we use `read`
-    // on the threadId because Gmail's read endpoint accepts message IDs and
-    // returns the body. For a full thread, we'd use a separate `thread`
-    // command — for now, fetch the single primary message.
+    // The frontend passes the Gmail message ID in the URL path (despite the
+    // param being named "threadId"). gmail-cli `read` accepts a messageId and
+    // returns `{ ok: true, message: { id, from, to, subject, date, bodyText,
+    // bodyHtml, snippet } }` — we have to dig into `j.message`, not `j.*`.
     const j = await gmailCall('read', [threadId]);
-    if (!j.ok && !j.id) {
-      return { error: j.error || 'read failed' };
+    if (!j.ok || !j.message) {
+      return { error: j.error || 'read failed (no message in response)' };
     }
+    const m = j.message;
     const detail: ThreadDetail = {
       threadId,
       messages: [{
-        id: j.id || threadId,
-        from: j.from || '',
-        to: j.to || '',
-        subject: j.subject || '',
-        date: j.date || '',
-        bodyText: j.bodyText || null,
-        bodyHtml: j.bodyHtml || null,
-        snippet: j.snippet || '',
+        id: m.id || threadId,
+        from: m.from || '',
+        to: m.to || '',
+        subject: m.subject || '',
+        date: m.date || '',
+        bodyText: m.bodyText || null,
+        bodyHtml: m.bodyHtml || null,
+        snippet: m.snippet || '',
       }],
     };
     threadCache.set(threadId, { asOf: Date.now(), data: detail });

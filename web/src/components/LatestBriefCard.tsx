@@ -758,12 +758,14 @@ export function LatestBriefCard() {
   const status = STATUS_LABEL[displayStatus];
   const recent = data?.recent || [];
 
-  // Pick the theme. New brief rows carry brief_kind directly; older rows
-  // (pre-migration) fall back to morning. Previews use the current hour
-  // so they preview as the right time-of-day theme.
+  // Pick the theme. Previews use the current hour. For non-preview, prefer
+  // the brief's stored kind ONLY if it matches the current time-of-day —
+  // otherwise the header gets stuck on (e.g.) the noon Sun at 10 PM when the
+  // night brief failed to send. Fall back to current-hour kind in that case.
+  const currentKind = themeFromCurrentHour();
   const kind: BriefKind = previewBody
-    ? themeFromCurrentHour()
-    : (latest?.brief_kind || 'morning');
+    ? currentKind
+    : (latest?.brief_kind === currentKind ? latest.brief_kind : currentKind);
   const theme = THEME_BY_KIND[kind];
   const HeroIcon = theme.icon;
   // Weather modifies the hero gradient + decides whether to hide the
