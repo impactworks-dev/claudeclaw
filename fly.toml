@@ -64,7 +64,7 @@ kill_timeout = "30s"
 # Without this, Fly's default "on-failure / max_retries=10" permanently stops
 # the machine after 10 crashes — exactly what happened with the Telegram 409
 # crash loop. "always" means Fly will keep trying forever (with backoff).
-[restart]
+[[restart]]
   policy = "always"
 
 # VM sizing — main + 4 sub-agents (comms, content, ops, research) all run
