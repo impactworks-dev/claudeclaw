@@ -119,7 +119,7 @@ import { getCleanedRevenue } from './vendasta-revenue.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
-import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert } from './db.js';
+import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert, saveStructuredMemory, pinMemory } from './db.js';
 import { generateBriefPreview } from './daily-brief.js';
 import { runHeartbeatScan, runMoneyIdeas } from './heartbeat.js';
 import { getInbox, getThread, invalidateInboxCache } from './email-data.js';
@@ -1411,6 +1411,44 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     const { resolvePerson, categorize } = await import('./people-resolver.js');
     const person = resolvePerson(handle);
     return c.json({ handle, person, category: categorize(person) });
+  });
+
+  // One-shot import endpoint: push a session checkpoint directly into Nikki's
+  // memory table. Used when ending a long working session on Mac/Cowork and
+  // we want her to absorb the outcome without waiting for the next message
+  // ingestion cycle. Always saves as 'session_checkpoint' source, pinned,
+  // with high importance + salience. Body: { summary, raw_text, chat_id?,
+  // agent_id?, entities?, topics? }.
+  app.post('/api/memory/import-checkpoint', async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({})) as {
+        summary?: string;
+        raw_text?: string;
+        chat_id?: string;
+        agent_id?: string;
+        entities?: string[];
+        topics?: string[];
+        importance?: number;
+      };
+      const summary = (body.summary || '').trim();
+      const rawText = (body.raw_text || body.summary || '').trim();
+      if (!summary || !rawText) {
+        return c.json({ error: 'summary and raw_text required' }, 400);
+      }
+      const chatId = (body.chat_id || ALLOWED_CHAT_ID || '').toString();
+      if (!chatId) return c.json({ error: 'chat_id required (no ALLOWED_CHAT_ID default)' }, 400);
+      const agentId = body.agent_id || 'main';
+      const entities = Array.isArray(body.entities) ? body.entities : [];
+      const topics = Array.isArray(body.topics) ? body.topics : ['session_checkpoint'];
+      const importance = Math.min(1, Math.max(0, typeof body.importance === 'number' ? body.importance : 0.95));
+      const id = saveStructuredMemory(chatId, rawText, summary, entities, topics, importance, 'session_checkpoint', agentId);
+      pinMemory(id);
+      logger.info({ id, chatId, agentId, importance }, 'checkpoint imported');
+      return c.json({ ok: true, id, chat_id: chatId, agent_id: agentId, pinned: true });
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'checkpoint import failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
   });
 
   // QuickBooks chart of accounts — used by the Settlement Slip generator to
