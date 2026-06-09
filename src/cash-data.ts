@@ -465,7 +465,11 @@ export async function createLinkToken(
   clientName = 'ClaudeClaw Mission Control',
   redirectUri?: string,
 ): Promise<{ link_token: string }> {
-  const args: Record<string, unknown> = { client_name: clientName, products: ['transactions'] };
+  // Request both transactions (banking) AND investments (Schwab / Vanguard /
+  // Stash / brokerage portfolios). Plaid surfaces only the products each
+  // chosen institution actually supports, so adding 'investments' here is
+  // harmless for banks like Novo.
+  const args: Record<string, unknown> = { client_name: clientName, products: ['transactions', 'investments'] };
   if (redirectUri) args.redirect_uri = redirectUri;
   const r = await plaidCall('plaid_create_link_token', args);
   return { link_token: r.link_token };

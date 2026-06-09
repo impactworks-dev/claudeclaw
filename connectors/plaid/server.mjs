@@ -122,6 +122,7 @@ const TOOLS = [
   { name: 'plaid_get_balances', description: 'Force a fresh balance fetch (calls /accounts/balance/get). Slower but realtime. Optional: item_id to limit to one item.' },
   { name: 'plaid_list_transactions', description: 'List transactions for a date range across all linked items. Required: start_date (YYYY-MM-DD), end_date (YYYY-MM-DD). Optional: count (default 250).' },
   { name: 'plaid_list_items', description: 'List all linked Plaid items (institutions). No args.' },
+  { name: 'plaid_get_holdings', description: 'Investment holdings + securities across all linked items that have the investments product enabled. Returns accounts, securities (ticker, name, type), and holdings (quantity, institution_value, institution_price, cost_basis). Items without investments enabled are skipped quietly. No args.' },
 ];
 
 async function callTool(name, args) {
@@ -249,6 +250,52 @@ async function callTool(name, args) {
         has_token: !!v.access_token,
       }));
       return { items: out };
+    }
+    case 'plaid_get_holdings': {
+      // /investments/holdings/get returns { accounts, securities, holdings }.
+      // We aggregate across all items and pass per-item errors back as
+      // soft skips so one bank without investments doesn't break the whole call.
+      const allAccounts = [];
+      const allHoldings = [];
+      const securitiesById = new Map();  // security_id -> security object
+      const itemErrors = [];
+      for (const t of allAccessTokens()) {
+        try {
+          const r = await api('/investments/holdings/get', { access_token: t.access_token });
+          for (const a of (r.accounts || [])) {
+            allAccounts.push({
+              item_id: t.item_id,
+              institution: t.institution || r.item?.institution_id || null,
+              institution_name: t.institution_name || null,
+              account_id: a.account_id,
+              name: a.name,
+              official_name: a.official_name,
+              mask: a.mask,
+              type: a.type,
+              subtype: a.subtype,
+              balances: a.balances,
+            });
+          }
+          for (const s of (r.securities || [])) {
+            if (!securitiesById.has(s.security_id)) securitiesById.set(s.security_id, s);
+          }
+          for (const h of (r.holdings || [])) {
+            allHoldings.push({ ...h, item_id: t.item_id });
+          }
+        } catch (e) {
+          // PRODUCT_NOT_READY / INVESTMENTS_NOT_SUPPORTED — institution
+          // wasn't linked with investments product. Skip quietly.
+          const msg = String(e?.message || e);
+          itemErrors.push({ item_id: t.item_id, institution_name: t.institution_name, error: msg });
+        }
+      }
+      return {
+        accounts: allAccounts,
+        holdings: allHoldings,
+        securities: Array.from(securitiesById.values()),
+        item_errors: itemErrors,
+        as_of: new Date().toISOString(),
+      };
     }
     default:
       throw new Error(`unknown tool: ${name}`);

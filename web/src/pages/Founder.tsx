@@ -24,6 +24,7 @@ const DEFAULT_SECTION_ORDER = [
   'attention',
   'real-mrr',
   'cash-pulse',
+  'investments',
   'cash-pipeline',
   'outreach-members',
   'stocks-news',
@@ -32,8 +33,8 @@ const DEFAULT_SECTION_ORDER = [
   'brain-proposals',
   'watchlist',
 ] as const;
-// v3 adds the `real-mrr` Vendasta customer-only MRR tile.
-const SECTION_ORDER_KEY = 'founder-section-order-v3';
+// v4 adds the `investments` Plaid-backed portfolio tile.
+const SECTION_ORDER_KEY = 'founder-section-order-v4';
 
 function loadSectionOrder(): string[] {
   try {
@@ -88,6 +89,10 @@ interface StocksSummary { asOf: number; tickers: string[]; quotes: StockQuote[];
 // AI news
 interface NewsItem { title: string; link: string; source: string | null; pubDate: number | null; description: string | null; iconUrl?: string | null; sourceDomain?: string | null; }
 interface NewsSummary { asOf: number; query: string; items: NewsItem[]; error?: string | null; }
+
+interface InvestmentAccount { item_id: string; institution_name: string | null; account_id: string; name: string; type: string | null; subtype: string | null; mask: string | null; currentValue: number; dayChange: number; }
+interface TopHolding { ticker: string | null; name: string; type: string | null; quantity: number; pricePerShare: number; currentValue: number; costBasis: number | null; dayChange: number; weight: number; }
+interface InvestmentsSummary { asOf: number; configured: boolean; error?: string; totalValue: number; totalDayChange: number; totalDayChangePct: number; accountCount: number; perAccount: InvestmentAccount[]; topHoldings: TopHolding[]; institutionErrors: Array<{ institution_name: string | null; error: string }>; }
 
 interface FounderData {
   generatedAt: number;
@@ -400,6 +405,7 @@ export function Founder() {
   const qbFetch = useFetch<QbSummary>('/api/qb');
   const stocksFetch = useFetch<StocksSummary>('/api/stocks');
   const newsFetch = useFetch<NewsSummary>('/api/ai-news');
+  const investmentsFetch = useFetch<InvestmentsSummary>('/api/investments');
   const proposalsFetch = useFetch<{ proposals: BrainProposal[] }>('/api/brain/proposals', 5 * 60_000);
   // 30-min cache server-side; refetch hourly client-side is plenty.
   const realMrrFetch = useFetch<RealMrrSnapshot>('/api/vendasta/revenue', 60 * 60_000);
@@ -567,6 +573,102 @@ export function Founder() {
     'real-mrr': <RealMrrTile snap={realMrrFetch.data || null} />,
 
     'cash-pulse': <CashPulseTile cash={cash} qb={qb} />,
+
+    // Investments — Plaid-backed portfolio across Schwab / Vanguard / Stash
+    // / Robinhood / etc. Shows total portfolio value + day change, per-account
+    // list, and top 5 holdings. Empty-state nudges the user to /cash/connect
+    // to link an investment institution via the existing Plaid Link flow.
+    'investments': (() => {
+      const data = investmentsFetch.data;
+      const fmtMoney = (cents: number) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtDelta = (cents: number, pct?: number) => {
+        const sign = cents >= 0 ? '+' : '';
+        const main = `${sign}${fmtMoney(Math.abs(cents) * (cents < 0 ? -1 : 1))}`;
+        return pct != null ? `${main} (${sign}${pct.toFixed(2)}%)` : main;
+      };
+      const positive = (cents: number) => cents >= 0;
+      return (
+        <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <LineChart size={14} class="text-[var(--color-text-faint)]" />
+              <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)]">Investments</div>
+            </div>
+            {data && data.totalValue > 0 && (
+              <span class="text-[10px] text-[var(--color-text-faint)]">
+                {data.accountCount} {data.accountCount === 1 ? 'account' : 'accounts'} · as of {new Date(data.asOf).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+          {investmentsFetch.loading && !data ? (
+            <div class="text-[11px] text-[var(--color-text-faint)]">Loading portfolio…</div>
+          ) : !data?.configured || (data && data.totalValue === 0) ? (
+            <div class="text-[11px] text-[var(--color-text-muted)]">
+              <div class="mb-2">No investment accounts linked yet.</div>
+              <div class="text-[var(--color-text-faint)]">
+                Open <a href="/cash/connect" class="text-[var(--color-accent)] hover:underline">/cash/connect</a> and search for your brokerage (Schwab, Vanguard, Stash, Robinhood, Fidelity, etc.). Plaid Link will request investment-account permissions. The tile auto-populates after you authorize.
+              </div>
+              {data?.error && (
+                <div class="mt-2 text-[10px] text-[var(--color-text-faint)] line-clamp-2">{data.error}</div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Hero: total portfolio value + day change */}
+              <div class="mb-3">
+                <div class="text-[24px] font-semibold text-[var(--color-text)] leading-none tabular-nums">
+                  {fmtMoney(data.totalValue)}
+                </div>
+                <div class={`text-[11px] mt-1 ${positive(data.totalDayChange) ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
+                  Today: {fmtDelta(data.totalDayChange, data.totalDayChangePct)}
+                </div>
+              </div>
+              {/* Per-account list */}
+              <div class="space-y-1.5 mb-3 pb-3 border-b border-[var(--color-border)]">
+                {data.perAccount.slice(0, 6).map(a => (
+                  <div class="flex items-center justify-between gap-2 text-[12px]">
+                    <div class="min-w-0 flex-1">
+                      <div class="text-[var(--color-text)] truncate">{a.name}</div>
+                      <div class="text-[10px] text-[var(--color-text-faint)]">
+                        {a.institution_name || a.subtype || a.type || ''}{a.mask ? ` · …${a.mask}` : ''}
+                      </div>
+                    </div>
+                    <div class="text-right shrink-0">
+                      <div class="text-[var(--color-text)] tabular-nums">{fmtMoney(a.currentValue)}</div>
+                      {a.dayChange !== 0 && (
+                        <div class={`text-[10px] tabular-nums ${positive(a.dayChange) ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
+                          {fmtDelta(a.dayChange)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Top holdings */}
+              {data.topHoldings.length > 0 && (
+                <div>
+                  <div class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mb-1.5">Top holdings</div>
+                  <div class="space-y-1">
+                    {data.topHoldings.slice(0, 5).map(h => (
+                      <div class="flex items-center justify-between gap-2 text-[11px]">
+                        <div class="min-w-0 flex-1 flex items-baseline gap-1.5">
+                          <span class="font-medium text-[var(--color-text)]">{h.ticker || h.name.slice(0, 8)}</span>
+                          <span class="text-[var(--color-text-faint)] truncate text-[10px]">{h.name}</span>
+                        </div>
+                        <div class="text-right shrink-0 tabular-nums">
+                          <span class="text-[var(--color-text)]">{fmtMoney(h.currentValue)}</span>
+                          <span class="text-[var(--color-text-faint)] ml-2">{h.weight.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      );
+    })(),
 
     'cash-pipeline': (
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">

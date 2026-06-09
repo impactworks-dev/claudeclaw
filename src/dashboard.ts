@@ -1416,6 +1416,20 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // QuickBooks chart of accounts — used by the Settlement Slip generator to
   // look up account IDs for the journal entry. Returns a slim view: id, name,
   // accountType, balance, active.
+  // Investments portfolio summary: total value, day change, per-account
+  // breakdown, top holdings. Aggregated across all Plaid items linked with
+  // the investments product.
+  app.get('/api/investments', async (c) => {
+    try {
+      const { getInvestmentsData } = await import('./investments-data.js');
+      const force = c.req.query('force') === '1';
+      const data = await getInvestmentsData({ force });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'investments endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
   app.get('/api/qb/accounts', async (c) => {
     try {
       const qboServer = path.join(PROJECT_ROOT, 'connectors', 'quickbooks', 'server.mjs');
