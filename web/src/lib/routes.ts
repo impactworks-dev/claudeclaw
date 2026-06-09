@@ -10,6 +10,7 @@ import {
   Wallet,
   Crown,
   Library,
+  BookHeart,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
 
@@ -37,6 +38,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/members',    label: 'BID Members',     section: 'workspace',    icon: Store,         shortcut: 'g n' },
   { path: '/cash',       label: 'Cash',            section: 'workspace',    icon: Wallet,        shortcut: 'g $' },
   { path: '/chat',       label: 'Chat',            section: 'workspace',    icon: MessageSquare, shortcut: 'g c' },
+  { path: '/journal',    label: 'Journal',         section: 'workspace',    icon: BookHeart,     shortcut: 'g j' },
 
   { path: '/brain',      label: 'Brain',           section: 'intelligence', icon: Library,       shortcut: 'g k' },
   { path: '/memories',   label: 'Memories',        section: 'intelligence', icon: Brain,         shortcut: 'g e' },

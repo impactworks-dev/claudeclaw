@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Handwritten + serif typefaces for the Five-Minute Journal feature.
+   Caveat = the looping cursive in the source journal (lines + numerals).
+   Cormorant Garamond = the italic display serif for quotes + headers. */
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500;1,600&display=swap');
+
 /* ── Theme tokens ────────────────────────────────────────────────────
    Two independent axes:
      data-mode   = dark | light    (sets canvas: bg, card, text, border, ...)
@@ -453,4 +458,243 @@ input, textarea, select {
 .email-html-body script,
 .email-html-body iframe[src*="javascript"] {
   display: none !important;
+}
+
+/* ── Five-Minute Journal — card + page ────────────────────────────────
+   Light, whimsical aesthetic. Parchment background, handwritten cursive
+   for entries (Caveat), italic display serif for headers + quotes
+   (Cormorant Garamond). Sun + moon decorations. Works in both light
+   and dark mode by leaning on warm cream tones rather than pure white. */
+
+.journal-card {
+  background: linear-gradient(180deg, #fffaf2 0%, #fdf6e9 100%);
+  color: #3d342a;
+}
+[data-mode="dark"] .journal-card {
+  background: linear-gradient(180deg, #2a241d 0%, #221c16 100%);
+  color: #ecdfc9;
+}
+
+.journal-hero {
+  background: linear-gradient(180deg, #fff3d6 0%, #fff8e9 100%);
+  border-bottom: 1px dashed rgba(124, 96, 58, 0.25);
+}
+[data-mode="dark"] .journal-hero {
+  background: linear-gradient(180deg, #36281a 0%, #2c2218 100%);
+  border-bottom-color: rgba(229, 198, 145, 0.18);
+}
+
+.journal-quote {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  color: #5b4632;
+}
+[data-mode="dark"] .journal-quote {
+  color: #e8d5b2;
+}
+
+.journal-label,
+.journal-accent {
+  color: #b8853a;
+}
+[data-mode="dark"] .journal-label,
+[data-mode="dark"] .journal-accent {
+  color: #d9b777;
+}
+
+.journal-streak {
+  color: #c0651f;
+}
+
+.journal-icon {
+  color: #c89d4f;
+}
+[data-mode="dark"] .journal-icon {
+  color: #e8c478;
+}
+
+.journal-body {
+  background: #fffdf8;
+}
+[data-mode="dark"] .journal-body {
+  background: #2a221b;
+}
+
+.journal-section-header {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  color: #5b4632;
+  letter-spacing: 0.02em;
+}
+[data-mode="dark"] .journal-section-header {
+  color: #e8d5b2;
+}
+
+.journal-numeral {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  color: #8a6a47;
+  width: 1.1em;
+  flex-shrink: 0;
+}
+[data-mode="dark"] .journal-numeral {
+  color: #c4a06b;
+}
+
+.journal-input {
+  font-family: 'Caveat', 'Brush Script MT', cursive;
+  font-size: 18px;
+  line-height: 1.4;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(124, 96, 58, 0.35);
+  color: #3d342a;
+  padding: 2px 0 4px;
+  outline: none;
+  width: 100%;
+  transition: border-color 160ms ease;
+}
+.journal-input:focus {
+  border-bottom-color: #c89d4f;
+}
+.journal-input::placeholder {
+  color: rgba(124, 96, 58, 0.35);
+  font-style: italic;
+}
+[data-mode="dark"] .journal-input {
+  color: #ecdfc9;
+  border-bottom-color: rgba(229, 198, 145, 0.3);
+}
+[data-mode="dark"] .journal-input:focus {
+  border-bottom-color: #e8c478;
+}
+[data-mode="dark"] .journal-input::placeholder {
+  color: rgba(229, 198, 145, 0.3);
+}
+
+.journal-footer {
+  background: rgba(124, 96, 58, 0.05);
+  border-top: 1px dashed rgba(124, 96, 58, 0.18);
+  color: #6b5640;
+}
+[data-mode="dark"] .journal-footer {
+  background: rgba(229, 198, 145, 0.04);
+  border-top-color: rgba(229, 198, 145, 0.12);
+  color: #c9b896;
+}
+
+.journal-link {
+  color: #b8853a;
+}
+.journal-link:hover {
+  color: #8a6a47;
+}
+[data-mode="dark"] .journal-link {
+  color: #e8c478;
+}
+[data-mode="dark"] .journal-link:hover {
+  color: #f4d995;
+}
+
+/* ── Journal full page ──────────────────────────────────────────────── */
+.journal-page {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, #fff5dc 0%, transparent 60%),
+    linear-gradient(180deg, #fdf8eb 0%, #f9efd6 100%);
+  color: #3d342a;
+}
+[data-mode="dark"] .journal-page {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, #3a2c1c 0%, transparent 60%),
+    linear-gradient(180deg, #251e16 0%, #1a140e 100%);
+  color: #ecdfc9;
+}
+
+.journal-date {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  color: #5b4632;
+}
+[data-mode="dark"] .journal-date {
+  color: #e8d5b2;
+}
+
+.journal-nav-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(124, 96, 58, 0.08);
+  color: #8a6a47;
+  transition: background 160ms ease, color 160ms ease;
+}
+.journal-nav-btn:hover:not(:disabled) {
+  background: rgba(124, 96, 58, 0.16);
+  color: #5b4632;
+}
+.journal-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+[data-mode="dark"] .journal-nav-btn {
+  background: rgba(229, 198, 145, 0.08);
+  color: #c4a06b;
+}
+[data-mode="dark"] .journal-nav-btn:hover:not(:disabled) {
+  background: rgba(229, 198, 145, 0.18);
+  color: #e8c478;
+}
+
+.journal-section {
+  background: #fffdf6;
+  border: 1px solid rgba(124, 96, 58, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px -16px rgba(124, 96, 58, 0.35),
+              inset 0 0 0 1px rgba(255, 250, 235, 0.5);
+}
+[data-mode="dark"] .journal-section {
+  background: #2a221b;
+  border-color: rgba(229, 198, 145, 0.18);
+  box-shadow: 0 8px 28px -16px rgba(0, 0, 0, 0.6);
+}
+
+.morning-section {
+  background: linear-gradient(180deg, #fffaeb 0%, #fffdf6 32%);
+}
+[data-mode="dark"] .morning-section {
+  background: linear-gradient(180deg, #322417 0%, #2a221b 32%);
+}
+
+.evening-section {
+  background: linear-gradient(180deg, #f7f1e2 0%, #fffdf6 32%);
+  position: relative;
+}
+[data-mode="dark"] .evening-section {
+  background: linear-gradient(180deg, #251f17 0%, #2a221b 32%);
+}
+
+.journal-deco-sun,
+.journal-deco-moon {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  opacity: 0.55;
+  color: #c89d4f;
+}
+[data-mode="dark"] .journal-deco-sun,
+[data-mode="dark"] .journal-deco-moon {
+  color: #e8c478;
+}
+.journal-deco-moon {
+  transform: rotate(-15deg);
+}
+
+.journal-textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.journal-meta-footer {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
 }

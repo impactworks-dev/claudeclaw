@@ -444,6 +444,30 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_daily_briefs_generated ON daily_briefs(generated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_daily_briefs_date ON daily_briefs(brief_date DESC);
+
+    -- Five-Minute Journal entries. One row per calendar date.
+    -- Morning fields: gratitude (3), great_today (3), affirmation.
+    -- Evening fields: highlights (3), learned.
+    -- Timestamps track when each half was completed for streak math.
+    CREATE TABLE IF NOT EXISTS journal_entries (
+      date                   TEXT PRIMARY KEY,   -- YYYY-MM-DD
+      gratitude_1            TEXT NOT NULL DEFAULT '',
+      gratitude_2            TEXT NOT NULL DEFAULT '',
+      gratitude_3            TEXT NOT NULL DEFAULT '',
+      great_today_1          TEXT NOT NULL DEFAULT '',
+      great_today_2          TEXT NOT NULL DEFAULT '',
+      great_today_3          TEXT NOT NULL DEFAULT '',
+      affirmation            TEXT NOT NULL DEFAULT '',
+      highlight_1            TEXT NOT NULL DEFAULT '',
+      highlight_2            TEXT NOT NULL DEFAULT '',
+      highlight_3            TEXT NOT NULL DEFAULT '',
+      learned                TEXT NOT NULL DEFAULT '',
+      morning_completed_at   INTEGER,
+      evening_completed_at   INTEGER,
+      created_at             INTEGER NOT NULL,
+      updated_at             INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_journal_updated ON journal_entries(updated_at DESC);
   `);
 }
 
@@ -1340,6 +1364,134 @@ export function getRecentDailyBriefs(limit = 14): DailyBriefRow[] {
 export function getDailyBrief(id: number): DailyBriefRow | null {
   const row = db.prepare(`SELECT * FROM daily_briefs WHERE id = ?`).get(id) as DailyBriefRow | undefined;
   return row || null;
+}
+
+// ── Five-Minute Journal ──────────────────────────────────────────────
+
+export interface JournalEntry {
+  date: string;
+  gratitude_1: string;
+  gratitude_2: string;
+  gratitude_3: string;
+  great_today_1: string;
+  great_today_2: string;
+  great_today_3: string;
+  affirmation: string;
+  highlight_1: string;
+  highlight_2: string;
+  highlight_3: string;
+  learned: string;
+  morning_completed_at: number | null;
+  evening_completed_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+const JOURNAL_FIELDS = [
+  'gratitude_1', 'gratitude_2', 'gratitude_3',
+  'great_today_1', 'great_today_2', 'great_today_3',
+  'affirmation',
+  'highlight_1', 'highlight_2', 'highlight_3',
+  'learned',
+] as const;
+type JournalField = typeof JOURNAL_FIELDS[number];
+
+export function getJournalEntry(date: string): JournalEntry | null {
+  const row = db.prepare(`SELECT * FROM journal_entries WHERE date = ?`).get(date) as JournalEntry | undefined;
+  return row || null;
+}
+
+/** Upsert one journal entry's fields. Re-derives morning/evening completion
+ *  timestamps based on whether the respective field group is populated. */
+export function saveJournalEntry(date: string, fields: Partial<Record<JournalField, string>>): JournalEntry {
+  const now = Math.floor(Date.now() / 1000);
+  const existing = getJournalEntry(date);
+  const merged: Record<JournalField, string> = {} as any;
+  for (const f of JOURNAL_FIELDS) {
+    merged[f] = fields[f] !== undefined ? String(fields[f]).slice(0, 500) : (existing?.[f] || '');
+  }
+  const morningDone = !!(merged.gratitude_1 || merged.gratitude_2 || merged.gratitude_3 ||
+                        merged.great_today_1 || merged.great_today_2 || merged.great_today_3 ||
+                        merged.affirmation);
+  const eveningDone = !!(merged.highlight_1 || merged.highlight_2 || merged.highlight_3 || merged.learned);
+  const morningAt = morningDone ? (existing?.morning_completed_at || now) : null;
+  const eveningAt = eveningDone ? (existing?.evening_completed_at || now) : null;
+
+  if (existing) {
+    db.prepare(`
+      UPDATE journal_entries SET
+        gratitude_1 = ?, gratitude_2 = ?, gratitude_3 = ?,
+        great_today_1 = ?, great_today_2 = ?, great_today_3 = ?,
+        affirmation = ?,
+        highlight_1 = ?, highlight_2 = ?, highlight_3 = ?,
+        learned = ?,
+        morning_completed_at = ?, evening_completed_at = ?,
+        updated_at = ?
+      WHERE date = ?
+    `).run(
+      merged.gratitude_1, merged.gratitude_2, merged.gratitude_3,
+      merged.great_today_1, merged.great_today_2, merged.great_today_3,
+      merged.affirmation,
+      merged.highlight_1, merged.highlight_2, merged.highlight_3,
+      merged.learned,
+      morningAt, eveningAt, now, date,
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO journal_entries (
+        date, gratitude_1, gratitude_2, gratitude_3,
+        great_today_1, great_today_2, great_today_3, affirmation,
+        highlight_1, highlight_2, highlight_3, learned,
+        morning_completed_at, evening_completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      date,
+      merged.gratitude_1, merged.gratitude_2, merged.gratitude_3,
+      merged.great_today_1, merged.great_today_2, merged.great_today_3,
+      merged.affirmation,
+      merged.highlight_1, merged.highlight_2, merged.highlight_3,
+      merged.learned,
+      morningAt, eveningAt, now, now,
+    );
+  }
+  return getJournalEntry(date)!;
+}
+
+export function getRecentJournalEntries(limit = 30): JournalEntry[] {
+  return db.prepare(`SELECT * FROM journal_entries ORDER BY date DESC LIMIT ?`).all(limit) as JournalEntry[];
+}
+
+/** Number of consecutive days (ending today) with at least the morning
+ *  section completed. Resets on any gap day. */
+export function getJournalStreak(): { current: number; longest: number; lastEntryDate: string | null } {
+  const rows = db.prepare(`
+    SELECT date FROM journal_entries
+    WHERE morning_completed_at IS NOT NULL
+    ORDER BY date DESC
+    LIMIT 365
+  `).all() as Array<{ date: string }>;
+  if (rows.length === 0) return { current: 0, longest: 0, lastEntryDate: null };
+
+  // Walk backwards from today expecting consecutive YYYY-MM-DD.
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  const dates = new Set(rows.map(r => r.date));
+  let current = 0;
+  const cursor = new Date();
+  while (dates.has(ymd(cursor))) {
+    current++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  // Longest: linear scan over sorted dates.
+  const sorted = [...dates].sort();
+  let longest = 0; let run = 1; let prev: Date | null = null;
+  for (const d of sorted) {
+    const dt = new Date(d + 'T00:00:00Z');
+    if (prev && (dt.getTime() - prev.getTime()) === 86400000) run++;
+    else run = 1;
+    longest = Math.max(longest, run);
+    prev = dt;
+  }
+  return { current, longest, lastEntryDate: rows[0].date };
 }
 
 // ── Proactive alerts ─────────────────────────────────────────────────

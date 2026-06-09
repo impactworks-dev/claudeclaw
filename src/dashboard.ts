@@ -119,7 +119,7 @@ import { getCleanedRevenue } from './vendasta-revenue.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
-import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert, saveStructuredMemory, pinMemory } from './db.js';
+import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert, saveStructuredMemory, pinMemory, getJournalEntry, saveJournalEntry, getRecentJournalEntries, getJournalStreak } from './db.js';
 import { generateBriefPreview } from './daily-brief.js';
 import { runHeartbeatScan, runMoneyIdeas } from './heartbeat.js';
 import { getInbox, getThread, invalidateInboxCache } from './email-data.js';
@@ -1634,6 +1634,48 @@ export function startDashboard(botApi?: Api<RawApi>): void {
         return c.json({ error: 'action must be "acted", "ignored", or null' }, 400);
       }
       markBriefUserAction(id, action ?? null);
+
+      // Wire the mark into Nikki's memory so the signal isn't just a DB chip.
+      // 'acted'   → low-importance memory that the brief drove activity
+      //             (lets Nikki point to which briefs worked in retrospectives)
+      // 'ignored' → high-importance feedback memory so Nikki notices the
+      //             format isn't landing and can propose a rewrite
+      if (action && ALLOWED_CHAT_ID) {
+        try {
+          const brief = getDailyBrief(id);
+          const date = brief?.brief_date || new Date().toISOString().slice(0, 10);
+          const kind = brief?.brief_kind || 'morning';
+          if (action === 'acted') {
+            const idMem = saveStructuredMemory(
+              String(ALLOWED_CHAT_ID),
+              `User marked the ${kind} brief from ${date} as acted-on — the brief drove activity. Brief id=${id}.`,
+              `Brief ${date} (${kind}) → acted`,
+              [date, kind, 'brief_feedback'],
+              ['brief_feedback', 'acted'],
+              0.4,
+              'brief_mark',
+              'main',
+            );
+            logger.info({ id, memoryId: idMem, action }, 'brief mark → memory saved');
+          } else {
+            // action === 'ignored'
+            const idMem = saveStructuredMemory(
+              String(ALLOWED_CHAT_ID),
+              `User marked the ${kind} brief from ${date} as ignored — the format or content wasn't useful. Nikki: review what was in this brief and consider whether the format, length, or framing needs to change. Brief id=${id}.`,
+              `Brief ${date} (${kind}) → IGNORED (format may need rethink)`,
+              [date, kind, 'brief_feedback', 'format_feedback'],
+              ['brief_feedback', 'ignored', 'format_feedback'],
+              0.85,
+              'brief_mark',
+              'main',
+            );
+            pinMemory(idMem);
+            logger.info({ id, memoryId: idMem, action }, 'brief mark → high-salience memory pinned');
+          }
+        } catch (memErr) {
+          logger.warn({ err: String((memErr as Error)?.message || memErr) }, 'brief mark → memory write failed (non-fatal)');
+        }
+      }
       return c.json({ ok: true });
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
@@ -1674,6 +1716,56 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       const r = await getThread(id, force);
       if ('error' in r) return c.json(r, 500);
       return c.json(r);
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // ── Five-Minute Journal ────────────────────────────────────────────
+  // GET today's entry + the rotating quote + streak in one shot.
+  app.get('/api/journal/today', async (c) => {
+    try {
+      const { quoteForDate, todayDate } = await import('./journal-data.js');
+      const date = todayDate();
+      const entry = getJournalEntry(date);
+      const quote = quoteForDate(date);
+      const streak = getJournalStreak();
+      return c.json({ date, entry, quote, streak });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.get('/api/journal/entry/:date', async (c) => {
+    try {
+      const { quoteForDate } = await import('./journal-data.js');
+      const date = c.req.param('date');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'date must be YYYY-MM-DD' }, 400);
+      const entry = getJournalEntry(date);
+      const quote = quoteForDate(date);
+      return c.json({ date, entry, quote });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.post('/api/journal/entry/:date', async (c) => {
+    try {
+      const date = c.req.param('date');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'date must be YYYY-MM-DD' }, 400);
+      const body = await c.req.json().catch(() => ({} as any));
+      const entry = saveJournalEntry(date, body || {});
+      const streak = getJournalStreak();
+      return c.json({ ok: true, entry, streak });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.get('/api/journal/recent', async (c) => {
+    try {
+      const limit = Math.min(365, Math.max(1, parseInt(c.req.query('limit') || '30', 10)));
+      return c.json({ entries: getRecentJournalEntries(limit), streak: getJournalStreak() });
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }

@@ -8,6 +8,7 @@ import { apiPost, apiDelete } from '@/lib/api';
 import { pushToast } from '@/lib/toasts';
 import { StockChart } from '@/components/StockChart';
 import { NikkiCard } from '@/components/NikkiCard';
+import { JournalCard } from '@/components/JournalCard';
 import { CalendarTile } from '@/components/CalendarTile';
 import { VendastaTile } from '@/components/VendastaTile';
 import { LatestBriefCard } from '@/components/LatestBriefCard';
@@ -21,6 +22,7 @@ import { SortableSection } from '@/components/SortableSection';
 const DEFAULT_SECTION_ORDER = [
   'brief',
   'nikki',
+  'journal',
   'attention',
   'real-mrr',
   'cash-pulse',
@@ -33,8 +35,8 @@ const DEFAULT_SECTION_ORDER = [
   'brain-proposals',
   'watchlist',
 ] as const;
-// v4 adds the `investments` Plaid-backed portfolio tile.
-const SECTION_ORDER_KEY = 'founder-section-order-v4';
+// v5 adds the `journal` Five-Minute Journal tile.
+const SECTION_ORDER_KEY = 'founder-section-order-v5';
 
 function loadSectionOrder(): string[] {
   try {
@@ -552,6 +554,7 @@ export function Founder() {
     // Nikki broken out as her own full-width tile right under the daily brief,
     // separate from the Stocks + News row below.
     'nikki': <NikkiCard />,
+    'journal': <JournalCard />,
 
     'attention': data.primaryAttention ? (
       <Link href={data.primaryAttention.href}>
