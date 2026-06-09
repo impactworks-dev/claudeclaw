@@ -527,22 +527,45 @@ async function main(): Promise<void> {
     logger.warn({ err }, 'Could not clear webhook (non-fatal)');
   }
 
-  await bot.start({
-    onStart: (botInfo) => {
-      setTelegramConnected(true);
-      setBotInfo(botInfo.username ?? '', botInfo.first_name ?? 'ClaudeClaw');
-      logger.info({ username: botInfo.username }, 'ClaudeClaw is running');
-      if (AGENT_ID === 'main') {
-        console.log(`\n  ClaudeClaw online: @${botInfo.username}`);
-        if (!ALLOWED_CHAT_ID) {
-          console.log(`  Send /chatid to get your chat ID for ALLOWED_CHAT_ID`);
-        }
-        console.log();
-      } else {
-        console.log(`\n  ClaudeClaw agent [${AGENT_ID}] online: @${botInfo.username}\n`);
+  // Telegram allows only one active getUpdates long-poll per token. After a
+  // container restart the previous instance's 30-second poll may still be
+  // open, causing a 409 Conflict. Rather than crashing and triggering Fly's
+  // restart loop, we wait just over the poll timeout and retry.
+  const MAX_409_RETRIES = 6; // 6 × 35s = up to 3.5 min of patience
+  let attempt409 = 0;
+  while (true) {
+    try {
+      await bot.start({
+        onStart: (botInfo) => {
+          setTelegramConnected(true);
+          setBotInfo(botInfo.username ?? '', botInfo.first_name ?? 'ClaudeClaw');
+          logger.info({ username: botInfo.username }, 'ClaudeClaw is running');
+          if (AGENT_ID === 'main') {
+            console.log(`\n  ClaudeClaw online: @${botInfo.username}`);
+            if (!ALLOWED_CHAT_ID) {
+              console.log(`  Send /chatid to get your chat ID for ALLOWED_CHAT_ID`);
+            }
+            console.log();
+          } else {
+            console.log(`\n  ClaudeClaw agent [${AGENT_ID}] online: @${botInfo.username}\n`);
+          }
+        },
+      });
+      break; // clean exit from bot.start means bot stopped intentionally
+    } catch (err: any) {
+      // 409 = previous instance's long-poll still open; wait it out and retry.
+      if (err?.error_code === 409 && attempt409 < MAX_409_RETRIES) {
+        attempt409++;
+        logger.warn(
+          { attempt: attempt409, maxAttempts: MAX_409_RETRIES },
+          'Telegram 409 conflict — prior instance still polling. Waiting 35s before retry...',
+        );
+        await new Promise<void>((r) => setTimeout(r, 35_000));
+        continue;
       }
-    },
-  });
+      throw err; // re-throw anything else (or exhausted retries)
+    }
+  }
 }
 
 main().catch((err: unknown) => {
