@@ -88,19 +88,60 @@ function showBanner(): void {
   }
 }
 
+// Block the calling thread for ms milliseconds without a busy-loop.
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// True if pid names a running process we can see. process.kill(pid, 0) sends
+// no signal — it just probes existence. EPERM means the process exists but is
+// owned by someone else (still "alive"); ESRCH means it is gone.
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    return err?.code === 'EPERM';
+  }
+}
+
+// Acquire the single-instance lock. The hazard this guards against: a previous
+// instance that still holds the SQLite WAL open. If we open the DB while it is
+// alive we get the boot-time WAL contention that took Nikki down. So when the
+// PID file names a LIVE process we ask it to exit and wait until it actually
+// releases before reclaiming — escalating to SIGKILL if it ignores SIGTERM. A
+// stale PID (crashed instance, never released the file) is reclaimed instantly,
+// which is the real crash-recovery path.
 function acquireLock(): void {
   fs.mkdirSync(STORE_DIR, { recursive: true });
   try {
     if (fs.existsSync(PID_FILE)) {
       const old = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-      if (!isNaN(old) && old !== process.pid) {
-        try {
-          process.kill(old, 'SIGTERM');
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
-        } catch { /* already dead */ }
+      if (!isNaN(old) && old !== process.pid && isAlive(old)) {
+        // A previous instance is still running. Ask it to shut down cleanly.
+        try { process.kill(old, 'SIGTERM'); } catch { /* raced: already gone */ }
+
+        // Wait for it to actually exit before we touch the DB. Poll instead of
+        // a fixed sleep so we proceed the instant it releases, and never
+        // proceed while it is still holding the WAL.
+        const graceMs = 10000;
+        const stepMs = 200;
+        let waited = 0;
+        while (isAlive(old) && waited < graceMs) {
+          sleepSync(stepMs);
+          waited += stepMs;
+        }
+
+        // Still alive after the grace period: force it, then give the kernel a
+        // moment to tear down the process and close its file handles.
+        if (isAlive(old)) {
+          try { process.kill(old, 'SIGKILL'); } catch { /* raced */ }
+          sleepSync(500);
+        }
       }
+      // PID file with a dead/stale PID falls through and is reclaimed below.
     }
-  } catch { /* ignore */ }
+  } catch { /* best-effort lock; never block boot on a lock-file read error */ }
   fs.writeFileSync(PID_FILE, String(process.pid), { mode: 0o600 });
 }
 
