@@ -96,6 +96,9 @@ async function plaidCall(tool: string, args: Record<string, unknown> = {}): Prom
   const { stdout } = await execFileAsync('node', [PLAID_SERVER, '--call', tool, JSON.stringify(args)], {
     env: { ...process.env },
     maxBuffer: 64 * 1024 * 1024,
+    // Fail fast — Plaid auth errors can block for 60-150s without this.
+    // 10s is plenty for a healthy Plaid call; expired credentials surface immediately.
+    timeout: 10_000,
   });
   return JSON.parse(stdout);
 }
@@ -195,6 +198,14 @@ function readCache(): { asOf: number; data: CashSummary } | null {
   } catch { /* ignore */ }
   return null;
 }
+// Returns expired cache if it exists — used as a fallback when Plaid is unreachable.
+function readStaleCache(): CashSummary | null {
+  try {
+    const j = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+    if (j?.data) return j.data;
+  } catch { /* ignore */ }
+  return null;
+}
 function writeCache(data: CashSummary): void {
   try {
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
@@ -252,6 +263,14 @@ export async function getCashData(force = false): Promise<CashSummary> {
     if (manualAccountsRaw.length > 0) {
       accountsRaw = { accounts: [] };
     } else {
+      // Before erroring, try to return stale cache so the dashboard doesn't go blank.
+      // This handles the case where Plaid credentials have expired (re-auth required)
+      // and the connector blocks/times out — stale data is better than nothing.
+      const stale = readStaleCache();
+      if (stale) {
+        logger.warn({ err: String((e as Error)?.message || e) }, 'cash: Plaid failed, returning stale cache');
+        return stale;
+      }
       return emptySummary('error', String((e as Error)?.message || e));
     }
   }
