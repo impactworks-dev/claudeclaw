@@ -8,9 +8,11 @@
 // the dense data tiles around it.
 
 import { useState, useEffect } from 'preact/hooks';
-import { Sparkles, ChevronRight, Sun } from 'lucide-preact';
+import { Sparkles, ChevronRight, Leaf } from 'lucide-preact';
 import { useFetch } from '@/lib/useFetch';
 import { apiPost } from '@/lib/api';
+import { PracticeRings } from './PracticeRings';
+import { MeditationSession } from './MeditationSession';
 
 interface JournalEntry {
   date: string;
@@ -27,12 +29,18 @@ interface JournalEntry {
   learned: string;
   morning_completed_at: number | null;
   evening_completed_at: number | null;
+  meditation_minutes: number;
+  meditation_sessions: number;
+  meditation_last_at: number | null;
 }
 
 interface Streak {
   current: number;
   longest: number;
   lastEntryDate: string | null;
+  journal?: { current: number; longest: number };
+  meditation?: { current: number; longest: number };
+  practice?: { current: number; longest: number };
 }
 
 interface TodayPayload {
@@ -70,22 +78,25 @@ export function JournalCard() {
     }
   }
 
-  const streak = data?.streak?.current || 0;
+  const practice = data?.streak?.practice || { current: 0, longest: 0 };
   const morningDone = !!data?.entry?.morning_completed_at;
+  const eveningDone = !!data?.entry?.evening_completed_at;
+  const sitDone = (data?.entry?.meditation_sessions || 0) > 0;
+  const [meditationOpen, setMeditationOpen] = useState(false);
 
   return (
-    <div class="journal-card rounded-lg border border-[var(--color-border)] overflow-hidden">
-      {/* Hero strip — sunrise gradient + quote */}
+    <div class="journal-card rounded-lg overflow-hidden">
+      {/* Hero strip — soft mist + quote */}
       <div class="journal-hero relative px-5 pt-5 pb-4">
-        <div class="absolute top-3 right-4 opacity-50">
-          <Sun size={20} class="journal-icon" />
+        <div class="absolute top-3 right-4 opacity-55">
+          <Leaf size={18} class="journal-icon" />
         </div>
         <div class="flex items-center gap-2 mb-2">
-          <Sparkles size={12} class="journal-accent" />
-          <div class="text-[11px] uppercase tracking-[0.18em] journal-label">Today's Journal</div>
-          {streak > 0 && (
-            <span class="ml-auto inline-flex items-center gap-1 text-[11px] journal-streak">
-              🔥 {streak}-day streak
+          <Sparkles size={11} class="journal-accent" />
+          <div class="text-[10.5px] uppercase journal-label">Practice</div>
+          {practice.current > 0 && (
+            <span class="ml-auto text-[11px] journal-streak italic" style={{ fontFamily: "'Cormorant Garamond', serif" }}>
+              {practice.current} day{practice.current === 1 ? '' : 's'} in a row
             </span>
           )}
         </div>
@@ -95,6 +106,13 @@ export function JournalCard() {
             <div class="not-italic text-[10.5px] mt-1 opacity-70">— {data.quote.author}</div>
           </blockquote>
         )}
+        <div class="mt-4 flex items-center justify-center">
+          <PracticeRings
+            gratitude={morningDone}
+            sit={sitDone}
+            reflect={eveningDone}
+          />
+        </div>
       </div>
 
       {/* Body — gratitude entry */}
@@ -127,22 +145,32 @@ export function JournalCard() {
         </div>
       </div>
 
-      {/* Footer — meta + link */}
+      {/* Footer — meta + link + sit button */}
       <div class="journal-footer px-5 py-2.5 flex items-center justify-between text-[10.5px]">
-        <span class="opacity-70">
-          {loading ? 'Loading…' :
-           saving ? 'Saving…' :
-           savedAt ? '✓ Saved' :
-           morningDone ? '✓ Morning logged' :
-           'Awaiting today’s entry'}
-        </span>
+        <button
+          type="button"
+          onClick={() => setMeditationOpen(true)}
+          class="italic journal-link"
+          style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 12 }}
+        >
+          {sitDone ? 'sit again' : 'begin a sit'}
+        </button>
         <a
           href="/journal"
-          class="inline-flex items-center gap-1 journal-link"
+          class="inline-flex items-center gap-1 journal-link italic"
+          style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 12 }}
         >
-          Full journal <ChevronRight size={11} />
+          open journal <ChevronRight size={11} />
         </a>
       </div>
+
+      {meditationOpen && (
+        <MeditationSession
+          date={data?.date || new Date().toISOString().slice(0, 10)}
+          onClose={() => setMeditationOpen(false)}
+          onLogged={() => { refresh(); }}
+        />
+      )}
     </div>
   );
 }

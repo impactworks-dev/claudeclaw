@@ -119,7 +119,7 @@ import { getCleanedRevenue } from './vendasta-revenue.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
-import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert, saveStructuredMemory, pinMemory, getJournalEntry, saveJournalEntry, getRecentJournalEntries, getJournalStreak } from './db.js';
+import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert, saveStructuredMemory, pinMemory, getJournalEntry, saveJournalEntry, getRecentJournalEntries, getJournalStreak, logMeditationSession } from './db.js';
 import { generateBriefPreview } from './daily-brief.js';
 import { runHeartbeatScan, runMoneyIdeas } from './heartbeat.js';
 import { getInbox, getThread, invalidateInboxCache } from './email-data.js';
@@ -1766,6 +1766,24 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     try {
       const limit = Math.min(365, Math.max(1, parseInt(c.req.query('limit') || '30', 10)));
       return c.json({ entries: getRecentJournalEntries(limit), streak: getJournalStreak() });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Log a completed meditation sit. Body: { minutes: number }
+  // Used by the meditation timer when a session ends naturally OR when
+  // Dante taps "done early" — both count as a sit.
+  app.post('/api/journal/meditation/:date', async (c) => {
+    try {
+      const date = c.req.param('date');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'date must be YYYY-MM-DD' }, 400);
+      const body = await c.req.json().catch(() => ({} as any));
+      const minutes = Number(body?.minutes);
+      if (!isFinite(minutes) || minutes <= 0) return c.json({ error: 'minutes must be a positive number' }, 400);
+      const entry = logMeditationSession(date, minutes);
+      const streak = getJournalStreak();
+      return c.json({ ok: true, entry, streak });
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }

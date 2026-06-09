@@ -460,112 +460,136 @@ input, textarea, select {
   display: none !important;
 }
 
-/* ── Five-Minute Journal — card + page ────────────────────────────────
-   Always light + colorful, regardless of dashboard dark/light mode.
-   The journal is a deliberately whimsical pocket of warmth inside the
-   denser data UI. Soft peach for morning, soft lavender for evening,
-   warm cream + gold accents throughout. */
+/* ── Five-Minute Journal + Meditation — card + page ───────────────────
+   Always light, regardless of dashboard dark/light mode. Mindful zen
+   palette: warm linen base, soft sage + dusty mauve washes, muted
+   gold + sage accents. Inspired by Way app (Henry Shukman). The vibe
+   is "morning fog over a tea garden", not "bright sunrise greeting card". */
 
 /* `!important` is overkill here, but it short-circuits any future
    global override that might bleed in from theme tokens. */
 
+/* Zen palette tokens (light only — journal stays light regardless of mode) */
+.journal-card, .journal-page {
+  --jr-base:        #f4ede0;   /* warm linen */
+  --jr-base-soft:   #ece4d3;   /* deeper linen */
+  --jr-card:        #faf5e9;   /* soft paper */
+  --jr-ink:         #3d3a32;   /* charcoal earth (text) */
+  --jr-ink-soft:    #6f6a5b;   /* muted ink */
+  --jr-ink-faint:   #9b9586;   /* whisper ink */
+  --jr-sage:        #88a08a;   /* dusty sage */
+  --jr-sage-deep:   #5e7560;   /* moss */
+  --jr-mauve:       #a89aae;   /* dusty mauve */
+  --jr-mauve-deep:  #6d5f75;   /* twilight */
+  --jr-gold:        #c9a45a;   /* muted gold */
+  --jr-gold-deep:   #936f2c;   /* aged gold */
+  --jr-clay:        #b8826a;   /* clay */
+  --jr-line:        rgba(107, 95, 75, 0.22);
+  --jr-line-soft:   rgba(107, 95, 75, 0.12);
+}
+
 .journal-card {
-  background: linear-gradient(180deg, #fff7e6 0%, #fdebd3 100%) !important;
-  color: #4a3a28 !important;
-  box-shadow: 0 4px 18px -10px rgba(184, 105, 60, 0.35);
+  background: linear-gradient(180deg, #f7f1e2 0%, #efe8d5 100%) !important;
+  color: var(--jr-ink) !important;
+  box-shadow: 0 4px 22px -14px rgba(70, 65, 50, 0.35),
+              inset 0 0 0 1px rgba(255, 252, 240, 0.5);
 }
 
 .journal-hero {
-  background: linear-gradient(180deg, #ffd9a8 0%, #ffe9c4 70%, #fff3d6 100%) !important;
-  border-bottom: 1px dashed rgba(184, 105, 60, 0.32) !important;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 0%, rgba(201, 164, 90, 0.22) 0%, transparent 75%),
+    linear-gradient(180deg, #ede5d0 0%, #f4ede0 100%) !important;
+  border-bottom: 1px solid var(--jr-line) !important;
 }
 
 .journal-quote {
   font-family: 'Cormorant Garamond', Georgia, serif;
-  color: #7a4a25 !important;
+  color: var(--jr-ink) !important;
 }
 
 .journal-label,
 .journal-accent {
-  color: #d96a2e !important;
+  color: var(--jr-gold-deep) !important;
+  letter-spacing: 0.22em;
 }
 
 .journal-streak {
-  color: #c0511a !important;
+  color: var(--jr-sage-deep) !important;
+  font-weight: 500;
 }
 
 .journal-icon {
-  color: #e89a3a !important;
+  color: var(--jr-gold-deep) !important;
 }
 
 .journal-body {
-  background: #fffaf0 !important;
-  color: #4a3a28 !important;
+  background: var(--jr-card) !important;
+  color: var(--jr-ink) !important;
 }
 
 .journal-section-header {
   font-family: 'Cormorant Garamond', Georgia, serif;
-  color: #7a4a25 !important;
-  letter-spacing: 0.02em;
+  color: var(--jr-ink) !important;
+  letter-spacing: 0.04em;
+  font-weight: 500;
 }
 
 .journal-numeral {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-style: italic;
-  color: #b8753a !important;
+  color: var(--jr-ink-soft) !important;
   width: 1.1em;
   flex-shrink: 0;
 }
 
 .journal-input {
   font-family: 'Caveat', 'Brush Script MT', cursive;
-  font-size: 18px;
+  font-size: 19px;
   line-height: 1.4;
   background: transparent !important;
   border: none !important;
-  border-bottom: 1px solid rgba(184, 105, 60, 0.4) !important;
-  color: #4a3a28 !important;
+  border-bottom: 1px solid var(--jr-line) !important;
+  color: var(--jr-ink) !important;
   padding: 2px 0 4px;
   outline: none;
   width: 100%;
-  transition: border-color 160ms ease;
-  caret-color: #d96a2e;
+  transition: border-color 200ms ease;
+  caret-color: var(--jr-sage-deep);
 }
 .journal-input:focus {
-  border-bottom-color: #d96a2e !important;
+  border-bottom-color: var(--jr-sage) !important;
 }
 .journal-input::placeholder {
-  color: rgba(184, 105, 60, 0.35);
+  color: var(--jr-ink-faint);
   font-style: italic;
 }
 
 .journal-footer {
-  background: rgba(255, 217, 168, 0.35) !important;
-  border-top: 1px dashed rgba(184, 105, 60, 0.25) !important;
-  color: #7a4a25 !important;
+  background: rgba(232, 222, 199, 0.5) !important;
+  border-top: 1px solid var(--jr-line-soft) !important;
+  color: var(--jr-ink-soft) !important;
 }
 
 .journal-link {
-  color: #d96a2e !important;
+  color: var(--jr-sage-deep) !important;
 }
 .journal-link:hover {
-  color: #b8501b !important;
+  color: #3f5642 !important;
 }
 
-/* ── Journal full page ────────────────────────────────────────────────
-   Page background stays neutral (warm cream) regardless of dashboard
-   theme so the colorful cards sit on a consistent canvas. */
+/* ── Journal full page ──────────────────────────────────────────────── */
 .journal-page {
   background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, #ffeac8 0%, transparent 65%),
-    linear-gradient(180deg, #fdf7e8 0%, #f8ead0 100%) !important;
-  color: #4a3a28 !important;
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(168, 154, 174, 0.22) 0%, transparent 70%),
+    radial-gradient(ellipse 90% 60% at 50% 100%, rgba(136, 160, 138, 0.18) 0%, transparent 70%),
+    linear-gradient(180deg, #ede5d2 0%, #e3d9c2 60%, #d8cbb0 100%) !important;
+  color: var(--jr-ink) !important;
 }
 
 .journal-date {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-style: italic;
-  color: #7a4a25 !important;
+  color: var(--jr-ink) !important;
 }
 
 .journal-nav-btn {
@@ -575,13 +599,13 @@ input, textarea, select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(217, 106, 46, 0.12) !important;
-  color: #b8501b !important;
-  transition: background 160ms ease, color 160ms ease;
+  background: rgba(94, 117, 96, 0.12) !important;
+  color: var(--jr-sage-deep) !important;
+  transition: background 200ms ease, color 200ms ease;
 }
 .journal-nav-btn:hover:not(:disabled) {
-  background: rgba(217, 106, 46, 0.22) !important;
-  color: #7a3711 !important;
+  background: rgba(94, 117, 96, 0.22) !important;
+  color: #3f5642 !important;
 }
 .journal-nav-btn:disabled {
   opacity: 0.3;
@@ -589,38 +613,53 @@ input, textarea, select {
 }
 
 .journal-section {
-  border: 1px solid rgba(184, 105, 60, 0.22) !important;
-  border-radius: 14px;
-  box-shadow: 0 12px 32px -18px rgba(184, 105, 60, 0.45),
-              inset 0 0 0 1px rgba(255, 250, 235, 0.6) !important;
-  color: #4a3a28 !important;
+  border: 1px solid var(--jr-line) !important;
+  border-radius: 16px;
+  box-shadow: 0 14px 36px -22px rgba(70, 65, 50, 0.45),
+              inset 0 0 0 1px rgba(255, 252, 240, 0.5) !important;
+  color: var(--jr-ink) !important;
 }
 
-/* Morning = warm sunrise. Soft peach + apricot wash. */
+/* Morning = misty dawn. Soft cream + warm gold breath. */
 .morning-section {
-  background: linear-gradient(180deg, #ffe5c2 0%, #fff5e1 40%, #fffaf0 100%) !important;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(201, 164, 90, 0.16) 0%, transparent 65%),
+    linear-gradient(180deg, #f7f1e2 0%, #faf5e9 60%, #faf5e9 100%) !important;
 }
 
-/* Evening = soft dusk. Lavender + rose wash. */
+/* Meditation = soft sage stillness. Tucked between morning and evening. */
+.meditation-section {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 30%, rgba(136, 160, 138, 0.18) 0%, transparent 70%),
+    linear-gradient(180deg, #ecede2 0%, #f3f1e6 100%) !important;
+}
+.meditation-section .journal-section-header,
+.meditation-section .journal-meta-footer {
+  color: var(--jr-sage-deep) !important;
+}
+
+/* Evening = twilight. Muted dusty mauve. */
 .evening-section {
-  background: linear-gradient(180deg, #ead9f2 0%, #f7ecf3 40%, #fdf6f0 100%) !important;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(168, 154, 174, 0.2) 0%, transparent 65%),
+    linear-gradient(180deg, #eee6ec 0%, #f4ede5 60%, #faf5e9 100%) !important;
   position: relative;
 }
 .evening-section .journal-section-header,
 .evening-section .journal-numeral,
 .evening-section .journal-meta-footer {
-  color: #6b3d7a !important;
+  color: var(--jr-mauve-deep) !important;
 }
 .evening-section .journal-input {
-  border-bottom-color: rgba(107, 61, 122, 0.4) !important;
-  color: #4a2a55 !important;
-  caret-color: #8b4ea0;
+  border-bottom-color: rgba(109, 95, 117, 0.32) !important;
+  color: var(--jr-mauve-deep) !important;
+  caret-color: var(--jr-mauve);
 }
 .evening-section .journal-input:focus {
-  border-bottom-color: #8b4ea0 !important;
+  border-bottom-color: var(--jr-mauve) !important;
 }
 .evening-section .journal-input::placeholder {
-  color: rgba(107, 61, 122, 0.35);
+  color: rgba(109, 95, 117, 0.45);
 }
 
 .journal-deco-sun,
@@ -628,12 +667,19 @@ input, textarea, select {
   position: absolute;
   top: 16px;
   right: 18px;
-  opacity: 0.7;
-  color: #e89a3a !important;
+  opacity: 0.55;
+  color: var(--jr-gold) !important;
 }
 .journal-deco-moon {
-  color: #8b4ea0 !important;
+  color: var(--jr-mauve) !important;
   transform: rotate(-15deg);
+}
+.journal-deco-leaf {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  opacity: 0.55;
+  color: var(--jr-sage) !important;
 }
 
 .journal-textarea {
@@ -644,5 +690,190 @@ input, textarea, select {
 .journal-meta-footer {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-style: italic;
-  color: #a06642 !important;
+  color: var(--jr-ink-soft) !important;
+}
+
+/* ── Practice rings (Gratitude / Sit / Reflect) ───────────────────────
+   Apple Watch-ish but zen. Three thin circular SVGs whose stroke arcs
+   fill in as today's practices complete. */
+.practice-rings {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+.practice-ring {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.practice-ring-svg {
+  width: 44px;
+  height: 44px;
+}
+.practice-ring-track {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.18;
+}
+.practice-ring-fill {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  transition: stroke-dashoffset 700ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.practice-ring-label {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 11px;
+  color: var(--jr-ink-soft);
+  letter-spacing: 0.04em;
+}
+.practice-ring.gratitude .practice-ring-track,
+.practice-ring.gratitude .practice-ring-fill { stroke: var(--jr-gold-deep); }
+.practice-ring.sit .practice-ring-track,
+.practice-ring.sit .practice-ring-fill { stroke: var(--jr-sage-deep); }
+.practice-ring.reflect .practice-ring-track,
+.practice-ring.reflect .practice-ring-fill { stroke: var(--jr-mauve-deep); }
+
+/* ── Path of stones — small monthly streak visual ─────────────────── */
+.practice-path {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  max-width: 340px;
+  margin: 0 auto;
+}
+.path-stone {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(107, 95, 75, 0.10);
+  border: 1px solid var(--jr-line-soft);
+  transition: background 300ms ease, transform 300ms ease;
+}
+.path-stone.practiced {
+  background: linear-gradient(135deg, var(--jr-sage) 0%, var(--jr-sage-deep) 100%);
+  border-color: transparent;
+  box-shadow: 0 2px 6px -2px rgba(94, 117, 96, 0.5);
+}
+.path-stone.today {
+  outline: 1.5px solid var(--jr-gold-deep);
+  outline-offset: 2px;
+}
+
+/* ── Breath circle (meditation modal) ─────────────────────────────────
+   Anchors the eyes during a sit. Expands over 4s, holds 2s, contracts
+   over 4s — a 10-second cycle that slows the breath. */
+.breath-stage {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.breath-orb {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 252, 240, 0.85) 0%, var(--jr-sage) 60%, var(--jr-sage-deep) 100%);
+  box-shadow: 0 0 30px rgba(136, 160, 138, 0.45),
+              inset 0 0 14px rgba(255, 252, 240, 0.3);
+  transition: transform 4s cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+.breath-orb.inhale { transform: scale(2.5); }
+.breath-orb.hold   { transform: scale(2.5); transition: transform 2s linear; }
+.breath-orb.exhale { transform: scale(1); }
+.breath-cue {
+  position: absolute;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 17px;
+  color: var(--jr-sage-deep);
+  letter-spacing: 0.18em;
+  text-transform: lowercase;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* ── Meditation tile + duration chips ───────────────────────────────── */
+.meditation-tile {
+  border: 1px solid var(--jr-line);
+  border-radius: 14px;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 30%, rgba(136, 160, 138, 0.15) 0%, transparent 65%),
+    linear-gradient(180deg, #eef0e6 0%, #f5f3e9 100%);
+}
+.duration-chip {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--jr-line);
+  background: rgba(255, 252, 240, 0.5);
+  color: var(--jr-ink-soft);
+  cursor: pointer;
+  transition: background 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+.duration-chip:hover {
+  background: rgba(136, 160, 138, 0.12);
+  color: var(--jr-sage-deep);
+}
+.duration-chip.active {
+  background: var(--jr-sage-deep);
+  color: #faf5e9;
+  border-color: var(--jr-sage-deep);
+}
+.meditation-start-btn {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  padding: 11px 28px;
+  border-radius: 999px;
+  background: var(--jr-sage-deep);
+  color: #faf5e9;
+  border: none;
+  cursor: pointer;
+  transition: background 200ms ease, transform 200ms ease;
+  text-transform: lowercase;
+}
+.meditation-start-btn:hover { background: #3f5642; transform: translateY(-1px); }
+.meditation-end-btn {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: var(--jr-ink-soft);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-transform: lowercase;
+  margin-top: 10px;
+}
+.meditation-end-btn:hover { color: var(--jr-ink); }
+
+/* Meditation modal overlay — calm, gentle */
+.breath-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(60, 70, 55, 0.85) 0%, rgba(40, 45, 38, 0.97) 100%);
+  backdrop-filter: blur(6px);
+}
+.breath-panel {
+  display: flex; flex-direction: column; align-items: center; gap: 30px;
+  color: #f4ede0;
+}
+.breath-timer {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 38px;
+  letter-spacing: 0.08em;
+  color: #f4ede0;
+  text-shadow: 0 0 22px rgba(136, 160, 138, 0.6);
 }

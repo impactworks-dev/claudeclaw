@@ -5,9 +5,11 @@
 // background, sun + moon decorations.
 
 import { useState, useEffect } from 'preact/hooks';
-import { Sun, Moon, ChevronLeft, ChevronRight, Sparkles } from 'lucide-preact';
+import { Sun, Moon, ChevronLeft, ChevronRight, Sparkles, Leaf } from 'lucide-preact';
 import { useFetch } from '@/lib/useFetch';
 import { apiPost, apiGet } from '@/lib/api';
+import { PracticeRings } from '@/components/PracticeRings';
+import { MeditationSession } from '@/components/MeditationSession';
 
 interface JournalEntry {
   date: string;
@@ -24,6 +26,9 @@ interface JournalEntry {
   learned: string;
   morning_completed_at: number | null;
   evening_completed_at: number | null;
+  meditation_minutes: number;
+  meditation_sessions: number;
+  meditation_last_at: number | null;
 }
 
 interface Quote { text: string; author: string }
@@ -32,7 +37,16 @@ interface DayPayload {
   date: string;
   entry: JournalEntry | null;
   quote: Quote;
-  streak?: { current: number; longest: number; lastEntryDate: string | null };
+  streak?: StreakPayload;
+}
+
+interface StreakPayload {
+  current: number;
+  longest: number;
+  lastEntryDate: string | null;
+  journal?: { current: number; longest: number };
+  meditation?: { current: number; longest: number };
+  practice?: { current: number; longest: number };
 }
 
 function todayLocal(): string {
@@ -61,7 +75,8 @@ export function JournalPage() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  const { data: streakData } = useFetch<{ entries: JournalEntry[]; streak: any }>('/api/journal/recent?limit=30', 5 * 60_000);
+  const { data: streakData, refresh: refreshStreak } = useFetch<{ entries: JournalEntry[]; streak: StreakPayload }>('/api/journal/recent?limit=30', 5 * 60_000);
+  const [meditationOpen, setMeditationOpen] = useState(false);
 
   async function load(date: string) {
     setLoading(true);
@@ -119,8 +134,21 @@ export function JournalPage() {
 
   const isToday = currentDate === todayLocal();
   const isFuture = currentDate > todayLocal();
-  const streak = streakData?.streak?.current || 0;
-  const longest = streakData?.streak?.longest || 0;
+  const practice = streakData?.streak?.practice || { current: 0, longest: 0 };
+  const morningDone = !!data?.entry?.morning_completed_at;
+  const eveningDone = !!data?.entry?.evening_completed_at;
+  const sitDone = (data?.entry?.meditation_sessions || 0) > 0;
+  const medMinutes = data?.entry?.meditation_minutes || 0;
+  const medSessions = data?.entry?.meditation_sessions || 0;
+  // Recent 28 days for the path of stones (today + 27 prior).
+  const today = todayLocal();
+  const recentDates: string[] = [];
+  for (let i = 27; i >= 0; i--) recentDates.push(shiftDate(today, -i));
+  const practicedSet = new Set(
+    (streakData?.entries || [])
+      .filter(e => !!e.morning_completed_at || !!e.evening_completed_at || (e.meditation_sessions || 0) > 0)
+      .map(e => e.date)
+  );
 
   return (
     <div class="journal-page min-h-screen pb-12">
@@ -138,8 +166,8 @@ export function JournalPage() {
           <div class="text-[13px] uppercase tracking-[0.2em] opacity-60 journal-label">Five-Minute Journal</div>
           <div class="text-[19px] mt-1 journal-date">{fmtDate(currentDate)}</div>
           <div class="text-[11px] mt-1 opacity-60">
-            {streak > 0 && <span>🔥 {streak}-day streak</span>}
-            {longest > 0 && streak !== longest && <span class="ml-2">· best: {longest}</span>}
+            {practice.current > 0 && <span>{practice.current} day{practice.current === 1 ? '' : 's'} of practice</span>}
+            {practice.longest > 0 && practice.current !== practice.longest && <span class="ml-2">· best: {practice.longest}</span>}
             {!isToday && (
               <button
                 type="button"
@@ -164,6 +192,26 @@ export function JournalPage() {
 
       {/* Page body */}
       <div class="max-w-3xl mx-auto px-6">
+        {/* Today's practice rings + recent 28-day stones */}
+        {isToday && (
+          <div class="mb-6 flex flex-col items-center gap-4">
+            <PracticeRings
+              gratitude={morningDone}
+              sit={sitDone}
+              reflect={eveningDone}
+            />
+            <div class="practice-path">
+              {recentDates.map(d => (
+                <div
+                  key={d}
+                  class={`path-stone${practicedSet.has(d) ? ' practiced' : ''}${d === today ? ' today' : ''}`}
+                  title={d}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Morning section */}
         <section class="journal-section morning-section relative px-8 py-8 mb-6">
           <Sun class="journal-deco-sun" size={26} />
@@ -203,6 +251,31 @@ export function JournalPage() {
             {data?.entry?.morning_completed_at
               ? `Morning completed · saved ${saving ? 'now' : savedAt ? 'just now' : ''}`
               : 'Morning section'}
+          </div>
+        </section>
+
+        {/* Meditation section — daily sit */}
+        <section class="journal-section meditation-section relative px-8 py-8 mb-6">
+          <Leaf class="journal-deco-leaf" size={22} />
+          <h3 class="journal-section-header text-center italic text-[16px] mb-2">
+            Sit with the breath
+          </h3>
+          <div class="text-center text-[12px] mb-5" style={{ color: 'var(--jr-ink-soft)' }}>
+            {sitDone
+              ? `${medMinutes} minute${medMinutes === 1 ? '' : 's'} today, ${medSessions} session${medSessions === 1 ? '' : 's'}`
+              : 'A short sit anchors the day. Three minutes is plenty.'}
+          </div>
+          <div class="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              class="meditation-start-btn"
+              onClick={() => setMeditationOpen(true)}
+            >
+              {sitDone ? 'sit again' : 'begin a sit'}
+            </button>
+            <div class="text-[10.5px] mt-1 opacity-60 italic" style={{ fontFamily: "'Cormorant Garamond', serif" }}>
+              breath: 4 in · 2 hold · 4 out
+            </div>
           </div>
         </section>
 
@@ -246,6 +319,17 @@ export function JournalPage() {
           <div class="text-center py-4 opacity-60 text-[12px]">Loading…</div>
         )}
       </div>
+
+      {meditationOpen && (
+        <MeditationSession
+          date={currentDate}
+          onClose={() => setMeditationOpen(false)}
+          onLogged={() => {
+            load(currentDate);
+            refreshStreak();
+          }}
+        />
+      )}
     </div>
   );
 }

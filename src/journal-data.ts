@@ -35,6 +35,22 @@ const QUOTES: Array<{ text: string; author: string }> = [
   { text: "An attitude of gratitude brings great things.", author: "Yogi Bhajan" },
   { text: "Today is a beautiful day; let me notice it.", author: "Marcus Aurelius (paraphrase)" },
   { text: "What lies behind us and what lies before us are tiny matters compared to what lies within us.", author: "Ralph Waldo Emerson" },
+  // Mindfulness + Zen — added with the meditation feature 2026-06-09
+  { text: "You don't have to perfect your day. You just have to begin it.", author: "Henry Shukman" },
+  { text: "The mind is everything. What you think you become.", author: "Buddha" },
+  { text: "Wherever you are, be there totally.", author: "Eckhart Tolle" },
+  { text: "Each morning we are born again. What we do today is what matters most.", author: "Buddha" },
+  { text: "Feelings come and go like clouds in a windy sky. Conscious breathing is my anchor.", author: "Thich Nhat Hanh" },
+  { text: "The present moment is the only moment available to us, and it is the door to all moments.", author: "Thich Nhat Hanh" },
+  { text: "Sit. Notice what's here. That's the whole practice.", author: "Henry Shukman" },
+  { text: "Don't try to fix the silence with words. Let the silence settle the words.", author: "Zen saying" },
+  { text: "Smile, breathe, and go slowly.", author: "Thich Nhat Hanh" },
+  { text: "Drop into stillness, even for a breath. That breath changes everything.", author: "Henry Shukman" },
+  { text: "Peace comes from within. Do not seek it without.", author: "Buddha" },
+  { text: "The quieter you become, the more you can hear.", author: "Ram Dass" },
+  { text: "In the midst of movement and chaos, keep stillness inside of you.", author: "Deepak Chopra" },
+  { text: "Mindfulness isn't difficult. We just need to remember to do it.", author: "Sharon Salzberg" },
+  { text: "Breathing in, I calm body and mind. Breathing out, I smile.", author: "Thich Nhat Hanh" },
 ];
 
 /** Quote for a given YYYY-MM-DD, deterministic. */

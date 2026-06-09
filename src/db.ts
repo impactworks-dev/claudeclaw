@@ -464,10 +464,16 @@ function createSchema(database: Database.Database): void {
       learned                TEXT NOT NULL DEFAULT '',
       morning_completed_at   INTEGER,
       evening_completed_at   INTEGER,
+      meditation_minutes     INTEGER NOT NULL DEFAULT 0,
+      meditation_sessions    INTEGER NOT NULL DEFAULT 0,
+      meditation_last_at     INTEGER,
       created_at             INTEGER NOT NULL,
       updated_at             INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_journal_updated ON journal_entries(updated_at DESC);
+
+    -- Forward-compat: add meditation columns to existing rows. SQLite
+    -- guards via PRAGMA; we wrap in pragma_table_info checks below.
   `);
 }
 
@@ -554,6 +560,21 @@ function runMigrations(database: Database.Database): void {
   const hasBriefKind = briefCols.some((c) => c.name === 'brief_kind');
   if (!hasBriefKind) {
     database.exec(`ALTER TABLE daily_briefs ADD COLUMN brief_kind TEXT NOT NULL DEFAULT 'morning'`);
+  }
+
+  // Meditation columns on journal_entries (added 2026-06-09 with the
+  // Way-app-inspired meditation feature). Pre-meditation rows get 0 / NULL.
+  const jrCols = database.prepare(`PRAGMA table_info(journal_entries)`).all() as Array<{ name: string }>;
+  if (jrCols.length > 0) {
+    if (!jrCols.some((c) => c.name === 'meditation_minutes')) {
+      database.exec(`ALTER TABLE journal_entries ADD COLUMN meditation_minutes INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!jrCols.some((c) => c.name === 'meditation_sessions')) {
+      database.exec(`ALTER TABLE journal_entries ADD COLUMN meditation_sessions INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!jrCols.some((c) => c.name === 'meditation_last_at')) {
+      database.exec(`ALTER TABLE journal_entries ADD COLUMN meditation_last_at INTEGER`);
+    }
   }
 
   // Multi-agent: migrate sessions table to composite primary key (chat_id, agent_id)
@@ -1383,6 +1404,9 @@ export interface JournalEntry {
   learned: string;
   morning_completed_at: number | null;
   evening_completed_at: number | null;
+  meditation_minutes: number;
+  meditation_sessions: number;
+  meditation_last_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -1461,27 +1485,40 @@ export function getRecentJournalEntries(limit = 30): JournalEntry[] {
   return db.prepare(`SELECT * FROM journal_entries ORDER BY date DESC LIMIT ?`).all(limit) as JournalEntry[];
 }
 
-/** Number of consecutive days (ending today) with at least the morning
- *  section completed. Resets on any gap day. */
-export function getJournalStreak(): { current: number; longest: number; lastEntryDate: string | null } {
-  const rows = db.prepare(`
-    SELECT date FROM journal_entries
-    WHERE morning_completed_at IS NOT NULL
-    ORDER BY date DESC
-    LIMIT 365
-  `).all() as Array<{ date: string }>;
-  if (rows.length === 0) return { current: 0, longest: 0, lastEntryDate: null };
+/** Log a completed meditation sit. Adds to today's row (creates if needed),
+ *  incrementing minutes + session count + stamping last-sat-at. */
+export function logMeditationSession(date: string, minutes: number): JournalEntry {
+  const now = Math.floor(Date.now() / 1000);
+  const mins = Math.max(1, Math.min(120, Math.round(minutes)));
+  const existing = getJournalEntry(date);
+  if (existing) {
+    db.prepare(`
+      UPDATE journal_entries
+         SET meditation_minutes = meditation_minutes + ?,
+             meditation_sessions = meditation_sessions + 1,
+             meditation_last_at = ?,
+             updated_at = ?
+       WHERE date = ?
+    `).run(mins, now, now, date);
+  } else {
+    db.prepare(`
+      INSERT INTO journal_entries (
+        date, meditation_minutes, meditation_sessions, meditation_last_at, created_at, updated_at
+      ) VALUES (?, ?, 1, ?, ?, ?)
+    `).run(date, mins, now, now, now);
+  }
+  return getJournalEntry(date)!;
+}
 
-  // Walk backwards from today expecting consecutive YYYY-MM-DD.
-  const ymd = (d: Date) => d.toISOString().slice(0, 10);
-  const dates = new Set(rows.map(r => r.date));
+function buildStreak(dates: Set<string>): { current: number; longest: number } {
+  if (dates.size === 0) return { current: 0, longest: 0 };
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   let current = 0;
   const cursor = new Date();
   while (dates.has(ymd(cursor))) {
     current++;
     cursor.setDate(cursor.getDate() - 1);
   }
-  // Longest: linear scan over sorted dates.
   const sorted = [...dates].sort();
   let longest = 0; let run = 1; let prev: Date | null = null;
   for (const d of sorted) {
@@ -1491,7 +1528,47 @@ export function getJournalStreak(): { current: number; longest: number; lastEntr
     longest = Math.max(longest, run);
     prev = dt;
   }
-  return { current, longest, lastEntryDate: rows[0].date };
+  return { current, longest };
+}
+
+/** Streak math, now multi-faceted. Each track is a separate consecutive-day
+ *  count. `practice` is the lenient combined view — counts a day if at least
+ *  one of {morning, meditation, evening} happened, so a busy day with just
+ *  a 3-min sit still keeps the streak alive. */
+export function getJournalStreak(): {
+  current: number;          // legacy alias for journal.current
+  longest: number;          // legacy alias for journal.longest
+  lastEntryDate: string | null;
+  journal: { current: number; longest: number };
+  meditation: { current: number; longest: number };
+  practice: { current: number; longest: number };
+} {
+  const journalRows = db.prepare(`
+    SELECT date FROM journal_entries WHERE morning_completed_at IS NOT NULL ORDER BY date DESC LIMIT 365
+  `).all() as Array<{ date: string }>;
+  const meditationRows = db.prepare(`
+    SELECT date FROM journal_entries WHERE meditation_sessions > 0 ORDER BY date DESC LIMIT 365
+  `).all() as Array<{ date: string }>;
+  const practiceRows = db.prepare(`
+    SELECT date FROM journal_entries
+     WHERE morning_completed_at IS NOT NULL
+        OR evening_completed_at IS NOT NULL
+        OR meditation_sessions > 0
+     ORDER BY date DESC LIMIT 365
+  `).all() as Array<{ date: string }>;
+
+  const journal = buildStreak(new Set(journalRows.map(r => r.date)));
+  const meditation = buildStreak(new Set(meditationRows.map(r => r.date)));
+  const practice = buildStreak(new Set(practiceRows.map(r => r.date)));
+
+  return {
+    current: journal.current,
+    longest: journal.longest,
+    lastEntryDate: journalRows[0]?.date || null,
+    journal,
+    meditation,
+    practice,
+  };
 }
 
 // ── Proactive alerts ─────────────────────────────────────────────────
