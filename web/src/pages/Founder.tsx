@@ -9,6 +9,7 @@ import { pushToast } from '@/lib/toasts';
 import { StockChart } from '@/components/StockChart';
 import { NikkiCard } from '@/components/NikkiCard';
 import { JournalCard } from '@/components/JournalCard';
+import { CampaignsCard } from '@/components/CampaignsCard';
 import { CalendarTile } from '@/components/CalendarTile';
 import { VendastaTile } from '@/components/VendastaTile';
 import { LatestBriefCard } from '@/components/LatestBriefCard';
@@ -24,6 +25,7 @@ const DEFAULT_SECTION_ORDER = [
   'nikki',
   'journal',
   'attention',
+  'campaigns',
   'real-mrr',
   'cash-pulse',
   'investments',
@@ -35,8 +37,8 @@ const DEFAULT_SECTION_ORDER = [
   'brain-proposals',
   'watchlist',
 ] as const;
-// v5 adds the `journal` Five-Minute Journal tile.
-const SECTION_ORDER_KEY = 'founder-section-order-v5';
+// v6 adds the `campaigns` Vendasta marketing campaigns tile.
+const SECTION_ORDER_KEY = 'founder-section-order-v6';
 
 function loadSectionOrder(): string[] {
   try {
@@ -555,6 +557,7 @@ export function Founder() {
     // separate from the Stocks + News row below.
     'nikki': <NikkiCard />,
     'journal': <JournalCard />,
+    'campaigns': <CampaignsCard />,
 
     'attention': data.primaryAttention ? (
       <Link href={data.primaryAttention.href}>

@@ -1500,6 +1500,22 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     }
   });
 
+  // Vendasta marketing campaigns — pulls the campaign list from Partner Center.
+  // Each campaign has name, status, recipients, opens, ctor, tag. Used by the
+  // Mission Control CampaignsCard for at-a-glance outreach visibility.
+  // Cache 10 min (campaign metrics don't move minute-to-minute).
+  app.get('/api/vendasta/campaigns', async (c) => {
+    try {
+      const force = c.req.query('force') === '1';
+      const { getCampaignsSummary } = await import('./vendasta-campaigns.js');
+      const data = await getCampaignsSummary({ force });
+      return c.json(data);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'vendasta campaigns endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   // Weather snapshot driven by Cloudflare's "Add visitor location headers"
   // managed transform. Origin reads cf-iplatitude/lon/city/region/country
   // from the request. Falls back to Oakville, ON if headers are absent.

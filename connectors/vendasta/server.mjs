@@ -589,6 +589,43 @@ const tools = [
       properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
     },
   },
+  // ── Marketing Campaigns + Email + Automation Runs (added 2026-06-09) ──
+  // Surfaces Dante's outbound marketing engine into Mission Control. These
+  // hit Vendasta Platform API resources whose exact paths we're probing —
+  // if the API returns 404 / unknown resource, adjust the resource string.
+  {
+    name: 'vendasta_platform_list_campaigns',
+    description: 'List marketing campaigns at the Partner Center level. Each campaign has name, status (draft/published/ongoing), tag(s), recipient counts, opens, clicks (CTOR). Use this to surface outbound marketing activity in Mission Control.',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object', description: 'e.g. { "status": "published" } or { "tag": "Partnerships" }' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_get_campaign',
+    description: 'Get one marketing campaign by id — includes full stats: totalRecipients, activeRecipients, emailsDelivered, openRate, ctor, steps, lastUpdated.',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: { id: { type: 'string', description: 'Campaign id' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_email_templates',
+    description: 'List email templates available at the Partner Center level (the template library that powers campaign sends).',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object' } },
+    },
+  },
+  {
+    name: 'vendasta_platform_list_automation_runs',
+    description: 'List automation execution history at the Partner Center level (which automation fired when, with what outcome). Pair with vendasta_platform_list_automations to see what each automation was configured to do.',
+    inputSchema: {
+      type: 'object',
+      properties: { partnerId: { type: 'string' }, limit: { type: 'integer' }, cursor: { type: 'string' }, filters: { type: 'object', description: 'e.g. { "automationId": "..." } or { "status": "success" }' } },
+    },
+  },
   {
     name: 'vendasta_platform_list_business_categories',
     description: 'List the business category taxonomy (industries / verticals) available in your Partner Center.',
@@ -766,6 +803,16 @@ async function callTool(name, args) {
       return platformList('partnerActivatableProducts', 'partner:read', { ...args, partnerId: args.partnerId || PARTNER_ID() });
     case 'vendasta_platform_list_automations':
       return platformList('automations', 'automation:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'namespace' });
+    // PROBING — exact resource names verified against Vendasta Platform API on first call.
+    // If 404, candidate fallbacks: marketingCampaigns | campaigns | mc-campaigns
+    case 'vendasta_platform_list_campaigns':
+      return platformList('marketingCampaigns', 'marketing.campaign:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'partner.id' });
+    case 'vendasta_platform_get_campaign':
+      return platformGetById('marketingCampaigns', 'marketing.campaign:read', args.id);
+    case 'vendasta_platform_list_email_templates':
+      return platformList('emailTemplates', 'marketing.template:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'partner.id' });
+    case 'vendasta_platform_list_automation_runs':
+      return platformList('automationRuns', 'automation:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'namespace' });
     case 'vendasta_platform_list_business_categories':
       return platformList('businessCategories', 'business', { ...args, partnerId: args.partnerId || PARTNER_ID() });
     case 'vendasta_platform_list_business_locations':
