@@ -803,15 +803,17 @@ async function callTool(name, args) {
       return platformList('partnerActivatableProducts', 'partner:read', { ...args, partnerId: args.partnerId || PARTNER_ID() });
     case 'vendasta_platform_list_automations':
       return platformList('automations', 'automation:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'namespace' });
-    // PROBING — exact resource names verified against Vendasta Platform API on first call.
-    // If 404, candidate fallbacks: marketingCampaigns | campaigns | mc-campaigns
+    // Vendasta Marketing Campaigns are NOT exposed via the public Partner
+    // Platform REST API (confirmed 2026-06-09: docs sidebar at
+    // developers.vendasta.com lists Platform/Business/CRM/Advertising/Social
+    // /Customer Voice/Local SEO/Reputation/SCIM but no Marketing Campaigns
+    // surface). These tools return a documented error rather than 404 noise.
     case 'vendasta_platform_list_campaigns':
-      return platformList('marketingCampaigns', 'marketing.campaign:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'partner.id' });
     case 'vendasta_platform_get_campaign':
-      return platformGetById('marketingCampaigns', 'marketing.campaign:read', args.id);
     case 'vendasta_platform_list_email_templates':
-      return platformList('emailTemplates', 'marketing.template:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'partner.id' });
+      return { error: 'unsupported_by_vendasta_public_api', detail: 'Marketing campaign + email template endpoints are not part of the public Partner Platform REST API. View campaigns at partners.vendasta.com/marketing/campaigns/all instead, or infer activity from CRM activities via vendasta_list_records.' };
     case 'vendasta_platform_list_automation_runs':
+      // Automation runs MAY work since /automations itself does. Probe + fall back if 404.
       return platformList('automationRuns', 'automation:read', { ...args, partnerId: args.partnerId || PARTNER_ID(), partnerFilterKey: 'namespace' });
     case 'vendasta_platform_list_business_categories':
       return platformList('businessCategories', 'business', { ...args, partnerId: args.partnerId || PARTNER_ID() });

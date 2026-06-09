@@ -25,7 +25,6 @@ const DEFAULT_SECTION_ORDER = [
   'nikki',
   'journal',
   'attention',
-  'campaigns',
   'real-mrr',
   'cash-pulse',
   'investments',
@@ -37,8 +36,8 @@ const DEFAULT_SECTION_ORDER = [
   'brain-proposals',
   'watchlist',
 ] as const;
-// v6 adds the `campaigns` Vendasta marketing campaigns tile.
-const SECTION_ORDER_KEY = 'founder-section-order-v6';
+// v7 removes campaigns tile (Vendasta public API doesn't expose Marketing).
+const SECTION_ORDER_KEY = 'founder-section-order-v7';
 
 function loadSectionOrder(): string[] {
   try {

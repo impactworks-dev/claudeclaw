@@ -137,6 +137,19 @@ export async function getCampaignsSummary(opts: { force?: boolean } = {}): Promi
   }
   try {
     const raw = await callConnector('vendasta_platform_list_campaigns', { limit: 200 }) as any;
+    // Connector now returns { error: 'unsupported_by_vendasta_public_api' } because
+    // Marketing Campaigns are not part of Vendasta's public Partner Platform REST API.
+    if (raw?.error === 'unsupported_by_vendasta_public_api') {
+      return {
+        asOf: Date.now(),
+        configured: false,
+        totalCampaigns: 0, publishedCount: 0, ongoingCount: 0, draftCount: 0,
+        totalRecipients: 0, totalActiveRecipients: 0, totalEmailsDelivered: 0,
+        avgOpenRate: null,
+        topCampaigns: [], allCampaigns: [],
+        error: 'Vendasta Marketing Campaigns are not exposed via the public Partner Platform REST API. View at partners.vendasta.com/marketing/campaigns/all.',
+      };
+    }
     // JSON:API: items in `data`; raw connector may also wrap as { data: [...] } or { items: [...] }
     const items: any[] = raw?.data || raw?.items || raw?.campaigns || [];
     const campaigns = items.map(shapeCampaign);
