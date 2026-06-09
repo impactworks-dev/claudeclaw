@@ -461,160 +461,111 @@ input, textarea, select {
 }
 
 /* ── Five-Minute Journal — card + page ────────────────────────────────
-   Light, whimsical aesthetic. Parchment background, handwritten cursive
-   for entries (Caveat), italic display serif for headers + quotes
-   (Cormorant Garamond). Sun + moon decorations. Works in both light
-   and dark mode by leaning on warm cream tones rather than pure white. */
+   Always light + colorful, regardless of dashboard dark/light mode.
+   The journal is a deliberately whimsical pocket of warmth inside the
+   denser data UI. Soft peach for morning, soft lavender for evening,
+   warm cream + gold accents throughout. */
+
+/* `!important` is overkill here, but it short-circuits any future
+   global override that might bleed in from theme tokens. */
 
 .journal-card {
-  background: linear-gradient(180deg, #fffaf2 0%, #fdf6e9 100%);
-  color: #3d342a;
-}
-[data-mode="dark"] .journal-card {
-  background: linear-gradient(180deg, #2a241d 0%, #221c16 100%);
-  color: #ecdfc9;
+  background: linear-gradient(180deg, #fff7e6 0%, #fdebd3 100%) !important;
+  color: #4a3a28 !important;
+  box-shadow: 0 4px 18px -10px rgba(184, 105, 60, 0.35);
 }
 
 .journal-hero {
-  background: linear-gradient(180deg, #fff3d6 0%, #fff8e9 100%);
-  border-bottom: 1px dashed rgba(124, 96, 58, 0.25);
-}
-[data-mode="dark"] .journal-hero {
-  background: linear-gradient(180deg, #36281a 0%, #2c2218 100%);
-  border-bottom-color: rgba(229, 198, 145, 0.18);
+  background: linear-gradient(180deg, #ffd9a8 0%, #ffe9c4 70%, #fff3d6 100%) !important;
+  border-bottom: 1px dashed rgba(184, 105, 60, 0.32) !important;
 }
 
 .journal-quote {
   font-family: 'Cormorant Garamond', Georgia, serif;
-  color: #5b4632;
-}
-[data-mode="dark"] .journal-quote {
-  color: #e8d5b2;
+  color: #7a4a25 !important;
 }
 
 .journal-label,
 .journal-accent {
-  color: #b8853a;
-}
-[data-mode="dark"] .journal-label,
-[data-mode="dark"] .journal-accent {
-  color: #d9b777;
+  color: #d96a2e !important;
 }
 
 .journal-streak {
-  color: #c0651f;
+  color: #c0511a !important;
 }
 
 .journal-icon {
-  color: #c89d4f;
-}
-[data-mode="dark"] .journal-icon {
-  color: #e8c478;
+  color: #e89a3a !important;
 }
 
 .journal-body {
-  background: #fffdf8;
-}
-[data-mode="dark"] .journal-body {
-  background: #2a221b;
+  background: #fffaf0 !important;
+  color: #4a3a28 !important;
 }
 
 .journal-section-header {
   font-family: 'Cormorant Garamond', Georgia, serif;
-  color: #5b4632;
+  color: #7a4a25 !important;
   letter-spacing: 0.02em;
-}
-[data-mode="dark"] .journal-section-header {
-  color: #e8d5b2;
 }
 
 .journal-numeral {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-style: italic;
-  color: #8a6a47;
+  color: #b8753a !important;
   width: 1.1em;
   flex-shrink: 0;
-}
-[data-mode="dark"] .journal-numeral {
-  color: #c4a06b;
 }
 
 .journal-input {
   font-family: 'Caveat', 'Brush Script MT', cursive;
   font-size: 18px;
   line-height: 1.4;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid rgba(124, 96, 58, 0.35);
-  color: #3d342a;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(184, 105, 60, 0.4) !important;
+  color: #4a3a28 !important;
   padding: 2px 0 4px;
   outline: none;
   width: 100%;
   transition: border-color 160ms ease;
+  caret-color: #d96a2e;
 }
 .journal-input:focus {
-  border-bottom-color: #c89d4f;
+  border-bottom-color: #d96a2e !important;
 }
 .journal-input::placeholder {
-  color: rgba(124, 96, 58, 0.35);
+  color: rgba(184, 105, 60, 0.35);
   font-style: italic;
-}
-[data-mode="dark"] .journal-input {
-  color: #ecdfc9;
-  border-bottom-color: rgba(229, 198, 145, 0.3);
-}
-[data-mode="dark"] .journal-input:focus {
-  border-bottom-color: #e8c478;
-}
-[data-mode="dark"] .journal-input::placeholder {
-  color: rgba(229, 198, 145, 0.3);
 }
 
 .journal-footer {
-  background: rgba(124, 96, 58, 0.05);
-  border-top: 1px dashed rgba(124, 96, 58, 0.18);
-  color: #6b5640;
-}
-[data-mode="dark"] .journal-footer {
-  background: rgba(229, 198, 145, 0.04);
-  border-top-color: rgba(229, 198, 145, 0.12);
-  color: #c9b896;
+  background: rgba(255, 217, 168, 0.35) !important;
+  border-top: 1px dashed rgba(184, 105, 60, 0.25) !important;
+  color: #7a4a25 !important;
 }
 
 .journal-link {
-  color: #b8853a;
+  color: #d96a2e !important;
 }
 .journal-link:hover {
-  color: #8a6a47;
-}
-[data-mode="dark"] .journal-link {
-  color: #e8c478;
-}
-[data-mode="dark"] .journal-link:hover {
-  color: #f4d995;
+  color: #b8501b !important;
 }
 
-/* ── Journal full page ──────────────────────────────────────────────── */
+/* ── Journal full page ────────────────────────────────────────────────
+   Page background stays neutral (warm cream) regardless of dashboard
+   theme so the colorful cards sit on a consistent canvas. */
 .journal-page {
   background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, #fff5dc 0%, transparent 60%),
-    linear-gradient(180deg, #fdf8eb 0%, #f9efd6 100%);
-  color: #3d342a;
-}
-[data-mode="dark"] .journal-page {
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, #3a2c1c 0%, transparent 60%),
-    linear-gradient(180deg, #251e16 0%, #1a140e 100%);
-  color: #ecdfc9;
+    radial-gradient(ellipse 80% 60% at 50% 0%, #ffeac8 0%, transparent 65%),
+    linear-gradient(180deg, #fdf7e8 0%, #f8ead0 100%) !important;
+  color: #4a3a28 !important;
 }
 
 .journal-date {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-style: italic;
-  color: #5b4632;
-}
-[data-mode="dark"] .journal-date {
-  color: #e8d5b2;
+  color: #7a4a25 !important;
 }
 
 .journal-nav-btn {
@@ -624,53 +575,52 @@ input, textarea, select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(124, 96, 58, 0.08);
-  color: #8a6a47;
+  background: rgba(217, 106, 46, 0.12) !important;
+  color: #b8501b !important;
   transition: background 160ms ease, color 160ms ease;
 }
 .journal-nav-btn:hover:not(:disabled) {
-  background: rgba(124, 96, 58, 0.16);
-  color: #5b4632;
+  background: rgba(217, 106, 46, 0.22) !important;
+  color: #7a3711 !important;
 }
 .journal-nav-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
 }
-[data-mode="dark"] .journal-nav-btn {
-  background: rgba(229, 198, 145, 0.08);
-  color: #c4a06b;
-}
-[data-mode="dark"] .journal-nav-btn:hover:not(:disabled) {
-  background: rgba(229, 198, 145, 0.18);
-  color: #e8c478;
-}
 
 .journal-section {
-  background: #fffdf6;
-  border: 1px solid rgba(124, 96, 58, 0.18);
-  border-radius: 12px;
-  box-shadow: 0 8px 28px -16px rgba(124, 96, 58, 0.35),
-              inset 0 0 0 1px rgba(255, 250, 235, 0.5);
-}
-[data-mode="dark"] .journal-section {
-  background: #2a221b;
-  border-color: rgba(229, 198, 145, 0.18);
-  box-shadow: 0 8px 28px -16px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(184, 105, 60, 0.22) !important;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px -18px rgba(184, 105, 60, 0.45),
+              inset 0 0 0 1px rgba(255, 250, 235, 0.6) !important;
+  color: #4a3a28 !important;
 }
 
+/* Morning = warm sunrise. Soft peach + apricot wash. */
 .morning-section {
-  background: linear-gradient(180deg, #fffaeb 0%, #fffdf6 32%);
-}
-[data-mode="dark"] .morning-section {
-  background: linear-gradient(180deg, #322417 0%, #2a221b 32%);
+  background: linear-gradient(180deg, #ffe5c2 0%, #fff5e1 40%, #fffaf0 100%) !important;
 }
 
+/* Evening = soft dusk. Lavender + rose wash. */
 .evening-section {
-  background: linear-gradient(180deg, #f7f1e2 0%, #fffdf6 32%);
+  background: linear-gradient(180deg, #ead9f2 0%, #f7ecf3 40%, #fdf6f0 100%) !important;
   position: relative;
 }
-[data-mode="dark"] .evening-section {
-  background: linear-gradient(180deg, #251f17 0%, #2a221b 32%);
+.evening-section .journal-section-header,
+.evening-section .journal-numeral,
+.evening-section .journal-meta-footer {
+  color: #6b3d7a !important;
+}
+.evening-section .journal-input {
+  border-bottom-color: rgba(107, 61, 122, 0.4) !important;
+  color: #4a2a55 !important;
+  caret-color: #8b4ea0;
+}
+.evening-section .journal-input:focus {
+  border-bottom-color: #8b4ea0 !important;
+}
+.evening-section .journal-input::placeholder {
+  color: rgba(107, 61, 122, 0.35);
 }
 
 .journal-deco-sun,
@@ -678,14 +628,11 @@ input, textarea, select {
   position: absolute;
   top: 16px;
   right: 18px;
-  opacity: 0.55;
-  color: #c89d4f;
-}
-[data-mode="dark"] .journal-deco-sun,
-[data-mode="dark"] .journal-deco-moon {
-  color: #e8c478;
+  opacity: 0.7;
+  color: #e89a3a !important;
 }
 .journal-deco-moon {
+  color: #8b4ea0 !important;
   transform: rotate(-15deg);
 }
 
@@ -697,4 +644,5 @@ input, textarea, select {
 .journal-meta-footer {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-style: italic;
+  color: #a06642 !important;
 }
