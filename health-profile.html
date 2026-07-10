@@ -246,6 +246,7 @@
     <div class="sleep-tile"><div class="sleep-label">Deep</div><div class="sleep-val" id="sleep-deep">—</div><div class="sleep-sub">hours</div></div>
     <div class="sleep-tile"><div class="sleep-label">REM</div><div class="sleep-val" id="sleep-rem">—</div><div class="sleep-sub">hours</div></div>
     <div class="sleep-tile"><div class="sleep-label">Core / Light</div><div class="sleep-val" id="sleep-core">—</div><div class="sleep-sub">hours</div></div>
+    <div class="sleep-tile"><div class="sleep-label">Awake</div><div class="sleep-val" id="sleep-awake">—</div><div class="sleep-sub">hours</div></div>
     <div class="sleep-tile"><div class="sleep-label">Efficiency</div><div class="sleep-val" id="sleep-eff">—</div><div class="sleep-sub">asleep / in bed</div></div>
   </div>
   <div id="sleep-updated" style="margin-top: 12px; font-size: 0.75rem; color: var(--muted);"></div>
@@ -259,8 +260,15 @@
     try { return localStorage.getItem('claudeclaw.token') || ''; } catch (e) { return ''; }
   }
   function num(v) { return (typeof v === 'number' && !isNaN(v)) ? v : null; }
-  // Apple Health sleep values may arrive in hours or minutes — normalize to hours.
+  // Values arrive in hours ("hr" units). Guard against a stray minutes payload.
   function hrs(v) { v = num(v); if (v === null) return null; return v > 24 ? v / 60 : v; }
+  // Parse "2026-07-10 07:17:56 -0400" into epoch ms (Safari-safe).
+  function pdate(s) {
+    if (!s) return null;
+    var m = String(s).trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*([+-]\d{2}):?(\d{2})?/);
+    if (m) { var t = Date.parse(m[1] + 'T' + m[2] + m[3] + ':' + (m[4] || '00')); return isNaN(t) ? null : t; }
+    var t2 = Date.parse(s); return isNaN(t2) ? null : t2;
+  }
   function set(id, val, digits) {
     var el = document.getElementById(id);
     if (el) el.textContent = (val === null || val === undefined) ? '—' : Number(val).toFixed(digits == null ? 1 : digits);
@@ -273,28 +281,34 @@
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (!d || !d.metrics) { showEmpty(); return; }
-      // Find any metric whose name mentions sleep.
       var key = Object.keys(d.metrics).find(function (k) { return /sleep/i.test(k); });
       var p = key ? d.metrics[key].latestPoint : null;
       if (!p) { showEmpty(); return; }
-      var asleep = hrs(p.asleep != null ? p.asleep : p.totalSleep != null ? p.totalSleep : p.value);
-      var inBed  = hrs(p.inBed != null ? p.inBed : p.inBedTime);
-      var deep   = hrs(p.deep);
-      var rem    = hrs(p.rem);
-      var core   = hrs(p.core != null ? p.core : p.light);
-      var awake  = hrs(p.awake);
-      if (asleep == null && deep == null && rem == null && core == null) { showEmpty(); return; }
-      if (asleep == null && (deep != null || rem != null || core != null))
+      var deep = hrs(p.deep), rem = hrs(p.rem);
+      var core = hrs(p.core != null ? p.core : p.light);
+      var awake = hrs(p.awake);
+      // Time asleep: Health Auto Export reports it as `totalSleep` (the `asleep`
+      // field is usually 0). Fall back to `asleep`, then the sum of phases.
+      var asleep = hrs(p.totalSleep);
+      if (!asleep) asleep = hrs(p.asleep);
+      if (!asleep && (deep != null || rem != null || core != null))
         asleep = (deep || 0) + (rem || 0) + (core || 0);
+      // Time in bed: prefer the inBedStart→inBedEnd span, then the sleep span,
+      // then the (often-zero) inBed field.
+      var inBed = null;
+      var bs = pdate(p.inBedStart) || pdate(p.sleepStart);
+      var be = pdate(p.inBedEnd) || pdate(p.sleepEnd);
+      if (bs != null && be != null && be > bs) inBed = (be - bs) / 3600000;
+      if (!inBed) inBed = hrs(p.inBed);
+      if (asleep == null && deep == null && rem == null && core == null) { showEmpty(); return; }
       set('sleep-asleep', asleep); set('sleep-inbed', inBed);
       set('sleep-deep', deep); set('sleep-rem', rem); set('sleep-core', core);
-      set('sleep-eff', (asleep != null && inBed) ? (asleep / inBed) * 100 : null, 0);
+      set('sleep-awake', awake);
       var effEl = document.getElementById('sleep-eff');
-      if (effEl && asleep != null && inBed) effEl.textContent = Math.round((asleep / inBed) * 100) + '%';
-      var when = p.date || d.updatedAt;
+      if (effEl) effEl.textContent = (asleep && inBed) ? Math.round((asleep / inBed) * 100) + '%' : '—';
+      var when = p.date ? String(p.date).slice(0, 10) : (d.updatedAt ? String(d.updatedAt).slice(0, 10) : null);
       var u = document.getElementById('sleep-updated');
-      if (u && when) u.textContent = 'Last night: ' + String(when).slice(0, 10) +
-        (awake != null ? ' · awake ' + awake.toFixed(1) + 'h' : '') +
+      if (u && when) u.textContent = 'Night of ' + when +
         ' · synced ' + (d.updatedAt ? String(d.updatedAt).slice(0, 10) : '—');
     })
     .catch(function () { showEmpty(); });
