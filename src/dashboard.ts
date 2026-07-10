@@ -547,6 +547,20 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // URL (query string included) in the automation.
   const HEALTH_RAW_PATH = path.join(STORE_DIR, 'health-export.json');
   const HEALTH_DATA_PATH = path.join(STORE_DIR, 'health-data.json');
+  // Accumulated nightly sleep history (keyed by wake date) so the Sleep card
+  // can browse past nights and show trends. Each daily export only carries one
+  // night, so we merge rather than overwrite.
+  const HEALTH_SLEEP_PATH = path.join(STORE_DIR, 'health-sleep-history.json');
+
+  // Parse Health Auto Export date strings like "2026-07-10 07:17:56 -0400"
+  // into epoch ms. Node's Date.parse is lenient but we normalize the offset
+  // to be safe.
+  const parseHealthDate = (s: any): number | null => {
+    if (!s || typeof s !== 'string') return null;
+    const m = s.trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*([+-]\d{2}):?(\d{2})?/);
+    if (m) { const t = Date.parse(`${m[1]}T${m[2]}${m[3]}:${m[4] ?? '00'}`); return isNaN(t) ? null : t; }
+    const t2 = Date.parse(s); return isNaN(t2) ? null : t2;
+  };
 
   app.post('/api/health/import', async (c) => {
     const auth = requireToken(c); if (auth) return auth;
@@ -601,7 +615,88 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     try {
       fs.writeFileSync(HEALTH_DATA_PATH, JSON.stringify(summary, null, 2), 'utf-8');
     } catch { /* summary is best-effort; raw payload is already saved */ }
-    return c.json({ ok: true, metricsReceived: summary.metricNames.length, updatedAt: summary.updatedAt });
+
+    // ── Accumulate nightly sleep history ──────────────────────────────────
+    // Build a per-night record (phase totals, in-bed span, efficiency) plus the
+    // heart-rate curve during the sleep window, and merge into a keyed history
+    // file so the Sleep card can browse past nights and chart trends.
+    let nightsAdded = 0;
+    try {
+      const findMetric = (re: RegExp) =>
+        Array.isArray(metricsIn) ? metricsIn.find((m: any) => m && typeof m.name === 'string' && re.test(m.name)) : null;
+      const sleepMetric = findMetric(/sleep/i);
+      const hrMetric = findMetric(/^heart_rate$/i) || findMetric(/heart_rate/i);
+      const hrPoints: any[] = hrMetric && Array.isArray(hrMetric.data) ? hrMetric.data : [];
+
+      if (sleepMetric && Array.isArray(sleepMetric.data) && sleepMetric.data.length) {
+        let history: Record<string, any> = {};
+        try {
+          if (fs.existsSync(HEALTH_SLEEP_PATH)) history = JSON.parse(fs.readFileSync(HEALTH_SLEEP_PATH, 'utf-8'));
+        } catch { history = {}; }
+
+        for (const p of sleepMetric.data) {
+          const startMs = parseHealthDate(p.inBedStart) ?? parseHealthDate(p.sleepStart);
+          const endMs = parseHealthDate(p.inBedEnd) ?? parseHealthDate(p.sleepEnd);
+          const key = String(p.sleepEnd || p.date || '').slice(0, 10);
+          if (!key) continue;
+
+          const deep = typeof p.deep === 'number' ? p.deep : null;
+          const rem = typeof p.rem === 'number' ? p.rem : null;
+          const core = typeof p.core === 'number' ? p.core : (typeof p.light === 'number' ? p.light : null);
+          const awake = typeof p.awake === 'number' ? p.awake : null;
+          let asleep = typeof p.totalSleep === 'number' && p.totalSleep > 0 ? p.totalSleep
+            : (typeof p.asleep === 'number' && p.asleep > 0 ? p.asleep : null);
+          if (asleep == null && (deep != null || rem != null || core != null))
+            asleep = (deep || 0) + (rem || 0) + (core || 0);
+          const inBedHours = (startMs != null && endMs != null && endMs > startMs)
+            ? (endMs - startMs) / 3600000
+            : (typeof p.inBed === 'number' && p.inBed > 0 ? p.inBed : null);
+
+          // Heart rate during the sleep window.
+          let hr: any = null;
+          if (startMs != null && endMs != null) {
+            const win = hrPoints
+              .map((h: any) => ({ t: parseHealthDate(h.date), min: h.Min, max: h.Max, avg: h.Avg }))
+              .filter((h: any) => h.t != null && h.t >= startMs && h.t <= endMs)
+              .sort((a: any, b: any) => a.t - b.t);
+            if (win.length) {
+              const mins = win.map((h: any) => h.min).filter((n: any) => typeof n === 'number');
+              const maxs = win.map((h: any) => h.max).filter((n: any) => typeof n === 'number');
+              const avgs = win.map((h: any) => h.avg).filter((n: any) => typeof n === 'number');
+              // Downsample to ~48 points for a compact sparkline.
+              const step = Math.max(1, Math.ceil(win.length / 48));
+              const series = win.filter((_: any, i: number) => i % step === 0)
+                .map((h: any) => ({ t: h.t, v: h.avg }));
+              hr = {
+                min: mins.length ? Math.min(...mins) : null,
+                max: maxs.length ? Math.max(...maxs) : null,
+                avg: avgs.length ? Math.round(avgs.reduce((a: number, b: number) => a + b, 0) / avgs.length) : null,
+                series,
+              };
+            }
+          }
+
+          history[key] = {
+            date: key,
+            asleep, deep, rem, core, awake,
+            inBedHours,
+            efficiency: (asleep && inBedHours) ? Math.round((asleep / inBedHours) * 100) : null,
+            sleepStart: p.sleepStart ?? null, sleepEnd: p.sleepEnd ?? null,
+            inBedStart: p.inBedStart ?? null, inBedEnd: p.inBedEnd ?? null,
+            hr,
+            updatedAt: summary.updatedAt,
+          };
+          nightsAdded++;
+        }
+
+        // Cap to the most recent 180 nights.
+        const keys = Object.keys(history).sort();
+        if (keys.length > 180) for (const k of keys.slice(0, keys.length - 180)) delete history[k];
+        fs.writeFileSync(HEALTH_SLEEP_PATH, JSON.stringify(history, null, 2), 'utf-8');
+      }
+    } catch { /* history is best-effort; never fail the import over it */ }
+
+    return c.json({ ok: true, metricsReceived: summary.metricNames.length, nightsAdded, updatedAt: summary.updatedAt });
   });
 
   app.get('/api/health/data', (c) => {
@@ -609,6 +704,20 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     if (!fs.existsSync(HEALTH_DATA_PATH)) return c.json({ ok: true, updatedAt: null, metrics: {} });
     try {
       return c.json(JSON.parse(fs.readFileSync(HEALTH_DATA_PATH, 'utf-8')));
+    } catch {
+      return c.json({ ok: false, error: 'read failed' }, 500);
+    }
+  });
+
+  // Nightly sleep history for the Sleep card: date list + full per-night
+  // records (phase totals, efficiency, sleep heart-rate series).
+  app.get('/api/health/sleep', (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    if (!fs.existsSync(HEALTH_SLEEP_PATH)) return c.json({ ok: true, dates: [], latest: null, nights: {} });
+    try {
+      const nights = JSON.parse(fs.readFileSync(HEALTH_SLEEP_PATH, 'utf-8'));
+      const dates = Object.keys(nights).sort();
+      return c.json({ ok: true, dates, latest: dates.length ? dates[dates.length - 1] : null, nights });
     } catch {
       return c.json({ ok: false, error: 'read failed' }, 500);
     }
