@@ -845,7 +845,7 @@ window.HP = (function () {
   el('pt-list').innerHTML = groups.map(function (g) {
     return '<div class="pt-group-h">' + g + '</div>' + EX.filter(function (e) { return e.g === g; }).map(function (e) {
       var num = e.id.slice(1);
-      var img = (+num <= 6) ? ('/pt-icon' + num + '.svg') : ('/pt-fig' + num + '.png');
+      var img = '/pt-icon' + num + '.svg';
       return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + num + '. ' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div><a class="pt-ex-img" href="' + img + '" target="_blank"><img src="' + img + '" alt="' + e.name + '" loading="lazy"></a></div>';
     }).join('');
   }).join('');
