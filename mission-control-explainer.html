@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mission Control — How the Command Center Works</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap');
+
+    :root {
+      --bg: #07070f;
+      --surface: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.09);
+      --text: #f0f0f8;
+      --muted: rgba(240,240,248,0.5);
+      --purple: #8b5cf6;
+      --blue: #3b82f6;
+      --cyan: #06b6d4;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --orange: #f97316;
+      --pink: #ec4899;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* BG */
+    .bg-orbs { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(90px); }
+    .orb-a { width: 500px; height: 500px; background: var(--cyan);   opacity: 0.09; top: -100px; left: -100px; animation: float 18s ease-in-out infinite alternate; }
+    .orb-b { width: 400px; height: 400px; background: var(--blue);   opacity: 0.08; bottom: 0;   right: -80px;  animation: float 22s ease-in-out infinite alternate-reverse; }
+    .orb-c { width: 350px; height: 350px; background: var(--purple); opacity: 0.07; top: 40%; left: 40%; animation: float 28s ease-in-out infinite alternate; }
+    @keyframes float { from{transform:translate(0,0)} to{transform:translate(30px,20px)} }
+
+    /* CONTROLS */
+    .controls {
+      position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%);
+      z-index: 200; display: flex; align-items: center; gap: 12px;
+      background: rgba(7,7,15,0.9); backdrop-filter: blur(20px);
+      border: 1px solid var(--border); border-radius: 50px; padding: 10px 20px;
+    }
+    .ctrl-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer;
+      background: var(--surface); color: var(--text); font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+    }
+    .ctrl-btn:hover { background: rgba(255,255,255,0.12); }
+    .ctrl-btn.primary {
+      width: 44px; height: 44px; font-size: 16px;
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+    }
+    .ctrl-btn.primary:hover { opacity: 0.85; }
+    .slide-counter { font-size: 13px; font-weight: 600; color: var(--muted); min-width: 52px; text-align: center; }
+    .progress-track { width: 120px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--blue)); border-radius: 2px; transition: width 0.4s ease; }
+    .auto-label { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.05em; }
+
+    /* BACK LINK */
+    .back-link {
+      position: fixed; top: 20px; left: 24px; z-index: 200;
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(7,7,15,0.85); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 14px; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .back-link:hover { color: var(--text); }
+
+    /* SLIDES */
+    .slideshow { position: relative; z-index: 1; }
+    .slide {
+      display: none; min-height: 100vh;
+      align-items: center; justify-content: center;
+      padding: 80px 24px 120px;
+      animation: slideIn 0.5s ease;
+    }
+    .slide.active { display: flex; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(30px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .slide-inner { max-width: 960px; width: 100%; margin: 0 auto; }
+
+    /* Slide components */
+    .slide-eyebrow {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--cyan); margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .slide-eyebrow::before { content: ''; width: 20px; height: 2px; background: var(--cyan); display: inline-block; }
+    .slide-h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(36px, 6vw, 72px);
+      font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 20px;
+    }
+    .slide-h2 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; margin-bottom: 20px;
+    }
+    .grad        { background: linear-gradient(135deg, #fff 10%, var(--cyan) 55%, var(--blue) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-amber  { background: linear-gradient(135deg, var(--amber), var(--orange)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-green  { background: linear-gradient(135deg, var(--green), var(--cyan)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-purple { background: linear-gradient(135deg, var(--purple), var(--blue)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-pink   { background: linear-gradient(135deg, var(--pink), var(--purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+    .slide-body { font-size: 18px; color: var(--muted); line-height: 1.7; max-width: 640px; }
+
+    /* Cards */
+    .card-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 14px; margin-top: 36px;
+    }
+    .info-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 22px;
+      animation: cardPop 0.4s ease both;
+      transition: all 0.25s;
+    }
+    .info-card:hover { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); transform: translateY(-2px); }
+    @keyframes cardPop {
+      from { opacity: 0; transform: scale(0.95) translateY(10px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .card-icon { font-size: 26px; margin-bottom: 12px; }
+    .card-title { font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .card-desc { font-size: 12px; color: var(--muted); line-height: 1.55; }
+
+    /* URL pill */
+    .url-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(6,182,212,0.1); border: 1px solid rgba(6,182,212,0.25);
+      border-radius: 20px; padding: 6px 16px; margin-bottom: 28px;
+      font-size: 12px; font-weight: 600; color: var(--cyan); letter-spacing: 0.02em;
+      font-family: 'Space Grotesk', monospace;
+    }
+    .url-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* Pipeline visual */
+    .pipeline-mini {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; margin-top: 32px;
+    }
+    .pipeline-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .pipeline-title { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; }
+    .live-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 600; color: var(--green);
+      background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25);
+      border-radius: 20px; padding: 3px 10px;
+    }
+    .live-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; }
+    .pipeline-stages {
+      display: grid; grid-template-columns: repeat(5,1fr); gap: 8px;
+    }
+    .p-stage {
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 8px; text-align: center;
+    }
+    .p-stage-name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+    .p-stage-num  { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; }
+    .pipeline-stats {
+      display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;
+    }
+    .ps { flex: 1; min-width: 80px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; padding: 12px; text-align: center; }
+    .ps-val { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 2px; }
+    .ps-lbl { font-size: 10px; color: var(--muted); font-weight: 500; }
+
+    /* Nikki agent system */
+    .agent-system {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 36px;
+    }
+    .agent-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+      animation: cardPop 0.4s ease both;
+    }
+    .agent-emoji { font-size: 24px; margin-bottom: 10px; }
+    .agent-name { font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .agent-role { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    /* System diagram */
+    .sys-diagram {
+      display: grid; grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 12px; align-items: center; margin-top: 36px;
+    }
+    .sys-node {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px; text-align: center;
+      animation: cardPop 0.4s ease both;
+    }
+    .sys-icon { font-size: 28px; margin-bottom: 8px; }
+    .sys-name { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .sys-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+    .sys-arrow { font-size: 22px; color: var(--muted); text-align: center; }
+
+    /* Scheduled tasks visual */
+    .task-list {
+      margin-top: 32px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .task-row {
+      display: flex; align-items: center; gap: 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 18px;
+      animation: cardPop 0.4s ease both;
+    }
+    .task-icon { font-size: 18px; flex-shrink: 0; }
+    .task-info { flex: 1; }
+    .task-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+    .task-when { font-size: 11px; color: var(--muted); }
+    .task-status {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+      padding: 3px 9px; border-radius: 8px;
+      background: rgba(16,185,129,0.12); color: var(--green);
+      border: 1px solid rgba(16,185,129,0.25);
+    }
+
+    /* Closing */
+    .closing-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 14px; margin-top: 36px;
+    }
+    .closing-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px; text-align: center;
+      animation: cardPop 0.4s ease both;
+    }
+    .closing-icon { font-size: 28px; margin-bottom: 10px; }
+    .closing-item h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .closing-item p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    .mc-link {
+      display: inline-flex; align-items: center; gap: 8px; margin-top: 36px;
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      color: white; font-weight: 600; font-size: 14px;
+      padding: 12px 24px; border-radius: 12px; text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .mc-link:hover { opacity: 0.85; }
+
+    @media (max-width: 700px) {
+      .card-grid { grid-template-columns: 1fr; }
+      .agent-system { grid-template-columns: 1fr; }
+      .sys-diagram { grid-template-columns: 1fr; }
+      .sys-arrow { transform: rotate(90deg); }
+      .closing-grid { grid-template-columns: 1fr; }
+      .pipeline-stages { grid-template-columns: repeat(3,1fr); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="orb orb-c"></div>
+  </div>
+
+  <a href="resources.html" class="back-link">← Playbook</a>
+
+  <div class="slideshow">
+
+    <!-- SLIDE 1: Title -->
+    <div class="slide active" id="slide-1">
+      <div class="slide-inner" style="text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh;">
+        <div class="url-pill">
+          <span class="url-dot"></span>
+          claudeclaw.impactworks.com
+        </div>
+        <div class="slide-h1" style="text-align:center;">
+          <span class="grad">Mission<br/>Control.</span>
+        </div>
+        <p class="slide-body" style="text-align:center; max-width:520px; margin:0 auto 40px;">
+          The command center for running two AI-first businesses — pipeline, playbook, agents, and automation all in one dashboard. Built and run by Nikki.
+        </p>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+          <div style="background:rgba(6,182,212,0.12); border:1px solid rgba(6,182,212,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">📊 Live Pipeline</div>
+          <div style="background:rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">📖 The Playbook</div>
+          <div style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">🤖 AI-Powered</div>
+        </div>
+        <div style="margin-top:50px; color:var(--muted); font-size:13px;">Press ▶ to start</div>
+      </div>
+    </div>
+
+    <!-- SLIDE 2: What is Mission Control -->
+    <div class="slide" id="slide-2">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Foundation</div>
+        <div class="slide-h2">Not just a dashboard.<br/><span class="grad">The business brain.</span></div>
+        <p class="slide-body">Mission Control is the live operations hub for ImpactWorks and Rocket Local AI. It's built on Fly.io, served at claudeclaw.impactworks.com, and powered by Nikki — the AI that reads and writes across every connected system.</p>
+        <div class="card-grid" style="margin-top:36px;">
+          <div class="info-card" style="border-color:rgba(6,182,212,0.3); animation-delay:0.05s;">
+            <div class="card-icon">📊</div>
+            <div class="card-title">Sales Pipeline</div>
+            <div class="card-desc">Live Vendasta data — 61 accounts, MRR, margin, pipeline stages. Always current, never stale.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(139,92,246,0.3); animation-delay:0.1s;">
+            <div class="card-icon">📖</div>
+            <div class="card-title">The Playbook</div>
+            <div class="card-desc">All explainers, SOPs, connected tools, and guides. The operating manual for the whole business.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(16,185,129,0.3); animation-delay:0.15s;">
+            <div class="card-icon">🤖</div>
+            <div class="card-title">Nikki's Output</div>
+            <div class="card-desc">Every HTML page, report, and dashboard in Mission Control is built and deployed by Nikki on demand.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(245,158,11,0.3); animation-delay:0.2s;">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">Fly.io Hosting</div>
+            <div class="card-desc">Runs on a persistent Fly.io machine. Files saved to /app/store/ go live instantly at the root URL.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(59,130,246,0.3); animation-delay:0.25s;">
+            <div class="card-icon">🔐</div>
+            <div class="card-title">Access Control</div>
+            <div class="card-desc">Token-based auth via localStorage. First visit sets the token — after that, the bare URL works forever.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(249,115,22,0.3); animation-delay:0.3s;">
+            <div class="card-icon">🔄</div>
+            <div class="card-title">Always Evolving</div>
+            <div class="card-desc">New pages, tools, and data views get added as the business needs them. Nothing is static.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 3: The Sales Pipeline -->
+    <div class="slide" id="slide-3">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Pipeline Page</div>
+        <div class="slide-h2">Real revenue.<br/><span class="grad-amber">Real time.</span></div>
+        <p class="slide-body">The Pipeline page at /pipeline pulls live data from Vendasta every time it loads. No exports, no manual updates — the numbers are always what they actually are.</p>
+        <div class="pipeline-mini">
+          <div class="pipeline-header">
+            <div class="pipeline-title">Vendasta Sales Pipeline</div>
+            <div class="live-badge"><span class="live-dot"></span> Live Data</div>
+          </div>
+          <div class="pipeline-stages">
+            <div class="p-stage">
+              <div class="p-stage-name">Lead</div>
+              <div class="p-stage-num" style="color:var(--amber);">—</div>
+            </div>
+            <div class="p-stage">
+              <div class="p-stage-name">Contact</div>
+              <div class="p-stage-num" style="color:var(--cyan);">—</div>
+            </div>
+            <div class="p-stage">
+              <div class="p-stage-name">Qualified</div>
+              <div class="p-stage-num" style="color:var(--purple);">—</div>
+            </div>
+            <div class="p-stage">
+              <div class="p-stage-name">Proposal</div>
+              <div class="p-stage-num" style="color:var(--blue);">—</div>
+            </div>
+            <div class="p-stage">
+              <div class="p-stage-name">Client</div>
+              <div class="p-stage-num" style="color:var(--green);">—</div>
+            </div>
+          </div>
+          <div class="pipeline-stats">
+            <div class="ps">
+              <div class="ps-val" style="color:var(--green);">$3,590</div>
+              <div class="ps-lbl">MRR</div>
+            </div>
+            <div class="ps">
+              <div class="ps-val" style="color:var(--cyan);">$2,328</div>
+              <div class="ps-lbl">Margin/mo</div>
+            </div>
+            <div class="ps">
+              <div class="ps-val" style="color:var(--amber);">61</div>
+              <div class="ps-lbl">Accounts</div>
+            </div>
+            <div class="ps">
+              <div class="ps-val" style="color:var(--purple);">65%</div>
+              <div class="ps-lbl">Margin %</div>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--muted); margin-top:14px;">Each account card is editable — click to update stage, notes, or MRR directly in the dashboard.</p>
+      </div>
+    </div>
+
+    <!-- SLIDE 4: The Playbook -->
+    <div class="slide" id="slide-4">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Playbook Page</div>
+        <div class="slide-h2">Every SOP.<br/><span class="grad-purple">Every explainer. Here.</span></div>
+        <p class="slide-body">The Playbook at /resources.html is the master index for running the business. It links every explainer, connected tool, workflow, and guide in one organized hub.</p>
+        <div class="card-grid" style="margin-top:32px;">
+          <div class="info-card" style="border-color:rgba(245,158,11,0.3); animation-delay:0.05s;">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">ImpactWorks OS</div>
+            <div class="card-desc">The animated ClickUp explainer — spaces, folders, structure, and how delivery is organized across both ventures.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(245,158,11,0.3); animation-delay:0.1s;">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">Vendasta Explainer</div>
+            <div class="card-desc">The CRM and pipeline walkthrough — stages, accounts, reputation tools, and the ClickUp handoff.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(6,182,212,0.3); animation-delay:0.15s;">
+            <div class="card-icon">🎯</div>
+            <div class="card-title">Mission Control Guide</div>
+            <div class="card-desc">This explainer — how the dashboard works, what Nikki does, and how everything connects.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(16,185,129,0.3); animation-delay:0.2s;">
+            <div class="card-icon">🔗</div>
+            <div class="card-title">Connected Tools</div>
+            <div class="card-desc">Direct links to ClickUp, Vendasta, the live pipeline, Gamma decks, and GIF downloads.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(139,92,246,0.3); animation-delay:0.25s;">
+            <div class="card-icon">📋</div>
+            <div class="card-title">SOPs &amp; Guides</div>
+            <div class="card-desc">Standard operating procedures for client onboarding, delivery sprints, and operational workflows.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(59,130,246,0.3); animation-delay:0.3s;">
+            <div class="card-icon">🚀</div>
+            <div class="card-title">Always Growing</div>
+            <div class="card-desc">New resources get added as the business evolves. Ask Nikki to add something — it'll be there in minutes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 5: Nikki -->
+    <div class="slide" id="slide-5">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The AI at the Center</div>
+        <div class="slide-h2">Nikki runs<br/><span class="grad-green">the whole thing.</span></div>
+        <p class="slide-body">Nikki is the AI assistant that powers Mission Control. She doesn't just answer questions — she reads and writes across every connected system, builds and deploys pages, manages tasks, and sends Telegram messages in real time.</p>
+        <div class="agent-system">
+          <div class="agent-card" style="border-color:rgba(6,182,212,0.3); animation-delay:0.05s;">
+            <div class="agent-emoji">📱</div>
+            <div class="agent-name">Telegram Interface</div>
+            <div class="agent-role">Dante messages Nikki directly on Telegram. Voice messages, commands, questions — Nikki acts on all of it in real time. No app switching required.</div>
+          </div>
+          <div class="agent-card" style="border-color:rgba(139,92,246,0.3); animation-delay:0.1s;">
+            <div class="agent-emoji">🔗</div>
+            <div class="agent-name">MCP Connectors</div>
+            <div class="agent-role">Nikki has live connections to Gmail, Google Calendar, Google Drive, ClickUp, Vendasta, Notion, Make, Supabase, Canva, Figma, Gamma, Vercel, and more.</div>
+          </div>
+          <div class="agent-card" style="border-color:rgba(16,185,129,0.3); animation-delay:0.15s;">
+            <div class="agent-emoji">⏰</div>
+            <div class="agent-name">Scheduled Tasks</div>
+            <div class="agent-role">Recurring tasks run automatically on cron schedules — morning briefs, pipeline syncs, email digests — all queued and executed without Dante lifting a finger.</div>
+          </div>
+          <div class="agent-card" style="border-color:rgba(245,158,11,0.3); animation-delay:0.2s;">
+            <div class="agent-emoji">🤖</div>
+            <div class="agent-name">Multi-Agent System</div>
+            <div class="agent-role">Nikki can delegate to specialist agents — research, comms, content, ops — for heavy parallel tasks. Each agent is picked up and executed within 60 seconds.</div>
+          </div>
+          <div class="agent-card" style="border-color:rgba(59,130,246,0.3); animation-delay:0.25s;">
+            <div class="agent-emoji">🧠</div>
+            <div class="agent-name">Persistent Memory</div>
+            <div class="agent-role">Nikki remembers everything across sessions — client context, project state, preferences, and business facts — stored in SQLite and recalled automatically.</div>
+          </div>
+          <div class="agent-card" style="border-color:rgba(249,115,22,0.3); animation-delay:0.3s;">
+            <div class="agent-emoji">🏗️</div>
+            <div class="agent-name">Builds &amp; Deploys</div>
+            <div class="agent-role">Nikki writes HTML, deploys to Fly.io, and publishes pages to Mission Control instantly. This very page was built by Nikki in a single session.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 6: How Everything Connects -->
+    <div class="slide" id="slide-6">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Full Loop</div>
+        <div class="slide-h2">Five systems.<br/><span class="grad-pink">One connected OS.</span></div>
+        <p class="slide-body">Nothing is siloed. Vendasta feeds the pipeline. ClickUp handles delivery. Nikki bridges them all. Mission Control shows you the status. The loop runs continuously — with or without you in it.</p>
+        <div class="sys-diagram" style="margin-top:40px;">
+          <div class="sys-node" style="border-color:rgba(245,158,11,0.3); animation-delay:0.05s;">
+            <div class="sys-icon">⚡</div>
+            <div class="sys-name">Vendasta</div>
+            <div class="sys-desc">CRM, pipeline, accounts, MRR, reputation tools</div>
+          </div>
+          <div class="sys-arrow">→</div>
+          <div class="sys-node" style="border-color:rgba(6,182,212,0.3); animation-delay:0.1s;">
+            <div class="sys-icon">🤖</div>
+            <div class="sys-name">Nikki</div>
+            <div class="sys-desc">Reads all systems, routes work, executes tasks</div>
+          </div>
+          <div class="sys-arrow">→</div>
+          <div class="sys-node" style="border-color:rgba(139,92,246,0.3); animation-delay:0.15s;">
+            <div class="sys-icon">✅</div>
+            <div class="sys-name">ClickUp</div>
+            <div class="sys-desc">Project delivery, task tracking, team coordination</div>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:center; margin:16px 0; font-size:22px; color:var(--muted);">↓</div>
+        <div class="sys-diagram" style="grid-template-columns: 1fr auto 1fr; margin-top:0;">
+          <div class="sys-node" style="border-color:rgba(16,185,129,0.3); animation-delay:0.2s;">
+            <div class="sys-icon">📱</div>
+            <div class="sys-name">Telegram</div>
+            <div class="sys-desc">Dante's interface — voice or text, anytime</div>
+          </div>
+          <div class="sys-arrow">↔</div>
+          <div class="sys-node" style="border-color:rgba(59,130,246,0.3); animation-delay:0.25s;">
+            <div class="sys-icon">🎯</div>
+            <div class="sys-name">Mission Control</div>
+            <div class="sys-desc">The dashboard — pipeline, playbook, real-time output</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 7: Closing -->
+    <div class="slide" id="slide-7">
+      <div class="slide-inner" style="text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh;">
+        <div class="slide-eyebrow" style="justify-content:center;">The Command Center</div>
+        <div class="slide-h1" style="text-align:center;">
+          <span class="grad">Always on.<br/>Always current.</span>
+        </div>
+        <p class="slide-body" style="text-align:center; max-width:520px; margin:0 auto 36px;">
+          Mission Control isn't a static site — it's a living, breathing dashboard that evolves with the business. Every page here was built by Nikki and can be updated in minutes.
+        </p>
+        <div class="closing-grid" style="max-width:720px; width:100%;">
+          <div class="closing-item" style="animation-delay:0.05s;">
+            <div class="closing-icon">📊</div>
+            <h4>Live Pipeline</h4>
+            <p>claudeclaw.impactworks.com/pipeline — Vendasta data, live accounts, real MRR.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.1s;">
+            <div class="closing-icon">📖</div>
+            <h4>The Playbook</h4>
+            <p>claudeclaw.impactworks.com/resources.html — the master operations hub.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.15s;">
+            <div class="closing-icon">🤖</div>
+            <h4>Ask Nikki</h4>
+            <p>Message Nikki on Telegram anytime to update, build, or add something new to Mission Control.</p>
+          </div>
+        </div>
+        <a href="/" class="mc-link">🚀 Open Mission Control →</a>
+      </div>
+    </div>
+
+  </div><!-- /slideshow -->
+
+  <!-- Controls -->
+  <div class="controls" id="controls">
+    <button class="ctrl-btn" id="prev-btn" onclick="changeSlide(-1)">‹</button>
+    <span class="slide-counter" id="counter">1 / 7</span>
+    <button class="ctrl-btn primary" id="play-btn" onclick="toggleAuto()">▶</button>
+    <div class="progress-track"><div class="progress-fill" id="progress"></div></div>
+    <button class="ctrl-btn" id="next-btn" onclick="changeSlide(1)">›</button>
+    <span class="auto-label" id="auto-label">AUTO</span>
+  </div>
+
+  <script>
+    const TOTAL = 7;
+    let current = 1;
+    let autoPlay = false;
+    let timer = null;
+
+    function showSlide(n) {
+      document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+      document.getElementById('slide-' + n).classList.add('active');
+      document.getElementById('counter').textContent = n + ' / ' + TOTAL;
+      document.getElementById('progress').style.width = ((n / TOTAL) * 100) + '%';
+      current = n;
+    }
+
+    function changeSlide(dir) {
+      let next = current + dir;
+      if (next < 1) next = TOTAL;
+      if (next > TOTAL) next = 1;
+      showSlide(next);
+    }
+
+    function toggleAuto() {
+      autoPlay = !autoPlay;
+      const btn = document.getElementById('play-btn');
+      const lbl = document.getElementById('auto-label');
+      if (autoPlay) {
+        btn.textContent = '⏸';
+        lbl.style.color = 'var(--cyan)';
+        timer = setInterval(() => changeSlide(1), 4500);
+      } else {
+        btn.textContent = '▶';
+        lbl.style.color = 'var(--muted)';
+        clearInterval(timer);
+      }
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') changeSlide(1);
+      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   changeSlide(-1);
+      if (e.key === ' ') { e.preventDefault(); toggleAuto(); }
+    });
+
+    showSlide(1);
+  </script>
+</body>
+</html>

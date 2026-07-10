@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ImpactWorks OS — Business Operations Explainer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap');
+
+    :root {
+      --bg: #07070f;
+      --surface: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.09);
+      --text: #f0f0f8;
+      --muted: rgba(240,240,248,0.5);
+      --purple: #8b5cf6;
+      --blue: #3b82f6;
+      --cyan: #06b6d4;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --pink: #ec4899;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* BG */
+    .bg-orbs { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(90px); }
+    .orb-a { width: 500px; height: 500px; background: var(--purple); opacity: 0.12; top: -100px; left: -100px; animation: float 18s ease-in-out infinite alternate; }
+    .orb-b { width: 400px; height: 400px; background: var(--blue);   opacity: 0.10; bottom: 0;    right: -80px;  animation: float 22s ease-in-out infinite alternate-reverse; }
+    @keyframes float { from{transform:translate(0,0)} to{transform:translate(30px,20px)} }
+
+    /* CONTROLS */
+    .controls {
+      position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%);
+      z-index: 200; display: flex; align-items: center; gap: 12px;
+      background: rgba(7,7,15,0.9); backdrop-filter: blur(20px);
+      border: 1px solid var(--border); border-radius: 50px; padding: 10px 20px;
+    }
+    .ctrl-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer;
+      background: var(--surface); color: var(--text); font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+    }
+    .ctrl-btn:hover { background: rgba(255,255,255,0.12); }
+    .ctrl-btn.primary {
+      width: 44px; height: 44px; font-size: 16px;
+      background: linear-gradient(135deg, var(--purple), var(--blue));
+    }
+    .ctrl-btn.primary:hover { opacity: 0.85; }
+    .slide-counter {
+      font-size: 13px; font-weight: 600; color: var(--muted);
+      min-width: 52px; text-align: center;
+    }
+    .progress-track {
+      width: 120px; height: 3px; background: rgba(255,255,255,0.1);
+      border-radius: 2px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; background: linear-gradient(90deg, var(--purple), var(--blue));
+      border-radius: 2px; transition: width 0.4s ease;
+    }
+    .auto-label { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.05em; }
+
+    /* BACK LINK */
+    .back-link {
+      position: fixed; top: 20px; left: 24px; z-index: 200;
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(7,7,15,0.85); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 14px; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .back-link:hover { color: var(--text); }
+
+    /* SLIDES */
+    .slideshow { position: relative; z-index: 1; }
+    .slide {
+      display: none; min-height: 100vh;
+      align-items: center; justify-content: center;
+      padding: 80px 24px 120px;
+      animation: slideIn 0.5s ease;
+    }
+    .slide.active { display: flex; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(30px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .slide-inner { max-width: 960px; width: 100%; margin: 0 auto; }
+
+    /* Slide components */
+    .slide-eyebrow {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--cyan); margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .slide-eyebrow::before {
+      content: ''; width: 20px; height: 2px;
+      background: var(--cyan); display: inline-block;
+    }
+    .slide-h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(36px, 6vw, 72px);
+      font-weight: 800; line-height: 1.05; letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+    .slide-h2 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 700; line-height: 1.1; letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+    .grad { background: linear-gradient(135deg, #fff 10%, var(--purple) 55%, var(--blue) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-green { background: linear-gradient(135deg, var(--green), var(--cyan)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-amber { background: linear-gradient(135deg, var(--amber), #f97316); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-pink  { background: linear-gradient(135deg, var(--pink), var(--purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+    .slide-body {
+      font-size: 18px; color: var(--muted); line-height: 1.7; max-width: 640px;
+    }
+    .slide-body.wide { max-width: 100%; }
+
+    /* Space cards */
+    .spaces-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 14px; margin-top: 40px;
+    }
+    .space-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+      display: flex; flex-direction: column; gap: 10px;
+      transition: all 0.25s;
+      animation: cardPop 0.4s ease both;
+    }
+    .space-card:hover { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); transform: translateY(-2px); }
+    @keyframes cardPop {
+      from { opacity: 0; transform: scale(0.95) translateY(10px); }
+      to   { opacity: 1; transform: scale(1)    translateY(0); }
+    }
+    .space-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 5px 12px; border-radius: 20px; width: fit-content;
+    }
+    .space-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .space-name { font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 600; }
+    .space-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .space-tag { font-size: 11px; font-weight: 600; color: var(--muted); }
+
+    /* Folder anatomy */
+    .anatomy {
+      display: grid; grid-template-columns: 260px 1fr;
+      gap: 40px; margin-top: 36px; align-items: start;
+    }
+    .folder-tree {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+      font-family: 'Space Grotesk', monospace; font-size: 13px;
+    }
+    .tree-space { color: var(--purple); font-weight: 700; margin-bottom: 6px; }
+    .tree-folder { color: var(--blue); margin-left: 16px; margin-bottom: 4px; }
+    .tree-list { color: var(--cyan); margin-left: 32px; margin-bottom: 2px; }
+    .tree-icon { margin-right: 6px; }
+
+    .anatomy-points { display: flex; flex-direction: column; gap: 16px; }
+    .anatomy-point {
+      display: flex; gap: 14px; align-items: flex-start;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px;
+      animation: cardPop 0.4s ease both;
+    }
+    .point-num {
+      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--purple), var(--blue));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+    }
+    .point-text h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .point-text p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    /* CRM flow */
+    .crm-flow {
+      display: flex; align-items: center; gap: 0;
+      margin-top: 40px; flex-wrap: wrap; justify-content: center;
+    }
+    .crm-stage {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      text-align: center;
+    }
+    .stage-box {
+      width: 120px; padding: 16px 8px;
+      border-radius: 12px; border: 1px solid;
+      font-size: 12px; font-weight: 600; line-height: 1.4;
+      transition: transform 0.2s;
+      cursor: default;
+    }
+    .stage-box:hover { transform: scale(1.05); }
+    .stage-icon { font-size: 22px; margin-bottom: 6px; }
+    .stage-label { font-size: 10px; color: var(--muted); font-weight: 500; }
+    .flow-arrow {
+      font-size: 20px; color: var(--muted); padding: 0 6px;
+      margin-bottom: 20px;
+    }
+
+    /* Two ventures */
+    .ventures-split {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 20px; margin-top: 36px;
+    }
+    .venture-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px;
+      animation: cardPop 0.4s ease both;
+    }
+    .venture-logo {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 22px; font-weight: 800; margin-bottom: 12px;
+    }
+    .venture-card p { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 16px; }
+    .venture-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .vtag {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 4px 10px; border-radius: 6px;
+      background: rgba(255,255,255,0.06); color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    /* Closing */
+    .closing-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 14px; margin-top: 36px;
+    }
+    .closing-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; text-align: center;
+      animation: cardPop 0.4s ease both;
+    }
+    .closing-icon { font-size: 28px; margin-bottom: 10px; }
+    .closing-item h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .closing-item p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    @media (max-width: 700px) {
+      .spaces-grid { grid-template-columns: 1fr; }
+      .anatomy { grid-template-columns: 1fr; }
+      .ventures-split { grid-template-columns: 1fr; }
+      .closing-grid { grid-template-columns: 1fr; }
+      .crm-flow { flex-direction: column; }
+      .flow-arrow { transform: rotate(90deg); margin: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+  </div>
+
+  <a href="resources.html" class="back-link">← Playbook</a>
+
+  <div class="slideshow">
+
+    <!-- SLIDE 1: Title -->
+    <div class="slide active" id="slide-1">
+      <div class="slide-inner" style="text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh;">
+        <div class="slide-eyebrow" style="justify-content:center;">How We Run It</div>
+        <div class="slide-h1" style="text-align:center;">
+          <span class="grad">ImpactWorks<br/>OS.</span>
+        </div>
+        <p class="slide-body" style="text-align:center; max-width:520px; margin:0 auto 40px;">
+          The operating system behind two AI-first ventures — ClickUp for delivery, Vendasta for the pipeline, Nikki keeping it all connected.
+        </p>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+          <div style="background:rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">✅ ClickUp</div>
+          <div style="background:rgba(6,182,212,0.12); border:1px solid rgba(6,182,212,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">⚡ Vendasta CRM</div>
+          <div style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">🤖 AI-Powered</div>
+        </div>
+        <div style="margin-top:50px; color:var(--muted); font-size:13px; animation: bounce 2s infinite;">Press ▶ to start</div>
+      </div>
+    </div>
+
+    <!-- SLIDE 2: Two Ventures -->
+    <div class="slide" id="slide-2">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Foundation</div>
+        <div class="slide-h2">Two ventures.<br/><span class="grad">One workspace.</span></div>
+        <p class="slide-body">Everything runs inside a single ClickUp workspace — ImpactWorks Workspace — with dedicated spaces keeping the two businesses cleanly separated.</p>
+        <div class="ventures-split">
+          <div class="venture-card" style="border-color: rgba(139,92,246,0.3); animation-delay:0.1s;">
+            <div class="venture-logo" style="background:linear-gradient(135deg,var(--purple),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">ImpactWorks</div>
+            <p>Digital agency specializing in AI strategy, workflow automation, and agentic AI development. Fixed-scope sprints. Flagship: AI Automation Audit.</p>
+            <div class="venture-tags">
+              <span class="vtag">AI Strategy</span>
+              <span class="vtag">Automation</span>
+              <span class="vtag">Full-Stack</span>
+            </div>
+          </div>
+          <div class="venture-card" style="border-color: rgba(6,182,212,0.3); animation-delay:0.2s;">
+            <div class="venture-logo" style="background:linear-gradient(135deg,var(--cyan),var(--green));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Rocket Local AI</div>
+            <p>AI-powered local marketing agency. Hyperlocal SEO, reputation management, Map Pack domination. Primary: home services, medical, multi-location brands.</p>
+            <div class="venture-tags">
+              <span class="vtag">Local SEO</span>
+              <span class="vtag">Reputation AI</span>
+              <span class="vtag">Hyperlocal</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 3: 6 Spaces -->
+    <div class="slide" id="slide-3">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Architecture</div>
+        <div class="slide-h2"><span class="grad">6 Spaces.</span><br/>Each with a clear purpose.</div>
+        <p class="slide-body">The workspace is divided into six spaces — two for each venture (Clients + Ops) plus Personal and Prime Reset.</p>
+        <div class="spaces-grid">
+          <div class="space-card" style="animation-delay:0.05s;">
+            <div class="space-pill" style="background:rgba(139,92,246,0.12);color:var(--purple);border:1px solid rgba(139,92,246,0.25);">
+              <span class="space-dot" style="background:var(--purple)"></span> ImpactWorks
+            </div>
+            <div class="space-name">ImpactWorks Clients</div>
+            <div class="space-desc">All ImpactWorks client work. Organized by client folder.</div>
+          </div>
+          <div class="space-card" style="animation-delay:0.1s;">
+            <div class="space-pill" style="background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.25);">
+              <span class="space-dot" style="background:var(--blue)"></span> ImpactWorks
+            </div>
+            <div class="space-name">ImpactWorks Ops</div>
+            <div class="space-desc">Internal operations, admin tasks, team management.</div>
+          </div>
+          <div class="space-card" style="animation-delay:0.15s;">
+            <div class="space-pill" style="background:rgba(6,182,212,0.12);color:var(--cyan);border:1px solid rgba(6,182,212,0.25);">
+              <span class="space-dot" style="background:var(--cyan)"></span> Rocket Local
+            </div>
+            <div class="space-name">Rocket Local Clients</div>
+            <div class="space-desc">All Rocket Local client work. Same pattern as ImpactWorks.</div>
+          </div>
+          <div class="space-card" style="animation-delay:0.2s;">
+            <div class="space-pill" style="background:rgba(16,185,129,0.12);color:var(--green);border:1px solid rgba(16,185,129,0.25);">
+              <span class="space-dot" style="background:var(--green)"></span> Rocket Local
+            </div>
+            <div class="space-name">Rocket Local Ops</div>
+            <div class="space-desc">Internal Rocket Local operations and campaign management.</div>
+          </div>
+          <div class="space-card" style="animation-delay:0.25s;">
+            <div class="space-pill" style="background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.25);">
+              <span class="space-dot" style="background:var(--amber)"></span> Personal
+            </div>
+            <div class="space-name">Personal</div>
+            <div class="space-desc">Personal tasks — subscriptions, LLCs, life admin.</div>
+          </div>
+          <div class="space-card" style="animation-delay:0.3s;">
+            <div class="space-pill" style="background:rgba(236,72,153,0.12);color:var(--pink);border:1px solid rgba(236,72,153,0.25);">
+              <span class="space-dot" style="background:var(--pink)"></span> Venture
+            </div>
+            <div class="space-name">Prime Reset</div>
+            <div class="space-desc">Dedicated space for the Prime Reset venture.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 4: Client Folder Pattern -->
+    <div class="slide" id="slide-4">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">Client Organization</div>
+        <div class="slide-h2">The client folder<br/><span class="grad-green">pattern.</span></div>
+        <p class="slide-body">Both client spaces use the exact same simple structure. No over-engineering — just what's needed.</p>
+        <div class="anatomy">
+          <div class="folder-tree">
+            <div class="tree-space">📁 ImpactWorks Clients</div>
+            <div class="tree-folder">📂 <span style="color:var(--text)">ZAGG Phone Repair</span></div>
+            <div class="tree-list">📋 Website Task List</div>
+            <div class="tree-folder">📂 <span style="color:var(--text)">InnoTech Pest</span></div>
+            <div class="tree-list">📋 Website Task List</div>
+            <div class="tree-folder">📂 <span style="color:var(--text)">ReSource Pest</span></div>
+            <div class="tree-list">📋 Website Support List</div>
+            <div class="tree-folder">📂 <span style="color:var(--text)">NCWHF</span></div>
+            <div class="tree-list">📋 Website Task List</div>
+            <div class="tree-folder">📂 <span style="color:var(--text)">CRM</span></div>
+            <div class="tree-list" style="color:var(--amber)">📋 Deals</div>
+            <div class="tree-list" style="color:var(--amber)">📋 Accounts</div>
+            <div class="tree-list" style="color:var(--amber)">📋 Contacts</div>
+            <div style="color:var(--muted); font-size:11px; margin-top:10px; margin-left:8px;">+ more clients…</div>
+          </div>
+          <div class="anatomy-points">
+            <div class="anatomy-point" style="animation-delay:0.1s;">
+              <div class="point-num">1</div>
+              <div class="point-text">
+                <h4>Client = Folder</h4>
+                <p>Each client gets their own folder named after them. Clean, no nesting confusion.</p>
+              </div>
+            </div>
+            <div class="anatomy-point" style="animation-delay:0.2s;">
+              <div class="point-num">2</div>
+              <div class="point-text">
+                <h4>Website Task/Support List</h4>
+                <p>One list inside the folder for all deliverables. Naming varies slightly ("Task" vs "Support") but the pattern is identical.</p>
+              </div>
+            </div>
+            <div class="anatomy-point" style="animation-delay:0.3s;">
+              <div class="point-num">3</div>
+              <div class="point-text">
+                <h4>Same Pattern, Both Ventures</h4>
+                <p>Rocket Local Clients mirrors this exactly. The structure is the same across both businesses — less to learn, easier to manage.</p>
+              </div>
+            </div>
+            <div class="anatomy-point" style="animation-delay:0.4s;">
+              <div class="point-num">4</div>
+              <div class="point-text">
+                <h4>No Over-Engineering</h4>
+                <p>No sub-folders, no complex templates. Each client is simple: one folder, one list, all tasks.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 5: CRM -->
+    <div class="slide" id="slide-5">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The CRM &amp; Sales Funnel</div>
+        <div class="slide-h2">Vendasta runs<br/><span class="grad-amber">the pipeline.</span></div>
+        <p class="slide-body wide" style="max-width:620px;">Vendasta is the CRM and sales funnel — not ClickUp. Leads move through stages in Vendasta, and when a deal closes, a client folder is created in ClickUp for project delivery.</p>
+        <div class="crm-flow">
+          <div class="crm-stage">
+            <div class="stage-box" style="background:rgba(139,92,246,0.12);border-color:rgba(139,92,246,0.35);">
+              <div class="stage-icon">⚡</div>
+              Lead
+            </div>
+            <div class="stage-label">New Prospect</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="crm-stage">
+            <div class="stage-box" style="background:rgba(59,130,246,0.12);border-color:rgba(59,130,246,0.35);">
+              <div class="stage-icon">📞</div>
+              Contact
+            </div>
+            <div class="stage-label">Discovery Call</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="crm-stage">
+            <div class="stage-box" style="background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35);">
+              <div class="stage-icon">🎯</div>
+              Qualified
+            </div>
+            <div class="stage-label">ICP + BANT Fit</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="crm-stage">
+            <div class="stage-box" style="background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.35);">
+              <div class="stage-icon">💼</div>
+              Proposal
+            </div>
+            <div class="stage-label">Deal Sent</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="crm-stage">
+            <div class="stage-box" style="background:rgba(6,182,212,0.12);border-color:rgba(6,182,212,0.35);">
+              <div class="stage-icon">✅</div>
+              Client
+            </div>
+            <div class="stage-label">Won → ClickUp</div>
+          </div>
+        </div>
+        <div style="margin-top:32px; display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">Vendasta</div>
+            <div style="font-size:13px;font-weight:500;">Source of truth — all leads, deals, accounts, and MRR</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">Sales Pipeline</div>
+            <div style="font-size:13px;font-weight:500;">Live in Mission Control — 61 accounts, $3,590/mo MRR</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">ClickUp Role</div>
+            <div style="font-size:13px;font-weight:500;">Project delivery only — client folders created on close</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 6: Team -->
+    <div class="slide" id="slide-6">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Team</div>
+        <div class="slide-h2">Who's in<br/><span class="grad-pink">the workspace.</span></div>
+        <p class="slide-body">Two active users. Tasks are assigned, tracked, and managed across both ventures in real time.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:36px;">
+          <div style="background:var(--surface);border:1px solid rgba(139,92,246,0.3);border-radius:16px;padding:28px;text-align:center;animation:cardPop 0.4s ease 0.1s both;">
+            <div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--purple),var(--blue));display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 16px;">D</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;margin-bottom:6px;">Dante Crescenzi</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Founder & Operator · ImpactWorks + Rocket Local</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;">Primary assignee across all spaces</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid rgba(6,182,212,0.3);border-radius:16px;padding:28px;text-align:center;animation:cardPop 0.4s ease 0.2s both;">
+            <div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--green));display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 16px;">A</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;margin-bottom:6px;">Audra Harvey</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Team · ImpactWorks Workspace</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;">Co-assigned on shared tasks</div>
+          </div>
+        </div>
+        <div style="margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 22px;display:flex;align-items:center;gap:14px;">
+          <div style="font-size:22px;">🤖</div>
+          <div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:3px;">Nikki — AI Assistant</div>
+            <div style="font-size:12px;color:var(--muted);">Reads, creates, updates, and moves tasks across the workspace via MCP connector. Fully integrated.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 7: Wrap-up -->
+    <div class="slide" id="slide-7">
+      <div class="slide-inner" style="text-align:center;display:flex;flex-direction:column;align-items:center;">
+        <div class="slide-eyebrow" style="justify-content:center;">The Big Picture</div>
+        <div class="slide-h1" style="text-align:center;">
+          <span class="grad">Built to scale.<br/>Built to ship.</span>
+        </div>
+        <p class="slide-body" style="text-align:center;margin:0 auto 48px;max-width:540px;">
+          Simple structure, AI-native tooling, and two lean ventures running on the same system — that's the ClickUp OS.
+        </p>
+        <div class="closing-grid" style="text-align:left;width:100%;">
+          <div class="closing-item" style="animation-delay:0.05s;">
+            <div class="closing-icon">🏗️</div>
+            <h4>6 Clean Spaces</h4>
+            <p>Each space owns its domain — no cross-contamination, no confusion.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.1s;">
+            <div class="closing-icon">📁</div>
+            <h4>One Pattern</h4>
+            <p>Client folder → Website Task List. Same for ImpactWorks and Rocket Local.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.15s;">
+            <div class="closing-icon">🔄</div>
+            <h4>Vendasta CRM</h4>
+            <p>Vendasta owns the full sales funnel. ClickUp handles delivery once a deal closes.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.2s;">
+            <div class="closing-icon">⚡</div>
+            <h4>AI-Connected</h4>
+            <p>Nikki reads and writes tasks via MCP — no manual updates needed.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.25s;">
+            <div class="closing-icon">👥</div>
+            <h4>Two Users</h4>
+            <p>Dante + Audra. Tasks assigned, tracked, and owned clearly.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.3s;">
+            <div class="closing-icon">🚀</div>
+            <h4>Expanding</h4>
+            <p>Structure is intentionally minimal — grows as the business does.</p>
+          </div>
+        </div>
+        <div style="margin-top:40px;display:flex;gap:12px;justify-content:center;">
+          <a href="resources.html" class="back-link" style="position:static;background:linear-gradient(135deg,var(--purple),var(--blue));border-color:transparent;color:white;font-weight:600;">← Back to Playbook</a>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /slideshow -->
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn" id="prevBtn" onclick="changeSlide(-1)" title="Previous">‹</button>
+    <div class="slide-counter"><span id="currentSlide">1</span> / <span id="totalSlides">7</span></div>
+    <button class="ctrl-btn primary" id="playBtn" onclick="toggleAuto()" title="Play/Pause">▶</button>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <button class="ctrl-btn" id="nextBtn" onclick="changeSlide(1)" title="Next">›</button>
+    <span class="auto-label" id="autoLabel">AUTO</span>
+  </div>
+
+  <style>
+    @keyframes bounce {
+      0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)}
+    }
+  </style>
+
+  <script>
+    let currentSlide = 1;
+    const totalSlides = 7;
+    let autoPlay = false;
+    let autoTimer = null;
+    const AUTO_DELAY = 6000;
+
+    function showSlide(n) {
+      const slides = document.querySelectorAll('.slide');
+      slides.forEach(s => s.classList.remove('active'));
+      currentSlide = Math.max(1, Math.min(n, totalSlides));
+      document.getElementById('slide-' + currentSlide).classList.add('active');
+      document.getElementById('currentSlide').textContent = currentSlide;
+      const pct = ((currentSlide - 1) / (totalSlides - 1)) * 100;
+      document.getElementById('progressFill').style.width = pct + '%';
+    }
+
+    function changeSlide(dir) {
+      showSlide(currentSlide + dir);
+      if (autoPlay && currentSlide === totalSlides) stopAuto();
+    }
+
+    function toggleAuto() {
+      autoPlay ? stopAuto() : startAuto();
+    }
+
+    function startAuto() {
+      autoPlay = true;
+      document.getElementById('playBtn').textContent = '⏸';
+      document.getElementById('autoLabel').style.color = 'var(--cyan)';
+      autoTimer = setInterval(() => {
+        if (currentSlide < totalSlides) { changeSlide(1); }
+        else { stopAuto(); }
+      }, AUTO_DELAY);
+    }
+
+    function stopAuto() {
+      autoPlay = false;
+      clearInterval(autoTimer);
+      document.getElementById('playBtn').textContent = '▶';
+      document.getElementById('autoLabel').style.color = 'var(--muted)';
+    }
+
+    // Keyboard nav
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); changeSlide(1); }
+      if (e.key === 'ArrowLeft') changeSlide(-1);
+      if (e.key === 'p') toggleAuto();
+    });
+
+    showSlide(1);
+  </script>
+</body>
+</html>

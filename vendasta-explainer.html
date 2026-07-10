@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Vendasta CRM — How the Pipeline Works</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap');
+
+    :root {
+      --bg: #07070f;
+      --surface: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.09);
+      --text: #f0f0f8;
+      --muted: rgba(240,240,248,0.5);
+      --purple: #8b5cf6;
+      --blue: #3b82f6;
+      --cyan: #06b6d4;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --orange: #f97316;
+      --pink: #ec4899;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* BG */
+    .bg-orbs { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(90px); }
+    .orb-a { width: 500px; height: 500px; background: var(--amber); opacity: 0.09; top: -100px; left: -100px; animation: float 18s ease-in-out infinite alternate; }
+    .orb-b { width: 400px; height: 400px; background: var(--orange); opacity: 0.08; bottom: 0; right: -80px; animation: float 22s ease-in-out infinite alternate-reverse; }
+    .orb-c { width: 350px; height: 350px; background: var(--green); opacity: 0.07; top: 40%; left: 40%; animation: float 28s ease-in-out infinite alternate; }
+    @keyframes float { from{transform:translate(0,0)} to{transform:translate(30px,20px)} }
+
+    /* CONTROLS */
+    .controls {
+      position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%);
+      z-index: 200; display: flex; align-items: center; gap: 12px;
+      background: rgba(7,7,15,0.9); backdrop-filter: blur(20px);
+      border: 1px solid var(--border); border-radius: 50px; padding: 10px 20px;
+    }
+    .ctrl-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer;
+      background: var(--surface); color: var(--text); font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+    }
+    .ctrl-btn:hover { background: rgba(255,255,255,0.12); }
+    .ctrl-btn.primary {
+      width: 44px; height: 44px; font-size: 16px;
+      background: linear-gradient(135deg, var(--amber), var(--orange));
+    }
+    .ctrl-btn.primary:hover { opacity: 0.85; }
+    .slide-counter { font-size: 13px; font-weight: 600; color: var(--muted); min-width: 52px; text-align: center; }
+    .progress-track { width: 120px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--orange)); border-radius: 2px; transition: width 0.4s ease; }
+    .auto-label { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.05em; }
+
+    /* BACK LINK */
+    .back-link {
+      position: fixed; top: 20px; left: 24px; z-index: 200;
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(7,7,15,0.85); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 14px; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .back-link:hover { color: var(--text); }
+
+    /* SLIDES */
+    .slideshow { position: relative; z-index: 1; }
+    .slide {
+      display: none; min-height: 100vh;
+      align-items: center; justify-content: center;
+      padding: 80px 24px 120px;
+      animation: slideIn 0.5s ease;
+    }
+    .slide.active { display: flex; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(30px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .slide-inner { max-width: 960px; width: 100%; margin: 0 auto; }
+
+    /* Slide components */
+    .slide-eyebrow {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--amber); margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .slide-eyebrow::before { content: ''; width: 20px; height: 2px; background: var(--amber); display: inline-block; }
+    .slide-h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(36px, 6vw, 72px);
+      font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 20px;
+    }
+    .slide-h2 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; margin-bottom: 20px;
+    }
+    .grad         { background: linear-gradient(135deg, #fff 10%, var(--amber) 55%, var(--orange) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-green   { background: linear-gradient(135deg, var(--green), var(--cyan)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-purple  { background: linear-gradient(135deg, var(--purple), var(--blue)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .grad-amber   { background: linear-gradient(135deg, var(--amber), var(--orange)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+    .slide-body { font-size: 18px; color: var(--muted); line-height: 1.7; max-width: 640px; }
+
+    /* Cards */
+    .card-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 14px; margin-top: 40px;
+    }
+    .card-2 { grid-template-columns: repeat(2, 1fr); }
+    .info-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 22px;
+      animation: cardPop 0.4s ease both;
+      transition: all 0.25s;
+    }
+    .info-card:hover { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); transform: translateY(-2px); }
+    @keyframes cardPop {
+      from { opacity: 0; transform: scale(0.95) translateY(10px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .card-icon { font-size: 26px; margin-bottom: 12px; }
+    .card-title { font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .card-desc { font-size: 12px; color: var(--muted); line-height: 1.55; }
+
+    /* Pipeline flow */
+    .pipeline-flow {
+      display: flex; align-items: flex-start; gap: 0;
+      margin-top: 44px; justify-content: center; flex-wrap: wrap;
+    }
+    .stage-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .stage-box {
+      width: 130px; padding: 18px 10px;
+      border-radius: 14px; border: 1px solid;
+      text-align: center; font-size: 13px; font-weight: 600;
+      transition: transform 0.2s; cursor: default;
+    }
+    .stage-box:hover { transform: scale(1.05); }
+    .stage-icon { font-size: 24px; margin-bottom: 8px; }
+    .stage-name { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+    .stage-sub { font-size: 10px; color: var(--muted); font-weight: 500; }
+    .flow-arrow { font-size: 20px; color: var(--muted); padding: 0 4px; margin-top: 36px; }
+
+    .stage-lead     { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.35); }
+    .stage-contact  { background: rgba(6,182,212,0.08);  border-color: rgba(6,182,212,0.35); }
+    .stage-qual     { background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.35); }
+    .stage-proposal { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.35); }
+    .stage-client   { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.35); }
+
+    /* Stat badges */
+    .stat-row { display: flex; gap: 16px; margin-top: 36px; flex-wrap: wrap; }
+    .stat-badge {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 22px;
+      flex: 1; min-width: 140px;
+    }
+    .stat-num { font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+    .stat-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+    /* Handoff visual */
+    .handoff {
+      display: grid; grid-template-columns: 1fr auto 1fr;
+      gap: 20px; align-items: center; margin-top: 40px;
+    }
+    .handoff-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px;
+      animation: cardPop 0.4s ease both;
+    }
+    .handoff-arrow {
+      font-size: 32px; text-align: center; color: var(--muted);
+    }
+    .handoff-platform { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+    .handoff-name { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .handoff-role { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .handoff-items { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+    .handoff-item {
+      font-size: 12px; color: var(--muted);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .handoff-item::before { content: '→'; color: var(--amber); font-weight: 700; }
+
+    /* Closing */
+    .closing-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 14px; margin-top: 36px;
+    }
+    .closing-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px; text-align: center;
+      animation: cardPop 0.4s ease both;
+    }
+    .closing-icon { font-size: 28px; margin-bottom: 10px; }
+    .closing-item h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .closing-item p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    .pipeline-link {
+      display: inline-flex; align-items: center; gap: 8px; margin-top: 36px;
+      background: linear-gradient(135deg, var(--amber), var(--orange));
+      color: white; font-weight: 600; font-size: 14px;
+      padding: 12px 24px; border-radius: 12px; text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .pipeline-link:hover { opacity: 0.85; }
+
+    @media (max-width: 700px) {
+      .card-grid { grid-template-columns: 1fr; }
+      .pipeline-flow { flex-direction: column; align-items: center; }
+      .flow-arrow { margin-top: 0; transform: rotate(90deg); }
+      .handoff { grid-template-columns: 1fr; }
+      .handoff-arrow { transform: rotate(90deg); }
+      .closing-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="orb orb-c"></div>
+  </div>
+
+  <a href="resources.html" class="back-link">← Playbook</a>
+
+  <div class="slideshow">
+
+    <!-- SLIDE 1: Title -->
+    <div class="slide active" id="slide-1">
+      <div class="slide-inner" style="text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh;">
+        <div class="slide-eyebrow" style="justify-content:center;">How We Sell</div>
+        <div class="slide-h1" style="text-align:center;">
+          <span class="grad">Vendasta.<br/>The Pipeline.</span>
+        </div>
+        <p class="slide-body" style="text-align:center; max-width:520px; margin:0 auto 40px;">
+          Vendasta is the CRM and sales funnel for both ventures — every lead, contact, deal, account, and dollar of MRR lives here.
+        </p>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+          <div style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">⚡ CRM</div>
+          <div style="background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">📊 Sales Pipeline</div>
+          <div style="background:rgba(6,182,212,0.12); border:1px solid rgba(6,182,212,0.3); border-radius:10px; padding:12px 20px; font-size:13px; font-weight:600;">🗺️ Local SEO</div>
+        </div>
+        <div style="margin-top:50px; color:var(--muted); font-size:13px;">Press ▶ to start</div>
+      </div>
+    </div>
+
+    <!-- SLIDE 2: What is Vendasta -->
+    <div class="slide" id="slide-2">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Platform</div>
+        <div class="slide-h2">One platform.<br/><span class="grad">Everything we sell with.</span></div>
+        <p class="slide-body">Vendasta isn't just a CRM — it's a full white-label local marketing platform. We use it as our pipeline, our account management system, our reputation tool, and our local SEO engine.</p>
+        <div class="card-grid" style="margin-top:36px;">
+          <div class="info-card" style="border-color:rgba(245,158,11,0.3); animation-delay:0.05s;">
+            <div class="card-icon">⚡</div>
+            <div class="card-title">CRM &amp; Pipeline</div>
+            <div class="card-desc">Leads, contacts, accounts, and deals — all staged and tracked from first touch to closed client.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(16,185,129,0.3); animation-delay:0.1s;">
+            <div class="card-icon">⭐</div>
+            <div class="card-title">Reputation Management</div>
+            <div class="card-desc">Review monitoring, response automation, and listing management across Google, Yelp, and 50+ directories.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(6,182,212,0.3); animation-delay:0.15s;">
+            <div class="card-icon">🗺️</div>
+            <div class="card-title">Local SEO</div>
+            <div class="card-desc">Citation building, GBP management, and hyperlocal optimization — the engine behind Rocket Local AI.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(139,92,246,0.3); animation-delay:0.2s;">
+            <div class="card-icon">📊</div>
+            <div class="card-title">Reporting &amp; Analytics</div>
+            <div class="card-desc">Executive reports, performance snapshots, and white-labeled dashboards shareable with clients.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(59,130,246,0.3); animation-delay:0.25s;">
+            <div class="card-icon">🤖</div>
+            <div class="card-title">Automation</div>
+            <div class="card-desc">Triggered follow-ups, task assignments, and campaign sequences tied to pipeline stage movement.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(249,115,22,0.3); animation-delay:0.3s;">
+            <div class="card-icon">🏢</div>
+            <div class="card-title">Namespace: 0BYD</div>
+            <div class="card-desc">Our partner account ID. Used for API access, Nikki's connector, and all programmatic reads/writes.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 3: Pipeline Stages -->
+    <div class="slide" id="slide-3">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Sales Funnel</div>
+        <div class="slide-h2">Five stages.<br/><span class="grad-amber">One clear path.</span></div>
+        <p class="slide-body">Every prospect enters as a Lead and progresses through defined stages until they become a paying Client. Each stage has a clear trigger and outcome.</p>
+        <div class="pipeline-flow">
+          <div class="stage-wrap">
+            <div class="stage-box stage-lead">
+              <div class="stage-icon">⚡</div>
+              <div class="stage-name">Lead</div>
+              <div class="stage-sub">New Prospect</div>
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="stage-wrap">
+            <div class="stage-box stage-contact">
+              <div class="stage-icon">📞</div>
+              <div class="stage-name">Contact</div>
+              <div class="stage-sub">Discovery Call</div>
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="stage-wrap">
+            <div class="stage-box stage-qual">
+              <div class="stage-icon">🎯</div>
+              <div class="stage-name">Qualified</div>
+              <div class="stage-sub">ICP + BANT Fit</div>
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="stage-wrap">
+            <div class="stage-box stage-proposal">
+              <div class="stage-icon">📋</div>
+              <div class="stage-name">Proposal</div>
+              <div class="stage-sub">Deal Sent</div>
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="stage-wrap">
+            <div class="stage-box stage-client">
+              <div class="stage-icon">✅</div>
+              <div class="stage-name">Client</div>
+              <div class="stage-sub">Won → ClickUp</div>
+            </div>
+          </div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-badge">
+            <div class="stat-num" style="background:linear-gradient(135deg,var(--amber),var(--orange)); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">61</div>
+            <div class="stat-label">Active Accounts</div>
+          </div>
+          <div class="stat-badge">
+            <div class="stat-num" style="background:linear-gradient(135deg,var(--green),var(--cyan)); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">$3,590</div>
+            <div class="stat-label">Monthly MRR</div>
+          </div>
+          <div class="stat-badge">
+            <div class="stat-num" style="background:linear-gradient(135deg,var(--blue),var(--purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">$2,328</div>
+            <div class="stat-label">Monthly Margin</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 4: Accounts & Contacts -->
+    <div class="slide" id="slide-4">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">Account Management</div>
+        <div class="slide-h2">Accounts, contacts,<br/><span class="grad-green">deals — all in one view.</span></div>
+        <p class="slide-body">Vendasta keeps a clean record of every business relationship. Accounts are companies. Contacts are the people. Deals are active opportunities tied to both.</p>
+        <div class="card-grid" style="margin-top:36px; grid-template-columns: repeat(2,1fr);">
+          <div class="info-card" style="border-color:rgba(245,158,11,0.3); animation-delay:0.05s;">
+            <div class="card-icon">🏢</div>
+            <div class="card-title">Accounts</div>
+            <div class="card-desc">Every business we're working with or pursuing. Synced to ClickUp for delivery once they become active clients. Source of truth for all company data.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(6,182,212,0.3); animation-delay:0.1s;">
+            <div class="card-icon">👤</div>
+            <div class="card-title">Contacts</div>
+            <div class="card-desc">The individual humans at each account — decision makers, project leads, billing contacts. Tied to accounts with role and relationship context.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(139,92,246,0.3); animation-delay:0.15s;">
+            <div class="card-icon">💼</div>
+            <div class="card-title">Deals</div>
+            <div class="card-desc">Active opportunities with value, stage, and expected close date. When a deal closes, it triggers the ClickUp handoff for project delivery.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(16,185,129,0.3); animation-delay:0.2s;">
+            <div class="card-icon">🤖</div>
+            <div class="card-title">Nikki's Access</div>
+            <div class="card-desc">Nikki reads and writes to Vendasta via the custom MCP connector (namespace 0BYD). Can query accounts, update stages, and check pipeline status on demand.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 5: Reputation & Local SEO -->
+    <div class="slide" id="slide-5">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">Beyond the CRM</div>
+        <div class="slide-h2">Reputation &amp;<br/><span class="grad-purple">local SEO — built in.</span></div>
+        <p class="slide-body">Vendasta's platform powers the services we deliver to Rocket Local AI clients. Review management, GBP optimization, and citation building all run through the same system.</p>
+        <div class="card-grid" style="margin-top:36px;">
+          <div class="info-card" style="border-color:rgba(16,185,129,0.3); animation-delay:0.05s;">
+            <div class="card-icon">⭐</div>
+            <div class="card-title">Review Monitoring</div>
+            <div class="card-desc">Real-time alerts across Google, Yelp, Facebook, and 50+ platforms. Automated response workflows for negative reviews.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(6,182,212,0.3); animation-delay:0.1s;">
+            <div class="card-icon">📍</div>
+            <div class="card-title">Listing Management</div>
+            <div class="card-desc">NAP consistency across all directories. One update syncs everywhere — no more stale data on Apple Maps, Bing, or data aggregators.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(245,158,11,0.3); animation-delay:0.15s;">
+            <div class="card-icon">🗺️</div>
+            <div class="card-title">GBP Management</div>
+            <div class="card-desc">Google Business Profile optimization — posts, photos, Q&A, and category management. The backbone of Map Pack performance.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(139,92,246,0.3); animation-delay:0.2s;">
+            <div class="card-icon">📈</div>
+            <div class="card-title">SEO Reporting</div>
+            <div class="card-desc">Keyword rank tracking, visibility scores, and competitive benchmarking — white-labeled and ready for client delivery.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(59,130,246,0.3); animation-delay:0.25s;">
+            <div class="card-icon">🎯</div>
+            <div class="card-title">Hyperlocal Focus</div>
+            <div class="card-desc">Neighborhood-level targeting — not just city. This is what separates Rocket Local's SEO from generic agencies.</div>
+          </div>
+          <div class="info-card" style="border-color:rgba(249,115,22,0.3); animation-delay:0.3s;">
+            <div class="card-icon">📊</div>
+            <div class="card-title">Client Reports</div>
+            <div class="card-desc">Automated monthly snapshots showing rank movement, review velocity, and visibility growth — sent directly to clients.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 6: Handoff to ClickUp -->
+    <div class="slide" id="slide-6">
+      <div class="slide-inner">
+        <div class="slide-eyebrow">The Handoff</div>
+        <div class="slide-h2">Deal closes.<br/><span class="grad-amber">ClickUp activates.</span></div>
+        <p class="slide-body">The moment a deal moves to "Client" in Vendasta, project delivery begins in ClickUp. Two separate systems. One clean handoff. Zero confusion about who owns what.</p>
+        <div class="handoff">
+          <div class="handoff-card" style="border-color:rgba(245,158,11,0.3);">
+            <div class="handoff-platform">Sales &amp; CRM</div>
+            <div class="handoff-name" style="color:var(--amber);">⚡ Vendasta</div>
+            <div class="handoff-role">Owns everything before the deal closes.</div>
+            <div class="handoff-items">
+              <div class="handoff-item">Lead generation &amp; tracking</div>
+              <div class="handoff-item">Discovery &amp; qualification</div>
+              <div class="handoff-item">Proposal &amp; negotiation</div>
+              <div class="handoff-item">Contract &amp; close</div>
+              <div class="handoff-item">Account data &amp; MRR</div>
+            </div>
+          </div>
+          <div class="handoff-arrow">→</div>
+          <div class="handoff-card" style="border-color:rgba(139,92,246,0.3);">
+            <div class="handoff-platform">Project Delivery</div>
+            <div class="handoff-name" style="color:var(--purple);">✅ ClickUp</div>
+            <div class="handoff-role">Owns everything after the deal closes.</div>
+            <div class="handoff-items">
+              <div class="handoff-item">Client folder created</div>
+              <div class="handoff-item">Website Task List built</div>
+              <div class="handoff-item">Tasks assigned to Dante/Audra</div>
+              <div class="handoff-item">Sprint delivery &amp; reviews</div>
+              <div class="handoff-item">Ongoing support tracking</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 7: Closing -->
+    <div class="slide" id="slide-7">
+      <div class="slide-inner" style="text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh;">
+        <div class="slide-eyebrow" style="justify-content:center;">The Source of Truth</div>
+        <div class="slide-h1" style="text-align:center;">
+          <span class="grad">The pipeline is live.<br/>Always.</span>
+        </div>
+        <p class="slide-body" style="text-align:center; max-width:520px; margin:0 auto 36px;">
+          61 accounts. $3,590/mo MRR. $2,328/mo margin. The Vendasta pipeline is always on, always current, and always visible in Mission Control.
+        </p>
+        <div class="closing-grid" style="max-width:720px; width:100%;">
+          <div class="closing-item" style="animation-delay:0.05s;">
+            <div class="closing-icon">⚡</div>
+            <h4>Vendasta CRM</h4>
+            <p>partners.vendasta.com — the full platform for leads, accounts, and services.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.1s;">
+            <div class="closing-icon">📊</div>
+            <h4>Live Pipeline</h4>
+            <p>Real-time view in Mission Control — stages, MRR, margin, and account breakdown.</p>
+          </div>
+          <div class="closing-item" style="animation-delay:0.15s;">
+            <div class="closing-icon">🤖</div>
+            <h4>Nikki Connected</h4>
+            <p>Nikki reads and writes to Vendasta via MCP. Ask about pipeline anytime.</p>
+          </div>
+        </div>
+        <a href="pipeline" class="pipeline-link">📊 View Live Pipeline →</a>
+      </div>
+    </div>
+
+  </div><!-- /slideshow -->
+
+  <!-- Controls -->
+  <div class="controls" id="controls">
+    <button class="ctrl-btn" id="prev-btn" onclick="changeSlide(-1)">‹</button>
+    <span class="slide-counter" id="counter">1 / 7</span>
+    <button class="ctrl-btn primary" id="play-btn" onclick="toggleAuto()">▶</button>
+    <div class="progress-track"><div class="progress-fill" id="progress"></div></div>
+    <button class="ctrl-btn" id="next-btn" onclick="changeSlide(1)">›</button>
+    <span class="auto-label" id="auto-label">AUTO</span>
+  </div>
+
+  <script>
+    const TOTAL = 7;
+    let current = 1;
+    let autoPlay = false;
+    let timer = null;
+
+    function showSlide(n) {
+      document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+      document.getElementById('slide-' + n).classList.add('active');
+      document.getElementById('counter').textContent = n + ' / ' + TOTAL;
+      document.getElementById('progress').style.width = ((n / TOTAL) * 100) + '%';
+      current = n;
+    }
+
+    function changeSlide(dir) {
+      let next = current + dir;
+      if (next < 1) next = TOTAL;
+      if (next > TOTAL) next = 1;
+      showSlide(next);
+    }
+
+    function toggleAuto() {
+      autoPlay = !autoPlay;
+      const btn = document.getElementById('play-btn');
+      const lbl = document.getElementById('auto-label');
+      if (autoPlay) {
+        btn.textContent = '⏸';
+        lbl.style.color = 'var(--amber)';
+        timer = setInterval(() => changeSlide(1), 4500);
+      } else {
+        btn.textContent = '▶';
+        lbl.style.color = 'var(--muted)';
+        clearInterval(timer);
+      }
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') changeSlide(1);
+      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   changeSlide(-1);
+      if (e.key === ' ') { e.preventDefault(); toggleAuto(); }
+    });
+
+    showSlide(1);
+  </script>
+</body>
+</html>
