@@ -1,24 +1,19 @@
 // Inline Nikki chat card for the Founder Dashboard.
 //
-// Now wired to the same ElevenLabs cascade Telegram and WarRoom use, so
-// Nikki sounds the same on every channel. The voice picker lists the
-// user's ElevenLabs female voices (plus the currently-selected one even
-// if it lives in the public library). Picking a voice updates the
-// stored selection on the Fly volume — applies instantly to Telegram
-// and WarRoom too.
-//
-// Voice flow:
-//   • mic button — Web Speech API, transcribes locally, auto-sends on stop.
-//   • speaker toggle — when on, /api/chat/tts converts her latest reply to
-//     MP3 via the cascade and plays it through an <audio> element.
+// Voice modes:
+//   • mic button (Web Speech API) — transcribes locally, auto-sends on stop.
+//   • speaker toggle — ElevenLabs TTS plays her latest reply as MP3.
+//   • Live button — full-duplex Gemini Live voice: 16kHz PCM mic → WebSocket
+//     → Gemini Live → 24kHz PCM playback with jitter-free scheduling.
 
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { Send, RotateCcw, ExternalLink, Loader2, Mic, MicOff, Volume2, VolumeX, Settings, Play } from 'lucide-preact';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { Send, RotateCcw, ExternalLink, Loader2, Mic, MicOff, Volume2, VolumeX, Settings, Play, Paperclip, X, Phone, PhoneOff } from 'lucide-preact';
 import { Link } from 'wouter-preact';
 import { AgentAvatar } from '@/components/AgentAvatar';
 import { useFetch } from '@/lib/useFetch';
 import { apiPost, apiGet, chatId, dashboardToken } from '@/lib/api';
 import { subscribeChatStream } from '@/lib/chat-stream';
+import { renderMarkdown } from '@/lib/markdown';
 
 interface Agent {
   id: string;
@@ -83,6 +78,76 @@ function getSpeechRecognition(): any | null {
   return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
 }
 
+// ── Liquid blob visualizer ──────────────────────────────────────────────────
+function drawLiveBlob(
+  ctx2d: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  playAmp: number,
+  micAmp: number,
+) {
+  const t = Date.now();
+  ctx2d.clearRect(0, 0, w, h);
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const baseR = Math.min(w, h) * 0.34;
+  const nikkiTalking = playAmp > 0.008;
+  const micActive = micAmp > 0.005;
+
+  const pts = 10;
+  const coords: [number, number][] = [];
+  for (let i = 0; i < pts; i++) {
+    const angle = (i / pts) * Math.PI * 2 - Math.PI / 2;
+    const phase = i * 2.39996; // golden angle for even distribution
+    const morph =
+      Math.sin(t / 700 + phase) * 0.55 +
+      Math.sin(t / 430 + phase * 1.7) * 0.35 +
+      Math.cos(t / 290 + phase * 0.8) * 0.10;
+
+    let drive: number;
+    if (nikkiTalking)  drive = playAmp * 95 + micAmp * 30;
+    else if (micActive) drive = micAmp * 55;
+    else               drive = 5; // gentle idle breathing
+
+    const r = baseR + morph * (drive + 6);
+    coords.push([cx + Math.cos(angle) * r, cy + Math.sin(angle) * r]);
+  }
+
+  // Catmull-Rom → bezier: smooth closed organic curve
+  ctx2d.beginPath();
+  for (let i = 0; i < pts; i++) {
+    const p0 = coords[(i - 1 + pts) % pts];
+    const p1 = coords[i];
+    const p2 = coords[(i + 1) % pts];
+    const p3 = coords[(i + 2) % pts];
+    const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+    if (i === 0) ctx2d.moveTo(p1[0], p1[1]);
+    ctx2d.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2[0], p2[1]);
+  }
+  ctx2d.closePath();
+
+  // Radial fill — brighter purple when Nikki speaks
+  const intensity = nikkiTalking ? 0.95 : micActive ? 0.75 : 0.60;
+  const grd = ctx2d.createRadialGradient(cx, cy - baseR * 0.15, baseR * 0.05, cx, cy, baseR * 1.35);
+  grd.addColorStop(0,    `rgba(216, 180, 254, ${intensity})`);          // purple-300
+  grd.addColorStop(0.45, `rgba(167, 139, 250, ${intensity * 0.88})`);   // violet-400
+  grd.addColorStop(0.80, `rgba(109,  77, 198, ${intensity * 0.60})`);
+  grd.addColorStop(1,    `rgba( 79,  40, 140, 0)`);
+  ctx2d.fillStyle = grd;
+  ctx2d.fill();
+
+  // Gloss highlight
+  const gls = ctx2d.createRadialGradient(cx - baseR * 0.22, cy - baseR * 0.28, 0, cx, cy, baseR * 0.65);
+  gls.addColorStop(0, 'rgba(255,255,255,0.30)');
+  gls.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx2d.fillStyle = gls;
+  ctx2d.fill();
+}
+
 export function NikkiCard() {
   const agents = useFetch<{ agents: Agent[] }>('/api/agents', 30_000);
   const health = useFetch<Health>('/api/health', 30_000);
@@ -97,6 +162,9 @@ export function NikkiCard() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [speakerOn, setSpeakerOn] = useState<boolean>(() => {
     try { return localStorage.getItem(LS_SPEAKER) === '1'; } catch { return false; }
@@ -118,6 +186,223 @@ export function NikkiCard() {
   const pendingAudioBufRef = useRef<AudioBuffer | null>(null);  // queued when ctx still suspended
   const [needsTapToPlay, setNeedsTapToPlay] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  // -------- Gemini Live voice state --------
+  const [liveMode, setLiveMode] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<'idle' | 'connecting' | 'active' | 'error'>('idle');
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const liveWsRef = useRef<WebSocket | null>(null);
+  const liveMicCtxRef = useRef<AudioContext | null>(null);
+  const livePlayCtxRef = useRef<AudioContext | null>(null);
+  const liveNextStartRef = useRef<number>(0);
+  const liveMicStreamRef = useRef<MediaStream | null>(null);
+  const liveProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const liveAnimRef = useRef<number>(0);
+  const liveAnalyserRef = useRef<AnalyserNode | null>(null);
+  const livePlayAnalyserRef = useRef<AnalyserNode | null>(null);
+  const liveBlobCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // PCM helpers
+  const floatTo16bit = useCallback((f32: Float32Array): ArrayBuffer => {
+    const buf = new ArrayBuffer(f32.length * 2);
+    const view = new DataView(buf);
+    for (let i = 0; i < f32.length; i++) {
+      const s = Math.max(-1, Math.min(1, f32[i]));
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buf;
+  }, []);
+
+  const bufToBase64 = useCallback((buf: ArrayBuffer): string => {
+    let bin = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }, []);
+
+  const base64To16bitPCM = useCallback((b64: string): Float32Array => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const int16 = new Int16Array(bytes.buffer);
+    const f32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 32768.0;
+    return f32;
+  }, []);
+
+  // Enqueue a 24kHz audio chunk into the live playback context
+  const enqueueLiveChunk = useCallback((b64: string) => {
+    const ctx = livePlayCtxRef.current;
+    if (!ctx) return;
+    const samples = base64To16bitPCM(b64);
+    const buf = ctx.createBuffer(1, samples.length, 24000);
+    buf.copyToChannel(samples, 0);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    // Route through play analyser so the blob reacts to Nikki's voice
+    if (!livePlayAnalyserRef.current || livePlayAnalyserRef.current.context !== ctx) {
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.connect(ctx.destination);
+      livePlayAnalyserRef.current = analyser;
+    }
+    src.connect(livePlayAnalyserRef.current);
+    const now = ctx.currentTime;
+    if (liveNextStartRef.current < now) liveNextStartRef.current = now + 0.05;
+    src.start(liveNextStartRef.current);
+    liveNextStartRef.current += buf.duration;
+  }, [base64To16bitPCM]);
+
+  // Flush live playback (on interruption)
+  const flushLiveAudio = useCallback(() => {
+    try { livePlayCtxRef.current?.close(); } catch {}
+    livePlayAnalyserRef.current = null; // recreated on next chunk
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    livePlayCtxRef.current = new Ctx({ sampleRate: 24000 });
+    liveNextStartRef.current = 0;
+  }, []);
+
+  // Blob animation loop — reads both mic and playback analysers, draws imperatively
+  const startWaveformLoop = useCallback(() => {
+    const tick = () => {
+      let micAmp = 0;
+      if (liveAnalyserRef.current) {
+        const data = new Float32Array(liveAnalyserRef.current.fftSize);
+        liveAnalyserRef.current.getFloatTimeDomainData(data);
+        micAmp = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
+      }
+      let playAmp = 0;
+      if (livePlayAnalyserRef.current) {
+        const data = new Float32Array(livePlayAnalyserRef.current.fftSize);
+        livePlayAnalyserRef.current.getFloatTimeDomainData(data);
+        playAmp = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
+      }
+      const canvas = liveBlobCanvasRef.current;
+      if (canvas) {
+        const ctx2d = canvas.getContext('2d');
+        if (ctx2d) drawLiveBlob(ctx2d, canvas.width, canvas.height, playAmp, micAmp);
+      }
+      liveAnimRef.current = requestAnimationFrame(tick);
+    };
+    liveAnimRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const stopLive = useCallback(() => {
+    cancelAnimationFrame(liveAnimRef.current);
+    try { liveProcessorRef.current?.disconnect(); } catch {}
+    try { liveMicStreamRef.current?.getTracks().forEach(t => t.stop()); } catch {}
+    try { liveMicCtxRef.current?.close(); } catch {}
+    try { livePlayCtxRef.current?.close(); } catch {}
+    try { liveWsRef.current?.close(); } catch {}
+    liveProcessorRef.current = null;
+    liveMicStreamRef.current = null;
+    liveMicCtxRef.current = null;
+    livePlayCtxRef.current = null;
+    liveWsRef.current = null;
+    liveNextStartRef.current = 0;
+    livePlayAnalyserRef.current = null;
+    setLiveStatus('idle');
+    setLiveMode(false);
+  }, []);
+
+  const startLive = useCallback(async () => {
+    setLiveError(null);
+    setLiveStatus('connecting');
+    setLiveMode(true);
+
+    try {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${window.location.host}/ws/nikki-live?token=${encodeURIComponent(dashboardToken)}`;
+
+      // Start getUserMedia BEFORE creating the WS so the permission prompt
+      // shows immediately — but do NOT await it yet. We need to wire all WS
+      // handlers synchronously (no awaits in between) so they're in place
+      // before the connection can fire onopen/onerror/onclose.
+      const streamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      livePlayCtxRef.current = new Ctx({ sampleRate: 24000 });
+
+      const ws = new WebSocket(wsUrl);
+      liveWsRef.current = ws;
+
+      // ALL handlers wired synchronously — no await between here and onclose.
+      ws.onopen = async () => {
+        // Now it's safe to await the mic stream; the WS is already open.
+        let stream: MediaStream;
+        try {
+          stream = await streamPromise;
+        } catch (e: any) {
+          setLiveError(e?.message || 'Mic access denied');
+          setLiveStatus('error');
+          ws.close();
+          return;
+        }
+        liveMicStreamRef.current = stream;
+        setLiveStatus('active');
+
+        // 16kHz mic capture
+        const micCtx = new Ctx({ sampleRate: 16000 });
+        liveMicCtxRef.current = micCtx;
+
+        // Analyser for waveform
+        const analyser = micCtx.createAnalyser();
+        analyser.fftSize = 256;
+        liveAnalyserRef.current = analyser;
+
+        const source = micCtx.createMediaStreamSource(stream);
+        const processor = micCtx.createScriptProcessor(2048, 1, 1);
+        liveProcessorRef.current = processor;
+
+        source.connect(analyser);
+        source.connect(processor);
+        processor.connect(micCtx.destination);
+
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const raw = e.inputBuffer.getChannelData(0);
+          const pcm = floatTo16bit(raw);
+          const b64 = bufToBase64(pcm);
+          ws.send(JSON.stringify({ audio: b64 }));
+        };
+
+        startWaveformLoop();
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.audio) enqueueLiveChunk(msg.audio);
+          if (msg.interrupted) flushLiveAudio();
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        setLiveError('WebSocket error — check console');
+        setLiveStatus('error');
+      };
+
+      ws.onclose = (ev) => {
+        if (ev.code !== 1000 && ev.code !== 1001) {
+          setLiveError(`Disconnected (${ev.code})`);
+          setLiveStatus('error');
+        }
+        stopLive();
+      };
+
+    } catch (e: any) {
+      setLiveError(e?.message || 'Failed to start live voice');
+      setLiveStatus('error');
+      stopLive();
+    }
+  }, [floatTo16bit, bufToBase64, enqueueLiveChunk, flushLiveAudio, startWaveformLoop, stopLive]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (liveMode) stopLive();
+    };
+  }, [liveMode, stopLive]);
 
   // -------- History hydration --------
   useEffect(() => {
@@ -328,6 +613,34 @@ export function NikkiCard() {
     }
   }
 
+  // -------- File upload --------
+  function handleFileChange(e: any) {
+    const file: File | null = e.target.files?.[0] ?? null;
+    if (file) setAttachedFile(file);
+    e.target.value = '';
+  }
+
+  async function handleUpload() {
+    if (!attachedFile || uploading) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', attachedFile);
+      if (draft.trim()) form.append('caption', draft.trim());
+      const res = await fetch(`/api/chat/upload?token=${encodeURIComponent(dashboardToken)}`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      setAttachedFile(null);
+      setDraft('');
+    } catch (e: any) {
+      setMessages(prev => [
+        ...prev,
+        { id: `err-${Date.now()}`, role: 'assistant', text: `(upload failed: ${e?.message || e})`, ts: Date.now() },
+      ]);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   // -------- Voice input --------
   async function toggleSpeaker() {
     const wasOn = speakerOn;
@@ -458,6 +771,23 @@ export function NikkiCard() {
           </div>
         </div>
         <div class="relative inline-flex items-center gap-0.5">
+          {/* Live voice button */}
+          <button
+            type="button"
+            onClick={() => liveMode ? stopLive() : startLive()}
+            disabled={!running}
+            class={`inline-flex items-center justify-center w-7 h-7 rounded transition-colors ${
+              liveMode
+                ? 'bg-[#dc2626] text-white animate-pulse'
+                : liveStatus === 'connecting'
+                ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)] animate-pulse'
+                : 'text-[var(--color-text-faint)] hover:text-[var(--color-accent)] disabled:opacity-40'
+            }`}
+            title={liveMode ? 'End live voice call' : 'Start live voice (Gemini Live)'}
+            aria-label={liveMode ? 'End live voice' : 'Start live voice'}
+          >
+            {liveMode ? <PhoneOff size={13} /> : <Phone size={13} />}
+          </button>
           <button
             type="button"
             onClick={toggleSpeaker}
@@ -568,10 +898,43 @@ export function NikkiCard() {
         </div>
       </div>
 
+      {/* Gemini Live overlay — liquid blob visualizer */}
+      {liveMode && (
+        <div class="flex-1 flex flex-col items-center justify-center gap-2 border-t border-[var(--color-border)] pt-3 pb-1" style={{ minHeight: '180px' }}>
+          <canvas ref={liveBlobCanvasRef} width={160} height={160} style={{ display: 'block' }} />
+          <div class="text-[11px] text-[var(--color-text-faint)]">
+            {liveStatus === 'connecting' && <span class="flex items-center gap-1"><Loader2 size={10} class="animate-spin" /> Connecting…</span>}
+            {liveStatus === 'active' && <span style={{ color: '#a78bfa' }}>● Live · Gemini</span>}
+            {liveStatus === 'error' && <span style={{ color: '#dc2626' }}>{liveError || 'Error'}</span>}
+          </div>
+          <button
+            type="button"
+            onClick={stopLive}
+            class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#dc2626] text-white text-[11px] font-medium hover:opacity-80 transition-opacity"
+          >
+            <PhoneOff size={11} /> End call
+          </button>
+        </div>
+      )}
+
       {/* Chat thread */}
+      <div class="relative" style={{ minHeight: '120px', maxHeight: '260px' }}>
+      {!liveMode && (
+        <button
+          type="button"
+          onClick={startLive}
+          disabled={!running}
+          style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 10 }}
+          class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#7c3aed] text-white hover:bg-[#6d28d9] active:scale-95 transition-all shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Call Nikki (Gemini Live)"
+          aria-label="Call Nikki"
+        >
+          <Phone size={24} />
+        </button>
+      )}
       <div
         ref={scrollerRef}
-        class="flex-1 overflow-y-auto border-t border-[var(--color-border)] pt-2 mb-2 space-y-2"
+        class={`flex-1 overflow-y-auto border-t border-[var(--color-border)] pt-2 mb-2 space-y-2${liveMode ? ' hidden' : ''}`}
         style={{ minHeight: '120px', maxHeight: '260px' }}
       >
         {visibleMessages.length === 0 ? (
@@ -581,11 +944,16 @@ export function NikkiCard() {
             <div
               key={m.id}
               class={`text-[12px] leading-snug ${m.role === 'user' ? 'text-[var(--color-text)]' : 'text-[var(--color-text-muted)]'}`}
+              style={{ userSelect: 'text', cursor: 'text' }}
             >
               <span class="text-[10px] uppercase tracking-wide text-[var(--color-text-faint)] mr-1.5">
                 {m.role === 'user' ? 'You' : 'Nikki'}
               </span>
-              {m.text}
+              {m.role === 'user' ? (
+                m.text
+              ) : (
+                <div class="nikki-prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }} />
+              )}
               {m.role === 'assistant' && m.sources && (m.sources.wikiPaths?.length || m.sources.memoryIds?.length) ? (
                 <div class="text-[9px] text-[var(--color-text-faint)] mt-1 pl-7" title="Context Nikki had access to for this reply">
                   ⌬ {m.sources.wikiPaths && m.sources.wikiPaths.length > 0 && (
@@ -607,6 +975,7 @@ export function NikkiCard() {
           </div>
         )}
       </div>
+      </div>
 
       {needsTapToPlay && (
         <button
@@ -619,8 +988,41 @@ export function NikkiCard() {
       )}
       {voiceError && !needsTapToPlay && <div class="text-[10px] text-[#dc2626] mb-1">{voiceError}</div>}
 
+      {/* Attachment preview */}
+      {attachedFile && (
+        <div class="flex items-center gap-2 mb-1.5 px-2 py-1 rounded bg-[var(--color-elevated)] border border-[var(--color-border)] text-[11px] text-[var(--color-text-muted)]">
+          <Paperclip size={11} class="shrink-0" />
+          <span class="flex-1 truncate">{attachedFile.name}</span>
+          <button
+            type="button"
+            onClick={() => setAttachedFile(null)}
+            class="text-[var(--color-text-faint)] hover:text-[var(--color-text)]"
+            aria-label="Remove attachment"
+          >
+            <X size={11} />
+          </button>
+        </div>
+      )}
+
       {/* Input row */}
       <div class="flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          class="hidden"
+          onChange={handleFileChange}
+          accept="image/*,application/pdf,.doc,.docx,.txt,.csv,.xlsx,.xls"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!running || uploading}
+          class="inline-flex items-center justify-center w-7 h-7 rounded transition-colors bg-[var(--color-elevated)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Attach file"
+          aria-label="Attach file"
+        >
+          <Paperclip size={13} />
+        </button>
         {voiceSupported && (
           <button
             type="button"
@@ -644,21 +1046,21 @@ export function NikkiCard() {
           onKeyDown={(e: any) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              handleSend();
+              attachedFile ? handleUpload() : handleSend();
             }
           }}
-          placeholder={listening ? 'Listening…' : running ? 'Ask Nikki…' : 'Nikki is offline'}
-          disabled={!running || sending}
+          placeholder={listening ? 'Listening…' : attachedFile ? 'Add a caption (optional)…' : running ? 'Ask Nikki…' : 'Nikki is offline'}
+          disabled={!running || sending || uploading}
           class="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded px-2 py-1.5 text-[12px] text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50"
         />
         <button
           type="button"
-          onClick={() => handleSend()}
-          disabled={!running || sending || !draft.trim()}
+          onClick={() => attachedFile ? handleUpload() : handleSend()}
+          disabled={!running || sending || uploading || (!draft.trim() && !attachedFile)}
           class="inline-flex items-center justify-center w-7 h-7 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
-          aria-label="Send"
+          aria-label={attachedFile ? 'Send file' : 'Send'}
         >
-          {sending ? <Loader2 size={13} class="animate-spin" /> : <Send size={13} />}
+          {(sending || uploading) ? <Loader2 size={13} class="animate-spin" /> : <Send size={13} />}
         </button>
       </div>
       <div class="text-[10px] text-[var(--color-text-faint)] mt-1.5 flex items-center justify-between">

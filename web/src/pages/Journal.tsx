@@ -151,7 +151,7 @@ export function JournalPage() {
   );
 
   return (
-    <div class="journal-page min-h-screen pb-12">
+    <div class="journal-page min-h-screen pb-32">
       {/* Page header — date navigation */}
       <div class="max-w-3xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between">
         <button
@@ -280,7 +280,7 @@ export function JournalPage() {
         </section>
 
         {/* Evening section */}
-        <section class="journal-section evening-section relative px-8 py-8">
+        <section class="journal-section evening-section relative px-8 py-10 mb-8">
           <Moon class="journal-deco-moon" size={22} />
           <h3 class="journal-section-header text-center italic text-[16px] mb-3 mt-2">
             <Sparkles size={11} class="inline opacity-50 mr-1" />
@@ -305,7 +305,7 @@ export function JournalPage() {
                 if ((data?.entry?.learned || '') !== v) saveField('learned', v);
               }}
               placeholder="…"
-              rows={2}
+              rows={4}
               class="journal-input journal-textarea w-full"
             />
           </div>

@@ -143,6 +143,8 @@ const WARROOM_ENABLED = warroomEnabled;
   .chat-bubble table { border-collapse: collapse; width: 100%; font-size: 11px; margin: 6px 0; display: block; overflow-x: auto; }
   .chat-bubble th, .chat-bubble td { padding: 3px 6px; border-bottom: 1px solid #2a2a2a; text-align: left; white-space: nowrap; }
   .chat-bubble th { color: #a5b4fc; font-weight: 600; }
+  .chat-bubble ul, .chat-bubble ol { margin: 4px 0 4px 18px; padding: 0; }
+  .chat-bubble li { margin-bottom: 2px; line-height: 1.5; }
   .chat-progress-bar { display: none; align-items: center; gap: 10px; padding: 10px 16px; background: #141414; border-top: 1px solid #2a2a2a; flex-shrink: 0; position: relative; overflow: hidden; }
   .chat-progress-bar.active { display: flex; }
   .chat-progress-pulse { width: 10px; height: 10px; border-radius: 50%; background: #4f46e5; flex-shrink: 0; animation: progressPulse 1.5s ease-in-out infinite; }
@@ -172,6 +174,8 @@ const WARROOM_ENABLED = warroomEnabled;
     <span id="device-badge" class="device-badge"></span>
   </div>
   <div class="flex items-center gap-3">
+    <a href="/pipeline?token=${token}" style="font-size:12px;font-weight:600;color:#10b981;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:4px 12px;text-decoration:none">📊 Pipeline</a>
+    <a href="/resources.html?token=${token}" style="font-size:12px;font-weight:600;color:#8b5cf6;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.25);border-radius:8px;padding:4px 12px;text-decoration:none">📖 Playbook</a>
     <span id="last-updated" class="text-xs text-gray-500"></span>
     <button id="refresh-btn" onclick="refreshAll()" class="text-gray-400 hover:text-white transition">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3215,6 +3219,38 @@ function renderMarkdown(text) {
   if (tableLines.length > 0) flushTable();
 
   s = result.join('\\n');
+
+  // Lists: group consecutive bullet (-/*/ +) and numbered (1./2.) lines into <ul>/<ol>
+  var listLines = s.split('\\n');
+  var listResult = [];
+  var listBuf = [];
+  var listType = null;
+  function flushListBuf() {
+    if (!listType || listBuf.length === 0) return;
+    var ltag = listType;
+    var lhtml = '<' + ltag + '>' + listBuf.map(function(item) { return '<li>' + escapeHtml(item) + '<\\/li>'; }).join('') + '<\\/' + ltag + '>';
+    listResult.push(preserve(lhtml));
+    listBuf = [];
+    listType = null;
+  }
+  listLines.forEach(function(line) {
+    var ulMatch = line.match(/^[ \\t]*[-*+]\\s+(.+)$/);
+    var olMatch = line.match(/^[ \\t]*\\d+\\.\\s+(.+)$/);
+    if (ulMatch) {
+      if (listType === 'ol') flushListBuf();
+      listType = 'ul';
+      listBuf.push(ulMatch[1]);
+    } else if (olMatch) {
+      if (listType === 'ul') flushListBuf();
+      listType = 'ol';
+      listBuf.push(olMatch[1]);
+    } else {
+      flushListBuf();
+      listResult.push(line);
+    }
+  });
+  flushListBuf();
+  s = listResult.join('\\n');
 
   // Inline code (preserve before escaping)
   var codeBlocks = [];

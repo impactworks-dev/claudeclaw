@@ -19,16 +19,28 @@ export interface McpStdioConfig {
   env?: Record<string, string>;
 }
 
+export interface McpUrlConfig {
+  type: 'sse' | 'http';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export type McpConfig = McpStdioConfig | McpUrlConfig;
+
 /**
  * Merge MCP server configs from user settings (~/.claude/settings.json) and
  * project settings (.claude/settings.json in cwd), optionally filtered by
  * an allowlist (e.g. from an agent's agent.yaml `mcp_servers` field).
  *
+ * Supports both stdio (command/args/env) and URL-based (type/url/headers)
+ * MCP server configs. URL-based configs require the server to expose an
+ * SSE or HTTP MCP endpoint reachable from the current environment.
+ *
  * Exported so the voice bridge can reuse the exact same loader the text
  * bot uses — keeping behavior consistent across channels.
  */
-export function loadMcpServers(allowlist?: string[], projectCwd?: string): Record<string, McpStdioConfig> {
-  const merged: Record<string, McpStdioConfig> = {};
+export function loadMcpServers(allowlist?: string[], projectCwd?: string): Record<string, McpConfig> {
+  const merged: Record<string, McpConfig> = {};
 
   // Load from project settings (.claude/settings.json in cwd). `projectCwd`
   // lets callers (e.g. the voice bridge) target a specific sub-agent's
@@ -49,10 +61,18 @@ export function loadMcpServers(allowlist?: string[], projectCwd?: string): Recor
         for (const [name, config] of Object.entries(servers)) {
           const cfg = config as Record<string, unknown>;
           if (cfg.command && typeof cfg.command === 'string') {
+            // stdio transport
             merged[name] = {
               command: cfg.command,
               ...(cfg.args ? { args: cfg.args as string[] } : {}),
               ...(cfg.env ? { env: cfg.env as Record<string, string> } : {}),
+            };
+          } else if (cfg.url && typeof cfg.url === 'string' && (cfg.type === 'sse' || cfg.type === 'http')) {
+            // SSE or HTTP transport
+            merged[name] = {
+              type: cfg.type,
+              url: cfg.url,
+              ...(cfg.headers ? { headers: cfg.headers as Record<string, string> } : {}),
             };
           }
         }

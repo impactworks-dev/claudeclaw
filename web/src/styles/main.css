@@ -877,3 +877,15 @@ input, textarea, select {
   color: #f4ede0;
   text-shadow: 0 0 22px rgba(136, 160, 138, 0.6);
 }
+
+/* ── Compact markdown in the Nikki inline chat card ──────────────────── */
+.nikki-prose { display: inline; }
+.nikki-prose p { display: inline; margin: 0; }
+.nikki-prose p + p { display: block; margin-top: 2px; }
+.nikki-prose ul, .nikki-prose ol { margin: 3px 0 3px 14px; padding: 0; }
+.nikki-prose li { margin-bottom: 1px; line-height: 1.4; }
+.nikki-prose strong, .nikki-prose b { font-weight: 600; color: var(--color-text); }
+.nikki-prose em, .nikki-prose i { font-style: italic; }
+.nikki-prose code { background: rgba(255,255,255,0.08); padding: 0 3px; border-radius: 3px; font-size: 0.9em; font-family: ui-monospace, monospace; }
+.nikki-prose pre { background: rgba(0,0,0,0.3); padding: 4px 6px; border-radius: 4px; overflow-x: auto; margin: 4px 0; font-size: 11px; }
+.nikki-prose pre code { background: none; padding: 0; }

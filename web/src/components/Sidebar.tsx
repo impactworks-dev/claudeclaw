@@ -80,18 +80,14 @@ export function Sidebar() {
                 const active = pathname === r.path || (pathname === '/' && r.path === '/mission');
                 const Icon = r.icon;
                 const unread = r.path === '/chat' ? chatUnread.value : 0;
-                return (
-                  <Link
-                    key={r.path}
-                    href={r.path}
-                    onClick={closeSidebar}
-                    class={[
-                      'flex items-center gap-2.5 px-3 py-2 rounded-md text-[14px] transition-colors',
-                      active
-                        ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
-                        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]',
-                    ].join(' ')}
-                  >
+                const itemClass = [
+                  'flex items-center gap-2.5 px-3 py-2 rounded-md text-[14px] transition-colors',
+                  active
+                    ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
+                    : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]',
+                ].join(' ');
+                const inner = (
+                  <>
                     <Icon size={16} />
                     <span class="flex-1">{r.label}</span>
                     {unread > 0 && (
@@ -99,6 +95,18 @@ export function Sidebar() {
                         {unread > 99 ? '99+' : unread}
                       </span>
                     )}
+                  </>
+                );
+                if (r.href) {
+                  return (
+                    <a key={r.path} href={r.href} onClick={closeSidebar} class={itemClass}>
+                      {inner}
+                    </a>
+                  );
+                }
+                return (
+                  <Link key={r.path} href={r.path} onClick={closeSidebar} class={itemClass}>
+                    {inner}
                   </Link>
                 );
               })}

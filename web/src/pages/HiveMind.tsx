@@ -4,7 +4,7 @@ import { Brain as BrainIcon, Box, List as ListIcon } from 'lucide-preact';
 import { PageHeader, Tab } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
 import { PrivacyToggle } from '@/components/PrivacyToggle';
-import { BrainGraph } from '@/components/BrainGraph';
+import { BrainGraph, NoteNode } from '@/components/BrainGraph';
 import { useFetch } from '@/lib/useFetch';
 import { formatRelativeTime } from '@/lib/format';
 import { privacyBlur } from '@/lib/privacy';
@@ -59,6 +59,10 @@ export function HiveMind() {
   const { data, loading, error } = useFetch<{ entries: HiveEntry[] }>(path, 30_000);
   const entries = data?.entries ?? [];
   const allAgents = agentList.data?.agents?.map((a) => a.id) ?? KNOWN_AGENTS;
+
+  // Fetch Obsidian vault notes for the combined brain overlay
+  const brainGraph = useFetch<{ nodes: NoteNode[] }>('/api/brain/graph', 60_000);
+  const vaultNotes = brainGraph.data?.nodes ?? [];
   const blurOn = privacyBlur('hive').value;
 
   // Resolve to 2D if user requested 3D but the browser can't do WebGL.
@@ -117,6 +121,7 @@ export function HiveMind() {
       {entries.length > 0 && effectiveView === 'brain2d' && (
         <BrainGraph
           entries={entries}
+          notes={vaultNotes}
           agentFilter={filter}
           agentColors={AGENT_HUE}
           blurOn={blurOn}

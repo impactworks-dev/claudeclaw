@@ -201,9 +201,16 @@ async function getValidAccessToken() {
 }
 
 // ---- QBO API request helpers ----
+// Set QBO_TEST_MIGRATION=true in .env to route report requests through Intuit's
+// modernized v2 service for pre-cutover validation (deadline: August 31, 2026).
+// Remove or unset this flag once migration testing is complete.
+const TEST_MIGRATION = envVal('QBO_TEST_MIGRATION') === 'true';
+
 async function qboGet(endpoint, params = {}) {
   const t = await getValidAccessToken();
-  const qs = new URLSearchParams({ ...params, minorversion: '70' }).toString();
+  const isReport = endpoint.startsWith('reports/');
+  const extra = (isReport && TEST_MIGRATION) ? { testing_migration: '' } : {};
+  const qs = new URLSearchParams({ ...params, ...extra, minorversion: '70' }).toString();
   const url = `${API_BASE}/v3/company/${encodeURIComponent(t.realm_id)}/${endpoint}?${qs}`;
   const res = await fetch(url, {
     headers: {

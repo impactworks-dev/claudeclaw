@@ -251,7 +251,7 @@ async function composeBrief(chatId: string, kind: BriefKind): Promise<string> {
     .replace('{MEMORIES}', memoriesBlock)
     .replace('{CONSOLIDATIONS}', consolidationsBlock);
 
-  const raw = await generateContent(prompt);
+  const raw = await generateContent(prompt, 'gemini-2.5-flash', 'text/plain');
   return cleanGeminiBrief(raw);
 }
 

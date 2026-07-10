@@ -5,7 +5,7 @@
 // doesn't kill the page — every section is independently nullable so the
 // dashboard degrades gracefully when something is offline.
 
-import { getCashData, type CashSummary } from './cash-data.js';
+import { getCashData, getCashSnapshot, type CashSummary } from './cash-data.js';
 import { getPipelineData } from './pipeline-data.js';
 import { getOutreachData } from './outreach-data.js';
 import { getMembersData } from './members-data.js';
@@ -36,6 +36,7 @@ export interface FounderDashboard {
     runwayDays: number | null;
     last30NetCents: number;
     connectionStatus: CashSummary['connectionStatus'];
+    asOf: number; // epoch ms of last successful Plaid pull (0 if unknown)
   }>;
 
   // Pipeline snapshot (Vendasta deals + customers)
@@ -94,7 +95,11 @@ export async function getFounderDashboard(): Promise<FounderDashboard> {
   // Fan out in parallel — these are independent IO calls.
   const [cashS, pipelineS, outreachS, membersS] = await Promise.all([
     safe('cash', async () => {
-      const c = await getCashData(false);
+      // Use the stale file cache directly so Mission Control never blocks on
+      // a slow Plaid call. The cache is refreshed when the user visits /cash or
+      // clicks Force Refresh there. If no cache exists at all (first run), fall
+      // back to a live getCashData call so the first visit still works.
+      const c = getCashSnapshot() ?? await getCashData(false);
       return {
         totalCashCents: c.totalCashCents,
         mtdRevenueCents: c.mtd.revenueCents,
@@ -102,6 +107,7 @@ export async function getFounderDashboard(): Promise<FounderDashboard> {
         runwayDays: c.runwayDays,
         last30NetCents: c.last30.netCents,
         connectionStatus: c.connectionStatus,
+        asOf: c.asOf,
       };
     }),
     safe('pipeline', async () => {
@@ -114,9 +120,9 @@ export async function getFounderDashboard(): Promise<FounderDashboard> {
         if (typeof c.wholesaleMonthly === 'number') wholesale += c.wholesaleMonthly;
       }
       return {
-        openDealsCount: p.dealTotals?.open?.count ?? 0,
-        openDealsValueCents: p.dealTotals?.open?.value ?? 0,
-        openDealsWeightedCents: p.dealTotals?.open?.weighted ?? 0,
+        openDealsCount: p.dealTotals?.openTotal?.count ?? 0,
+        openDealsValueCents: p.dealTotals?.openTotal?.value ?? 0,
+        openDealsWeightedCents: p.dealTotals?.openTotal?.weighted ?? 0,
         customersCount: customers.length,
         customersMRRCents: mrrSeen ? mrr : null,
         customersWholesaleMonthlyCents: wholesale || null,

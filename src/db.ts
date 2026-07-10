@@ -1131,6 +1131,42 @@ export function penalizeMemory(memoryId: number): void {
 }
 
 /**
+ * Returns personal/identity memories from the interview session and related
+ * conversations — suitable for injecting into Nikki's voice call context.
+ * Matches memories whose topics touch personal identity, family, health,
+ * personality, lifestyle, goals, or communication preferences.
+ */
+export function getPersonalMemories(limit = 60): Memory[] {
+  return db
+    .prepare(
+      `SELECT * FROM memories
+       WHERE importance >= 0.7
+         AND superseded_by IS NULL
+         AND (
+           topics LIKE '%personal%'
+           OR topics LIKE '%personality%'
+           OR topics LIKE '%family%'
+           OR topics LIKE '%health%'
+           OR topics LIKE '%work style%'
+           OR topics LIKE '%life plans%'
+           OR topics LIKE '%social preferences%'
+           OR topics LIKE '%motivation%'
+           OR topics LIKE '%communication%'
+           OR topics LIKE '%lifestyle%'
+           OR topics LIKE '%financial goals%'
+           OR topics LIKE '%identity%'
+           OR topics LIKE '%User identity%'
+           OR topics LIKE '%stroke%'
+           OR topics LIKE '%birthday%'
+           OR topics LIKE '%music%'
+         )
+       ORDER BY importance DESC, salience DESC
+       LIMIT ?`,
+    )
+    .all(limit) as Memory[];
+}
+
+/**
  * Batch-update salience for multiple memories in a single transaction.
  * Reduces SQLite lock contention when multiple agents finish concurrently.
  */

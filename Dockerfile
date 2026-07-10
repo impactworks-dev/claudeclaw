@@ -96,6 +96,15 @@ COPY agents ./agents
 # Mac, but the JSON data files are committed to the repo and shipped here so
 # Nikki can resolve handles to relationships.
 COPY relay/people-map.json relay/contacts.json ./relay/
+# MCP server configs — baked inline so they survive gitignore + Depot cloud builds.
+# Local settings.local.json has Mac paths; this file has the correct /app/ paths for Fly.
+# No secrets here: goldfish URL is public, clickup team ID is non-sensitive.
+RUN mkdir -p /app/.claude && printf '%s\n' \
+  '{"mcpServers":{' \
+  '  "clickup":{"command":"node","args":["/app/connectors/clickup/server.mjs"],"env":{"CLICKUP_TEAM_ID":"10584109"}},' \
+  '  "goldfish":{"type":"sse","url":"https://goldfish-mcp.impactworks.com/sse"}' \
+  '}}' \
+  > /app/.claude/settings.json
 
 # War Room: source files + the pre-built Python venv
 COPY warroom ./warroom

@@ -85,3 +85,11 @@ secrets/
 
 # Machine-specific MCP registration (absolute paths) — local only
 .claude/settings.json
+
+
+# --- Backups, build junk, and financial exports — never commit ---
+*.bak
+.env.bak*
+vite.config.ts.timestamp-*.mjs
+# Financial/transaction exports (contain personal financial data)
+novo_jan_feb_2026_qbo.csv

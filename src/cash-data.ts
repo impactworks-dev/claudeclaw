@@ -275,7 +275,26 @@ export async function getCashData(force = false): Promise<CashSummary> {
     }
   }
   const plaidAccountCount = (accountsRaw.accounts || []).filter((a: any) => !a.error).length;
+  const plaidAccountErrors = (accountsRaw.accounts || []).filter((a: any) => a.error);
   if (plaidAccountCount === 0 && manualAccountsRaw.length === 0) {
+    // If Plaid returned error accounts (e.g. ITEM_LOGIN_REQUIRED after re-auth expiry),
+    // fall back to the stale file cache instead of showing an empty dashboard.
+    // This is the common case when a bank connection expires: Plaid doesn't throw,
+    // it returns { error: 'ITEM_LOGIN_REQUIRED...' } per account. Without this
+    // fallback, the dashboard shows "Set up Cash" with zero figures instead of
+    // the last known good data.
+    if (plaidAccountErrors.length > 0) {
+      const stale = readStaleCache();
+      if (stale) {
+        logger.warn(
+          { errors: plaidAccountErrors.map((a: any) => `${a.institution}: ${a.error}`) },
+          'cash: Plaid items need re-auth, returning stale cache — go to /cash/connect to re-link',
+        );
+        return stale;
+      }
+      const errMsg = plaidAccountErrors.map((a: any) => `${a.institution}: ${String(a.error).slice(0, 80)}`).join('; ');
+      return emptySummary('error', `Plaid connection needs re-linking: ${errMsg}. Open /cash/connect.`);
+    }
     return emptySummary('no-items', 'No banks connected yet. Open /cash/connect to link your Novo account via Plaid Link, or upload a CSV statement.');
   }
 
@@ -466,6 +485,15 @@ function emptySummary(status: CashSummary['connectionStatus'], message: string |
     connectionStatus: status,
     connectionMessage: message,
   };
+}
+
+/**
+ * Return the most recent cash snapshot from the file cache, regardless of age.
+ * Safe to call from the Founder dashboard — never blocks on Plaid.
+ * Returns null only if no cache file exists yet (first ever run).
+ */
+export function getCashSnapshot(): CashSummary | null {
+  return readStaleCache();
 }
 
 /** Exchange a public_token from Plaid Link for a permanent access_token. */

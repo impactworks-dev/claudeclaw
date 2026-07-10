@@ -44,6 +44,17 @@ function getDb(): Database.Database | null {
   }
 }
 
+function getWriteDb(): Database.Database | null {
+  try {
+    const dbPath = path.join(STORE_DIR, 'claudeclaw.db');
+    if (!fs.existsSync(dbPath)) return null;
+    return new Database(dbPath, { readonly: false, fileMustExist: true });
+  } catch (e) {
+    logger.warn({ err: String((e as Error)?.message || e) }, 'brain-proposals: db open (write) failed');
+    return null;
+  }
+}
+
 function fetchWikiTitles(): Set<string> {
   // Lazy import to avoid circular deps
   try {
@@ -80,7 +91,7 @@ export function getBrainProposals(opts: { force?: boolean } = {}): BrainProposal
   if (!db) return [];
 
   try {
-    const cutoff = Math.floor(Date.now() / 1000) - 14 * 86400;
+    const cutoff = Math.floor(Date.now() / 1000) - 30 * 86400;
 
     // Pull recent high-importance memories.
     // Topics is stored as a JSON array of strings.
@@ -89,7 +100,7 @@ export function getBrainProposals(opts: { force?: boolean } = {}): BrainProposal
          FROM memories
         WHERE importance >= 0.6 AND created_at >= ?
         ORDER BY importance DESC, accessed_at DESC
-        LIMIT 200`,
+        LIMIT 400`,
     ).all(cutoff) as Array<{ topics: string; summary: string; importance: number; created_at: number }>;
 
     if (rows.length === 0) {
@@ -133,7 +144,7 @@ export function getBrainProposals(opts: { force?: boolean } = {}): BrainProposal
     }
     proposals.sort((a, b) => b.hitCount - a.hitCount || b.importance - a.importance);
 
-    _cache = { asOf: Date.now(), proposals: proposals.slice(0, 10) };
+    _cache = { asOf: Date.now(), proposals: proposals.slice(0, 20) };
     return filterAgainstLiveWiki(_cache.proposals);
   } catch (e) {
     logger.warn({ err: String((e as Error)?.message || e) }, 'brain-proposals: scan failed');
@@ -147,4 +158,118 @@ export function getBrainProposals(opts: { force?: boolean } = {}): BrainProposal
  *  proposal that triggered it disappears from the list immediately. */
 export function invalidateProposalsCache(): void {
   _cache = null;
+}
+
+/** Fetch all memories that match a given topic string.
+ *  Used by the review modal so the user can inspect the full set before
+ *  committing to a wiki note. Returns id so the frontend can reference
+ *  specific memories for re-assign / dismiss operations. */
+export function getMemoriesForTopic(topic: string): Array<{ id: number; summary: string; importance: number; source: string; created_at: number; topics: string }> {
+  const lower = topic.toLowerCase().trim();
+  if (!lower) return [];
+  const db = getDb();
+  if (!db) return [];
+  try {
+    return db.prepare(
+      `SELECT id, summary, importance, source, created_at, topics
+         FROM memories
+        WHERE topics LIKE ? AND importance >= 0.5
+        ORDER BY importance DESC, created_at DESC
+        LIMIT 60`,
+    ).all(`%${lower}%`) as Array<{ id: number; summary: string; importance: number; source: string; created_at: number; topics: string }>;
+  } catch (e) {
+    logger.warn({ err: String((e as Error)?.message || e) }, 'getMemoriesForTopic failed');
+    return [];
+  } finally {
+    try { db.close(); } catch { /* ignore */ }
+  }
+}
+
+/** Update the summary text of a memory. Used by the inline memory editor. */
+export function updateMemorySummary(id: number, summary: string): boolean {
+  const db = getWriteDb();
+  if (!db) return false;
+  try {
+    db.prepare(`UPDATE memories SET summary = ? WHERE id = ?`).run(summary.trim(), id);
+    invalidateProposalsCache();
+    return true;
+  } catch (e) {
+    logger.warn({ err: String((e as Error)?.message || e) }, 'updateMemorySummary failed');
+    return false;
+  } finally {
+    try { db.close(); } catch { /* ignore */ }
+  }
+}
+
+/** Replace the full topics array on a memory. Used by the re-assign UI. */
+export function updateMemoryTopics(id: number, topics: string[]): boolean {
+  const db = getWriteDb();
+  if (!db) return false;
+  try {
+    const json = JSON.stringify(topics.map(t => t.trim()).filter(Boolean));
+    db.prepare(`UPDATE memories SET topics = ? WHERE id = ?`).run(json, id);
+    invalidateProposalsCache();
+    return true;
+  } catch (e) {
+    logger.warn({ err: String((e as Error)?.message || e) }, 'updateMemoryTopics failed');
+    return false;
+  } finally {
+    try { db.close(); } catch { /* ignore */ }
+  }
+}
+
+/** Remove a single topic tag from a memory. Used by the dismiss button. */
+export function removeTopicFromMemory(id: number, topic: string): boolean {
+  const db = getWriteDb();
+  if (!db) return false;
+  try {
+    const row = db.prepare(`SELECT topics FROM memories WHERE id = ?`).get(id) as { topics: string } | undefined;
+    if (!row) return false;
+    let topics: string[] = [];
+    try { topics = JSON.parse(row.topics || '[]'); } catch { /* ignore */ }
+    const lower = topic.toLowerCase().trim();
+    const filtered = topics.filter(t => t.toLowerCase().trim() !== lower);
+    db.prepare(`UPDATE memories SET topics = ? WHERE id = ?`).run(JSON.stringify(filtered), id);
+    invalidateProposalsCache();
+    return true;
+  } catch (e) {
+    logger.warn({ err: String((e as Error)?.message || e) }, 'removeTopicFromMemory failed');
+    return false;
+  } finally {
+    try { db.close(); } catch { /* ignore */ }
+  }
+}
+
+/** Rename every occurrence of `fromTopic` to `intoTopic` across all memories.
+ *  Used by the merge-proposals feature. Returns count of rows updated. */
+export function mergeTopics(fromTopic: string, intoTopic: string): number {
+  const from = fromTopic.toLowerCase().trim();
+  const into = intoTopic.toLowerCase().trim();
+  if (!from || !into || from === into) return 0;
+  const db = getWriteDb();
+  if (!db) return 0;
+  try {
+    const rows = db.prepare(
+      `SELECT id, topics FROM memories WHERE topics LIKE ?`
+    ).all(`%${from}%`) as Array<{ id: number; topics: string }>;
+    let updated = 0;
+    for (const row of rows) {
+      let topics: string[] = [];
+      try { topics = JSON.parse(row.topics || '[]'); } catch { continue; }
+      const hasFrom = topics.some(t => t.toLowerCase().trim() === from);
+      if (!hasFrom) continue;
+      const newTopics = topics.map(t => t.toLowerCase().trim() === from ? into : t);
+      // Deduplicate in case intoTopic was already in the list
+      const deduped = [...new Set(newTopics)];
+      db.prepare(`UPDATE memories SET topics = ? WHERE id = ?`).run(JSON.stringify(deduped), row.id);
+      updated++;
+    }
+    invalidateProposalsCache();
+    return updated;
+  } catch (e) {
+    logger.warn({ err: String((e as Error)?.message || e) }, 'mergeTopics failed');
+    return 0;
+  } finally {
+    try { db.close(); } catch { /* ignore */ }
+  }
 }

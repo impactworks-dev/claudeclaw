@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, DASHBOARD_URL, MESSENGER_TYPE, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT, agentDefaultModel } from './config.js';
+import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, DASHBOARD_URL, MESSENGER_TYPE, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT, agentDefaultModel, GOOGLE_API_KEY } from './config.js';
 import { readEnvFile } from './env.js';
 import crypto from 'crypto';
 
@@ -104,7 +104,7 @@ import {
 } from './agent-create.js';
 import { dispatchDashboardChatToAgent, processMessageFromDashboard } from './bot.js';
 import { getDashboardHtml } from './dashboard-html.js';
-import { getPipelineData, updateCard } from './pipeline-data.js';
+import { getPipelineData, updateCard, updateDealSubStage, createLocalLead, updateLocalLead, deleteLocalLead, BRANDS, SUB_STAGES } from './pipeline-data.js';
 import { getOutreachData, setOutreachStatus } from './outreach-data.js';
 import { getWebinarsData, setWebinarDisposition } from './webinars-data.js';
 import { getMembersData, addMember, updateMember } from './members-data.js';
@@ -119,14 +119,14 @@ import { getCleanedRevenue } from './vendasta-revenue.js';
 import { getCalendarData, invalidateCalendarCache } from './calendar-data.js';
 import { getVendastaData, invalidateVendastaCache } from './vendasta-data.js';
 import { runBackup } from './backup.js';
-import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert, saveStructuredMemory, pinMemory, getJournalEntry, saveJournalEntry, getRecentJournalEntries, getJournalStreak, logMeditationSession } from './db.js';
+import { getLatestDailyBrief, getRecentDailyBriefs, markBriefUserAction, getDailyBrief, getRecentProactiveAlerts, dismissAlert, snoozeAlert, saveStructuredMemory, pinMemory, getJournalEntry, saveJournalEntry, getRecentJournalEntries, getJournalStreak, logMeditationSession, getPersonalMemories } from './db.js';
 import { generateBriefPreview } from './daily-brief.js';
 import { runHeartbeatScan, runMoneyIdeas } from './heartbeat.js';
 import { getInbox, getThread, invalidateInboxCache } from './email-data.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
-import { getBrainProposals, invalidateProposalsCache } from './brain-proposals.js';
+import { getBrainProposals, invalidateProposalsCache, getMemoriesForTopic, updateMemoryTopics, removeTopicFromMemory, mergeTopics, updateMemorySummary } from './brain-proposals.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
 import { getWarRoomHtml } from './warroom-html.js';
@@ -1197,6 +1197,59 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     }
   });
 
+  // Update deal sub-stage (local store — Lead / Contact / Qualified / Proposal).
+  app.post('/api/pipeline/stage', async (c) => {
+    try {
+      const body = await c.req.json();
+      if (!body.id) return c.json({ error: 'id required' }, 400);
+      if (!SUB_STAGES.includes(body.subStage)) return c.json({ error: `invalid subStage; must be one of ${SUB_STAGES.join(', ')}` }, 400);
+      const res = updateDealSubStage({ id: body.id, subStage: body.subStage, brand: body.brand, source: body.source });
+      return c.json(res);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'pipeline stage update failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Create a new local lead (not yet synced to Vendasta).
+  app.post('/api/pipeline/lead', async (c) => {
+    try {
+      const body = await c.req.json();
+      if (!body.name?.trim()) return c.json({ error: 'name required' }, 400);
+      if (!BRANDS.includes(body.brand)) return c.json({ error: `invalid brand; must be one of ${BRANDS.join(', ')}` }, 400);
+      const res = createLocalLead(body);
+      return c.json(res);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'pipeline create lead failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Update a local lead.
+  app.patch('/api/pipeline/lead/:id', async (c) => {
+    try {
+      const id = c.req.param('id');
+      const body = await c.req.json();
+      const res = updateLocalLead({ id, ...body });
+      return c.json(res);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'pipeline update local lead failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Delete a local lead.
+  app.delete('/api/pipeline/lead/:id', async (c) => {
+    try {
+      const id = c.req.param('id');
+      const res = deleteLocalLead(id);
+      return c.json(res);
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'pipeline delete local lead failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   // Outreach tracker (BID Traffic Partnership + future campaigns).
   app.get('/api/outreach', (c) => {
     try { return c.json(getOutreachData()); }
@@ -1260,6 +1313,64 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       const m = updateMember(id, updates);
       if (!m) return c.json({ error: 'not found' }, 404);
       return c.json({ ok: true, member: m });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // ── Vendasta Payout Ledger ────────────────────────────────────────────
+  // Tracks payouts that have been posted to the Make webhook → QBO.
+  // GET  /api/payouts           → returns array of ledger entries
+  // POST /api/payouts           → adds a payout to ledger + fires Make webhook
+  const PAYOUTS_LEDGER_FILE = path.join(STORE_DIR, 'vendasta-payouts-ledger.json');
+  const PAYOUTS_SENT_FILE   = path.join(STORE_DIR, 'vendasta-payouts-sent.json');
+  const MAKE_PAYOUT_WEBHOOK = 'https://hook.us2.make.com/y9xeg296ff6qmg5u2hfp5d1epy8yyi9o';
+
+  function readPayoutLedger(): unknown[] {
+    try { return JSON.parse(fs.readFileSync(PAYOUTS_LEDGER_FILE, 'utf-8')); } catch { return []; }
+  }
+  function appendPayoutLedger(entry: Record<string, unknown>): void {
+    const ledger = readPayoutLedger();
+    ledger.push({ ...entry, recorded_at: new Date().toISOString() });
+    fs.writeFileSync(PAYOUTS_LEDGER_FILE, JSON.stringify(ledger, null, 2));
+    // Also update the dedup set
+    try {
+      const sent: string[] = JSON.parse(fs.readFileSync(PAYOUTS_SENT_FILE, 'utf-8'));
+      if (entry.payout_id && !sent.includes(String(entry.payout_id))) {
+        sent.push(String(entry.payout_id));
+        fs.writeFileSync(PAYOUTS_SENT_FILE, JSON.stringify(sent, null, 2));
+      }
+    } catch { /* ignore */ }
+  }
+
+  app.get('/api/payouts', (c) => {
+    return c.json(readPayoutLedger());
+  });
+
+  app.post('/api/payouts', async (c) => {
+    try {
+      const body = await c.req.json() as Record<string, unknown>;
+      const { payout_id, payout_date, client_name, gross_amount, processing_fee, net_amount, entity } = body;
+      if (!payout_id || !entity) return c.json({ error: 'payout_id and entity required' }, 400);
+
+      // Check dedup
+      let sent: string[] = [];
+      try { sent = JSON.parse(fs.readFileSync(PAYOUTS_SENT_FILE, 'utf-8')); } catch { /* ok */ }
+      if (sent.includes(String(payout_id))) {
+        return c.json({ ok: true, skipped: true, reason: 'already_sent' });
+      }
+
+      // POST to Make webhook
+      const payload = { payout_id, payout_date, client_name, gross_amount, processing_fee, net_amount, entity };
+      const wr = await fetch(MAKE_PAYOUT_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!wr.ok) return c.json({ error: `Webhook failed: ${wr.status}` }, 502);
+
+      appendPayoutLedger(payload as Record<string, unknown>);
+      return c.json({ ok: true });
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
@@ -2834,6 +2945,46 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     return c.json({ ok: true, agent_id: targetAgent });
   });
 
+  // File upload for the dashboard chat. Accepts multipart form data with
+  // a file field plus an optional caption. Saves to STORE_DIR/uploads/,
+  // then injects a message into the normal dashboard chat queue so Nikki
+  // can read the file (images, PDFs, text) using her filesystem tools.
+  app.post('/api/chat/upload', async (c) => {
+    if (!botApi) return c.json({ error: 'Bot API not available' }, 503);
+    try {
+      const uploadsDir = path.join(STORE_DIR, 'uploads');
+      await fs.promises.mkdir(uploadsDir, { recursive: true });
+
+      const formData = await c.req.formData();
+      const file = formData.get('file') as File | null;
+      const caption = (formData.get('caption') as string | null)?.trim() || '';
+
+      if (!file || !file.name) return c.json({ error: 'file required' }, 400);
+
+      // Sanitise filename and prefix with timestamp so uploads never clobber each other.
+      const safeName = file.name.replace(/[^a-zA-Z0-9._\-]/g, '_').slice(0, 120);
+      const destName = `${Date.now()}_${safeName}`;
+      const destPath = path.join(uploadsDir, destName);
+
+      const buf = Buffer.from(await file.arrayBuffer());
+      await fs.promises.writeFile(destPath, buf);
+
+      // Build the injected message. Nikki can use her Read tool to open
+      // the file (images as base64, PDFs via text extraction, etc.)
+      const mime = file.type || 'application/octet-stream';
+      const isImage = mime.startsWith('image/');
+      const isPdf   = mime === 'application/pdf';
+      const kind = isImage ? 'image' : isPdf ? 'PDF' : 'file';
+      const captionLine = caption ? `\nUser caption: "${caption}"` : '';
+      const msg = `[Dashboard ${kind} upload]\nPath: ${destPath}\nFilename: ${file.name}\nMIME: ${mime}${captionLine}\n\nPlease review the ${kind} at the path above and respond to it.`;
+
+      void processMessageFromDashboard(botApi, msg);
+      return c.json({ ok: true, path: destPath });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   // Text-to-speech for the dashboard chat. Returns MP3 bytes via the
   // existing voice cascade (ElevenLabs → Gradium → Kokoro → say). The
   // dashboard's NikkiCard plays the response in an <audio> element, so
@@ -3013,12 +3164,28 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     }
   });
 
+  // Fetch all memories for a given topic — used by the proposal review modal
+  // so the user can see the full set of memories before deciding to add to wiki.
+  app.get('/api/brain/proposals/memories', (c) => {
+    const topic = (c.req.query('topic') || '').trim();
+    if (!topic) return c.json({ memories: [] });
+    try {
+      const memories = getMemoriesForTopic(topic);
+      return c.json({ memories });
+    } catch (e) {
+      logger.warn({ err: String((e as Error)?.message || e) }, '/api/brain/proposals/memories failed');
+      return c.json({ memories: [] });
+    }
+  });
+
   // Accept a proposal — create a stub wiki note from the suggested name + examples.
   // The note is written to Decisions/ (or whatever folder the user prefers via
   // body.folder) and Syncthing pushes it back to the Mac.
+  // Optional body.content overrides the auto-generated note body so the user
+  // can edit the draft in the review modal before saving.
   app.post('/api/brain/proposals/accept', async (c) => {
     try {
-      const body = await c.req.json<{ topic?: string; folder?: string; examples?: string[] }>();
+      const body = await c.req.json<{ topic?: string; folder?: string; examples?: string[]; content?: string }>();
       const topic = String(body?.topic || '').trim();
       if (!topic) return c.json({ error: 'topic required' }, 400);
       const folder = String(body?.folder || 'Decisions').trim();
@@ -3037,14 +3204,86 @@ export function startDashboard(botApi?: Api<RawApi>): void {
         return c.json({ error: 'note already exists', path: filePath }, 409);
       }
       const today = new Date().toISOString().slice(0, 10);
-      const exampleLines = examples.map(e => `> ${e.replace(/\n+/g, ' ')}`).join('\n\n');
-      const content = `---\ntitle: ${noteName}\ntags: [proposed, ${today}]\n---\n\n# ${noteName}\n\n*Promoted from memory pattern on ${today}. Edit freely.*\n\n${exampleLines}\n\n## Why this is worth keeping\n\n*Add context here.*\n\n## Related\n\n- *Add wikilinks here*\n`;
+      // Use caller-supplied content if provided (edited in the review modal),
+      // otherwise fall back to the auto-generated stub.
+      let content: string;
+      if (typeof body?.content === 'string' && body.content.trim().length > 0) {
+        content = body.content;
+      } else {
+        const exampleLines = examples.map(e => `> ${e.replace(/\n+/g, ' ')}`).join('\n\n');
+        content = `---\ntitle: ${noteName}\ntags: [proposed, ${today}]\n---\n\n# ${noteName}\n\n*Promoted from memory pattern on ${today}. Edit freely.*\n\n${exampleLines}\n\n## Why this is worth keeping\n\n*Add context here.*\n\n## Related\n\n- *Add wikilinks here*\n`;
+      }
       fs.writeFileSync(filePath, content, 'utf-8');
       invalidateBrainCache();
       invalidateProposalsCache();
       return c.json({ ok: true, path: filePath });
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, '/api/brain/proposals/accept failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Update the summary text of a memory (inline text editing).
+  app.patch('/api/brain/memories/:id/summary', async (c) => {
+    try {
+      const id = Number(c.req.param('id'));
+      if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400);
+      const body = await c.req.json<{ summary?: string }>();
+      const summary = String(body?.summary || '').trim();
+      if (!summary) return c.json({ error: 'summary required' }, 400);
+      const ok = updateMemorySummary(id, summary);
+      return c.json({ ok });
+    } catch (e) {
+      logger.warn({ err: String((e as Error)?.message || e) }, 'PATCH /api/brain/memories/:id/summary failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Update the full topics array on a memory (re-assign to different proposals).
+  app.patch('/api/brain/memories/:id/topics', async (c) => {
+    try {
+      const id = Number(c.req.param('id'));
+      if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400);
+      const body = await c.req.json<{ topics?: unknown }>();
+      if (!Array.isArray(body?.topics)) return c.json({ error: 'topics must be an array' }, 400);
+      const topics = (body.topics as unknown[]).map(t => String(t).trim()).filter(Boolean);
+      const ok = updateMemoryTopics(id, topics);
+      return c.json({ ok });
+    } catch (e) {
+      logger.warn({ err: String((e as Error)?.message || e) }, 'PATCH /api/brain/memories/:id/topics failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Remove a single topic tag from a memory (dismiss it from a proposal).
+  app.delete('/api/brain/memories/:id/topic', async (c) => {
+    try {
+      const id = Number(c.req.param('id'));
+      if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400);
+      const body = await c.req.json<{ topic?: string }>();
+      const topic = String(body?.topic || '').trim();
+      if (!topic) return c.json({ error: 'topic required' }, 400);
+      const ok = removeTopicFromMemory(id, topic);
+      return c.json({ ok });
+    } catch (e) {
+      logger.warn({ err: String((e as Error)?.message || e) }, 'DELETE /api/brain/memories/:id/topic failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Merge one proposal topic into another — renames all matching topic tags
+  // across the memories table so the two proposals collapse into one.
+  app.post('/api/brain/proposals/merge', async (c) => {
+    try {
+      const body = await c.req.json<{ from?: string; into?: string }>();
+      const from = String(body?.from || '').trim();
+      const into = String(body?.into || '').trim();
+      if (!from || !into) return c.json({ error: 'from and into required' }, 400);
+      if (from.toLowerCase() === into.toLowerCase()) return c.json({ error: 'cannot merge a topic into itself' }, 400);
+      const count = mergeTopics(from, into);
+      return c.json({ ok: true, updated: count });
+    } catch (e) {
+      logger.warn({ err: String((e as Error)?.message || e) }, 'POST /api/brain/proposals/merge failed');
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });
@@ -3781,6 +4020,87 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     }
   });
 
+  // ── Google Drive ingest webhook ──────────────────────────────────────────
+  // Called by Make.com when a new or modified file appears in Google Drive.
+  // Body: { fileId, fileName, mimeType, modifiedTime, secret }
+  // The secret is checked against GDRIVE_WEBHOOK_SECRET env var.
+  app.post('/api/gdrive-ingest', async (c) => {
+    const secret = process.env.GDRIVE_WEBHOOK_SECRET;
+    const body = await c.req.json<{
+      fileId?: string;
+      fileName?: string;
+      mimeType?: string;
+      modifiedTime?: string;
+      secret?: string;
+    }>();
+
+    // Simple shared-secret auth
+    if (secret && body.secret !== secret) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { fileId, fileName, mimeType, modifiedTime } = body;
+    if (!fileId || !mimeType) {
+      return c.json({ error: 'fileId and mimeType are required' }, 400);
+    }
+
+    // Only process readable types (no PDFs)
+    const READABLE = new Set([
+      'application/vnd.google-apps.document',
+      'application/vnd.google-apps.spreadsheet',
+      'application/vnd.google-apps.presentation',
+      'text/plain',
+      'text/markdown',
+    ]);
+    if (!READABLE.has(mimeType)) {
+      return c.json({ ok: true, skipped: true, reason: 'unsupported mimeType' });
+    }
+
+    logger.info({ fileId, fileName, mimeType }, 'Drive webhook: queuing file for ingest');
+
+    // Run ingest in background — don't block the response
+    (async () => {
+      try {
+        const { runDriveIngest } = await import('./gdrive-ingest.js');
+        // Pass a single file via a custom one-shot run
+        // We abuse the existing ingest by setting limit=1 and pre-seeding
+        // the index to skip everything except this file.
+        // Simpler: just call the ingest with typeFilter matching this mimeType,
+        // it'll pick up new/modified files not yet in the index.
+        await runDriveIngest({ limit: 5, delayMs: 1000 });
+      } catch (err) {
+        logger.error({ err, fileId }, 'Drive webhook ingest failed');
+      }
+    })();
+
+    return c.json({ ok: true, queued: true, fileId });
+  });
+
+  // Bulk backfill — runs inside the persistent server process so it survives
+  // SSH teardown. Hit once to drain the index at limit=500 per call.
+  // POST /api/gdrive-backfill  { "secret": "..." }  OR  X-Backfill-Secret header
+  app.post('/api/gdrive-backfill', async (c) => {
+    const secret = process.env.GDRIVE_WEBHOOK_SECRET;
+    const headerSecret = c.req.header('x-backfill-secret');
+    const body: { secret?: string; limit?: number } = await c.req.json<{ secret?: string; limit?: number }>().catch(() => ({}));
+    const providedSecret = headerSecret ?? body.secret;
+    if (secret && providedSecret !== secret) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    const limit = typeof body.limit === 'number' ? Math.min(body.limit, 1000) : 500;
+    logger.info({ limit }, 'Drive backfill: starting background run');
+    (async () => {
+      try {
+        const { runDriveIngest } = await import('./gdrive-ingest.js');
+        const result = await runDriveIngest({ limit, delayMs: 1500 });
+        logger.info(result, 'Drive backfill: run complete');
+      } catch (err) {
+        logger.error({ err }, 'Drive backfill: run failed');
+      }
+    })();
+    return c.json({ ok: true, started: true, limit });
+  });
+
   startChannelSweeper();
 
   let server: ReturnType<typeof serve>;
@@ -3796,6 +4116,105 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     }
     return;
   }
+
+  // ── Startup Drive backfill ────────────────────────────────────────────────
+  // Runs automatically on every server start. Skips already-indexed files so
+  // it's safe to run repeatedly. Uses a 10s delay to let the server settle.
+  setTimeout(async () => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const storePath = process.env.STORE_DIR ?? '/app/store';
+      const indexPath = path.join(storePath, 'gdrive-index.json');
+      let indexSize = 0;
+      try {
+        const raw = fs.readFileSync(indexPath, 'utf8');
+        indexSize = Object.keys(JSON.parse(raw)).length;
+      } catch { /* index missing or empty */ }
+      logger.info({ indexSize }, 'Startup Drive backfill: checking index');
+
+      // Pre-flight: verify Drive auth works before spending 2.5min timing out
+      const { execFile: _execFile } = await import('child_process');
+      const { promisify: _promisify } = await import('util');
+      const _execFileAsync = _promisify(_execFile);
+      const cliPath = path.join(process.env.PROJECT_ROOT ?? '/app', 'dist', 'gdrive-cli.js');
+      try {
+        await _execFileAsync(process.execPath, [cliPath, 'status'], {
+          encoding: 'utf8', timeout: 8_000,
+        });
+      } catch {
+        logger.warn('Startup Drive backfill: auth pre-flight failed — skipping ingest this boot');
+        return;
+      }
+
+      const { runDriveIngest } = await import('./gdrive-ingest.js');
+      const result = await runDriveIngest({ limit: 500, delayMs: 1500 });
+      logger.info(result, 'Startup Drive backfill: run complete');
+      // If there were more files to process, keep going in batches
+      if (result.processed >= 490) {
+        logger.info('Startup Drive backfill: more files likely remain, scheduling next batch');
+        const runBatch = async (): Promise<void> => {
+          const r = await runDriveIngest({ limit: 500, delayMs: 1500 });
+          logger.info(r, 'Drive backfill batch complete');
+          if (r.processed >= 490) {
+            await new Promise(res => setTimeout(res, 5000));
+            return runBatch();
+          }
+        };
+        await runBatch();
+        logger.info('Drive backfill: all batches complete');
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Startup Drive backfill failed');
+    }
+  }, 10_000);
+
+  // ── Startup Obsidian vault ingest ─────────────────────────────────────────
+  // Runs on Fly when /app/store/obsidian-brain exists (synced via Syncthing).
+  // Locally, resolveVaultPath() finds the Mac vault path automatically.
+  // Safe to run repeatedly -- index skips unchanged files. 15s delay so the
+  // Drive backfill gets a head start and the server is fully settled.
+  setTimeout(async () => {
+    try {
+      const { runObsidianIngest } = await import('./obsidian-ingest.js');
+      const result = await runObsidianIngest({ limit: 200, delayMs: 1500 });
+      logger.info(result, 'Startup Obsidian ingest: run complete');
+    } catch (err) {
+      logger.warn({ err }, 'Startup Obsidian ingest failed');
+    }
+  }, 15_000);
+
+  // ── Startup Gmail ingest ──────────────────────────────────────────────────
+  // Pulls recent important emails (last 60 days), extracts key facts via
+  // Gemini, saves as memories with source='gmail'. Skips newsletters and
+  // auto-sends. 20s delay gives Drive + Obsidian a head start.
+  setTimeout(async () => {
+    try {
+      const { runGmailIngest } = await import('./gmail-ingest.js');
+      const result = await runGmailIngest({ limit: 50, days: 60, delayMs: 1500 });
+      logger.info(result, 'Startup Gmail ingest: run complete');
+    } catch (err) {
+      logger.warn({ err }, 'Startup Gmail ingest failed');
+    }
+  }, 20_000);
+
+  // ── Startup ClickUp ingest ────────────────────────────────────────────────
+  // Fetches active tasks from all ClickUp spaces, extracts via Gemini,
+  // saves as memories with source='clickup'. 25s delay staggers Gemini load.
+  setTimeout(async () => {
+    try {
+      const { runClickUpIngest } = await import('./clickup-ingest.js');
+      const result = await runClickUpIngest({ limit: 100, delayMs: 1500 });
+      logger.info(result, 'Startup ClickUp ingest: run complete');
+    } catch (err) {
+      logger.warn({ err }, 'Startup ClickUp ingest failed');
+    }
+  }, 25_000);
+
+  // DEBUG: catch-all upgrade listener to confirm Node.js receives WS upgrades
+  (server as unknown as import('http').Server).on('upgrade', (req: import('http').IncomingMessage) => {
+    logger.info({ url: req.url, host: req.headers.host, upgrade: req.headers.upgrade }, 'DEBUG: raw HTTP upgrade event received');
+  });
 
   // ── WebSocket proxy: /ws/warroom → localhost:WARROOM_PORT ──────────
   // Allows the War Room to work through a single Cloudflare tunnel on
@@ -3863,4 +4282,597 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       logger.warn({ err }, 'Could not set up War Room WS proxy');
     });
   }
+
+  // ── Nikki Live: personal context from Obsidian vault ─────────────────────
+  // Reads Dante's identity, principles, and preferences from the Obsidian wiki
+  // (synced to /app/store/obsidian-brain on Fly). Returns a compact string
+  // for injection into the Gemini system prompt at call start.
+  function getPersonalContext(): string {
+    const parts: string[] = [];
+
+    // 1. Obsidian wiki pages — identity and principles
+    const noteKeys = [
+      'People/Dante.md',
+      'Principles/Democratize technology.md',
+      'Principles/Practical over hype.md',
+      'Principles/Speed and clarity.md',
+    ];
+    const wikiSections: string[] = [];
+    for (const key of noteKeys) {
+      try {
+        const note = getNote(key);
+        if (note?.content) {
+          wikiSections.push(`### ${note.title}\n${note.content.trim()}`);
+        }
+      } catch {
+        // vault not synced or file missing — skip
+      }
+    }
+    if (wikiSections.length > 0) {
+      parts.push(`FROM OBSIDIAN WIKI:\n\n${wikiSections.join('\n\n')}`);
+    }
+
+    // 2. Interview memories from SQLite — personal identity, family, lifestyle,
+    //    health, goals, communication prefs captured during the onboarding session
+    try {
+      const memories = getPersonalMemories(60);
+      if (memories.length > 0) {
+        const lines = memories.map(m => `- ${m.summary.trim()}`);
+        parts.push(`FROM MEMORY DATABASE (interview + ongoing):\n${lines.join('\n')}`);
+      }
+    } catch {
+      // DB unavailable — skip
+    }
+
+    if (parts.length === 0) return '';
+    return `DANTE PERSONAL CONTEXT:\n\n${parts.join('\n\n')}`;
+  }
+
+  // ── Nikki Live: context snapshot + tool execution ─────────────────────────
+  // Fetches a compact snapshot of Dante's current business state.
+  // Called immediately when a browser connects — in parallel with the Gemini
+  // WS handshake — so context is ready by the time setup needs to be sent.
+  async function buildLiveContext(): Promise<string> {
+    const now = new Date();
+    const timestamp = now.toLocaleString('en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+    });
+    const parts: string[] = [`Context snapshot at ${timestamp}`];
+
+    // Personal context (sync — reads local vault, no network needed)
+    const personalCtx = getPersonalContext();
+    if (personalCtx) parts.push(personalCtx);
+
+    const [calResult, qbResult, pipelineResult, cashResult, vendastaRevenueResult, inboxResult] = await Promise.allSettled([
+      getCalendarData({ range: 'week', force: false }),
+      getQbData({ force: false }),
+      getPipelineData(false),
+      getCashData(false),
+      getCleanedRevenue({ force: false }),
+      getInbox({ limit: 10, force: false }),
+    ]);
+
+    // Calendar
+    if (calResult.status === 'fulfilled' && calResult.value.connectionStatus === 'ok') {
+      const events = calResult.value.events;
+      if (events.length === 0) {
+        parts.push('CALENDAR (next 7 days): No events scheduled');
+      } else {
+        const lines = events.slice(0, 12).map(e => {
+          const time = e.allDay
+            ? 'all day'
+            : e.start
+              ? new Date(e.start).toLocaleString('en-GB', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+              : '';
+          return `  - ${e.title}${time ? ' (' + time + ')' : ''}${e.location ? ' @ ' + e.location : ''}`;
+        });
+        parts.push(`CALENDAR (next 7 days — ${events.length} event${events.length !== 1 ? 's' : ''}):\n${lines.join('\n')}`);
+      }
+    } else {
+      parts.push('CALENDAR: unavailable right now');
+    }
+
+    // Financials (QuickBooks)
+    if (qbResult.status === 'fulfilled' && qbResult.value.connectionStatus === 'ok') {
+      const qb = qbResult.value;
+      const fmt = (cents: number) =>
+        `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}${cents < 0 ? ' (loss)' : ''}`;
+      parts.push([
+        `FINANCIALS (QuickBooks — ${qb.company.name || 'ImpactWorks'}):`,
+        `  - MTD revenue: ${fmt(qb.mtd.revenueCents)}`,
+        `  - MTD net: ${fmt(qb.mtd.netCents)}`,
+        `  - Last 30 days revenue: ${fmt(qb.last30.revenueCents)}`,
+        `  - Last 30 days net: ${fmt(qb.last30.netCents)}`,
+        `  - Cash runway: ${qb.runwayDays !== null ? qb.runwayDays + ' days' : 'unknown'}`,
+      ].join('\n'));
+    } else {
+      parts.push('FINANCIALS: unavailable right now');
+    }
+
+    // Sales pipeline (CRM)
+    if (pipelineResult.status === 'fulfilled') {
+      const pipeline = pipelineResult.value as any;
+      const cards = Array.isArray(pipeline.cards) ? pipeline.cards : [];
+      const active = cards.filter((c: any) => c.stage !== 'closed-won' && c.stage !== 'closed-lost');
+      if (active.length === 0) {
+        parts.push('SALES PIPELINE: No active deals');
+      } else {
+        const lines = active.slice(0, 10).map((c: any) =>
+          `  - ${c.company || c.name || 'Unknown'}: ${c.stage || 'unknown stage'}${c.mrr ? ` ($${c.mrr}/mo MRR)` : ''}${c.contactName ? ' — ' + c.contactName : ''}`
+        );
+        parts.push(`SALES PIPELINE (${active.length} active deal${active.length !== 1 ? 's' : ''}):\n${lines.join('\n')}`);
+      }
+    } else {
+      parts.push('SALES PIPELINE: unavailable right now');
+    }
+
+    // Cash / Plaid accounts
+    if (cashResult.status === 'fulfilled' && cashResult.value.connectionStatus === 'ok') {
+      const cash = cashResult.value;
+      const fmtD = (cents: number) =>
+        `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      const totalLiquid = cash.accounts
+        .filter(a => a.type === 'depository')
+        .reduce((sum, a) => sum + (a.balanceAvailable ?? a.balanceCurrent ?? 0), 0);
+      const acctLines = cash.accounts.slice(0, 8).map(a => {
+        const bal = a.balanceAvailable ?? a.balanceCurrent ?? 0;
+        return `  - ${a.displayName || a.name}${a.mask ? ' ···' + a.mask : ''}: ${fmtD(bal * 100)} (${a.type}/${a.subtype})`;
+      });
+      parts.push([
+        `BANK ACCOUNTS (Plaid — ${cash.accounts.length} linked):`,
+        `  - Total liquid cash: ${fmtD(cash.totalCashCents)}`,
+        `  - Cash runway: ${cash.runwayDays !== null ? cash.runwayDays + ' days' : 'unknown'}`,
+        ...acctLines,
+      ].join('\n'));
+    } else {
+      parts.push('BANK ACCOUNTS: unavailable right now');
+    }
+
+    // Vendasta MRR breakdown
+    if (vendastaRevenueResult.status === 'fulfilled') {
+      const rev = vendastaRevenueResult.value;
+      const fmtD = (cents: number) =>
+        `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      const brandLines = (rev.brands || []).slice(0, 5).map((b: any) =>
+        `  - ${b.label}: ${fmtD(b.customerRetailMRR)}/mo retail MRR, ${b.customerCount} paying customers, ${Math.round(b.marginPct)}% margin`
+      );
+      parts.push([
+        `VENDASTA MRR (customer revenue, internal accounts excluded):`,
+        `  - Total customer retail MRR: ${fmtD(rev.customerRetailMRR)}/mo`,
+        `  - Wholesale cost: ${fmtD(rev.wholesaleMonthly)}/mo`,
+        `  - Gross margin: ${fmtD(rev.grossMargin)}/mo (${Math.round(rev.marginPct)}%)`,
+        `  - Paying customers: ${rev.customerCount}`,
+        ...brandLines,
+      ].join('\n'));
+    } else {
+      parts.push('VENDASTA MRR: unavailable right now');
+    }
+
+    // Inbox (Gmail)
+    if (inboxResult.status === 'fulfilled' && inboxResult.value.configured) {
+      const emails = inboxResult.value.emails || [];
+      const unread = emails.filter((e: any) => e.unread).length;
+      if (emails.length === 0) {
+        parts.push('INBOX: No recent emails');
+      } else {
+        const lines = emails.slice(0, 10).map((e: any) => {
+          const from = e.senderPerson?.name || e.fromName || e.fromEmail || 'Unknown';
+          const age = e.ageHours > 24 ? `${Math.round(e.ageHours / 24)}d` : `${Math.round(e.ageHours)}h`;
+          return `  - ${e.unread ? '[UNREAD] ' : ''}${from} (${age}): ${e.subject || '(no subject)'}`;
+        });
+        parts.push(`INBOX (${unread} unread of ${emails.length} recent):\n${lines.join('\n')}`);
+      }
+    } else {
+      parts.push('INBOX: unavailable right now');
+    }
+
+    return parts.join('\n\n');
+  }
+
+  // Execute a tool call issued by Gemini mid-conversation.
+  // Returns a plain-text result string (Gemini will speak from this).
+  async function executeLiveTool(name: string, args: Record<string, unknown>): Promise<string> {
+    try {
+      if (name === 'get_calendar') {
+        const days = typeof args.days === 'number' ? args.days : 7;
+        const range = days <= 2 ? 'today' : 'week';
+        const cal = await getCalendarData({ range, force: true });
+        if (cal.connectionStatus !== 'ok') return `Calendar unavailable: ${cal.connectionMessage || 'no credentials'}`;
+        if (cal.events.length === 0) return 'No events in the requested period.';
+        return cal.events.map(e => {
+          const time = e.allDay
+            ? 'all day'
+            : e.start
+              ? new Date(e.start).toLocaleString('en-GB', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+              : '';
+          return `${e.title}${time ? ' — ' + time : ''}${e.location ? ' @ ' + e.location : ''}`;
+        }).join('\n');
+      }
+
+      if (name === 'get_financials') {
+        const qb = await getQbData({ force: true });
+        if (qb.connectionStatus !== 'ok') return `QuickBooks unavailable: ${qb.connectionMessage || 'no credentials'}`;
+        const fmt = (cents: number) =>
+          `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}${cents < 0 ? ' (loss)' : ''}`;
+        return [
+          `Company: ${qb.company.name || 'ImpactWorks'}`,
+          `MTD revenue: ${fmt(qb.mtd.revenueCents)}`,
+          `MTD net: ${fmt(qb.mtd.netCents)}`,
+          `Last 30 days revenue: ${fmt(qb.last30.revenueCents)}`,
+          `Last 30 days net: ${fmt(qb.last30.netCents)}`,
+          `Cash runway: ${qb.runwayDays !== null ? qb.runwayDays + ' days' : 'unknown'}`,
+        ].join('\n');
+      }
+
+      if (name === 'get_pipeline') {
+        const pipeline = await getPipelineData(true) as any;
+        const cards = Array.isArray(pipeline.cards) ? pipeline.cards : [];
+        if (cards.length === 0) return 'No deals in pipeline.';
+        const active = cards.filter((c: any) => c.stage !== 'closed-won' && c.stage !== 'closed-lost');
+        const lines = active.slice(0, 15).map((c: any) =>
+          `${c.company || c.name || 'Unknown'}: ${c.stage || 'unknown'}${c.mrr ? ` ($${c.mrr}/mo)` : ''}${c.contactName ? ' — contact: ' + c.contactName : ''}`
+        );
+        return `${active.length} active deal${active.length !== 1 ? 's' : ''}:\n${lines.join('\n')}`;
+      }
+
+      if (name === 'get_inbox') {
+        try {
+          const inbox = await getInbox({ limit: 8, force: true });
+          if (!inbox.configured) return `Inbox unavailable: ${inbox.error || 'Gmail not configured'}`;
+          const emails = inbox.emails || [];
+          const unread = emails.filter((e: any) => e.unread).length;
+          if (emails.length === 0) return `Inbox: no recent emails${inbox.error ? ' (error: ' + inbox.error + ')' : ''}.`;
+          const lines = emails.slice(0, 8).map((e: any) => {
+            const from = e.senderPerson?.name || e.fromName || e.fromEmail || 'Unknown';
+            const age = e.ageHours > 24 ? `${Math.round(e.ageHours / 24)}d` : `${Math.round(e.ageHours)}h`;
+            return `- ${e.unread ? '[UNREAD] ' : ''}${from} (${age}): ${e.subject || '(no subject)'}`;
+          });
+          return `Inbox: ${unread} unread\nRecent:\n${lines.join('\n')}`;
+        } catch (err) {
+          return `Inbox unavailable: ${String((err as Error)?.message || err).slice(0, 100)}`;
+        }
+      }
+
+      if (name === 'get_cash') {
+        const cash = await getCashData(true);
+        if (cash.connectionStatus !== 'ok') return `Bank accounts unavailable: ${cash.connectionMessage || 'no credentials'}`;
+        const fmtD = (cents: number) =>
+          `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+        const acctLines = cash.accounts.map(a => {
+          const bal = a.balanceAvailable ?? a.balanceCurrent ?? 0;
+          return `${a.displayName || a.name}${a.mask ? ' ···' + a.mask : ''}: ${fmtD(bal * 100)} (${a.subtype})`;
+        });
+        return [
+          `Total liquid cash: ${fmtD(cash.totalCashCents)}`,
+          `Cash runway: ${cash.runwayDays !== null ? cash.runwayDays + ' days' : 'unknown'}`,
+          `Accounts (${cash.accounts.length}):`,
+          ...acctLines.map(l => '  ' + l),
+        ].join('\n');
+      }
+
+      if (name === 'get_vendasta') {
+        const [vData, vRev] = await Promise.allSettled([
+          getVendastaData({ force: true }),
+          getCleanedRevenue({ force: true }),
+        ]);
+        const lines: string[] = [];
+        if (vRev.status === 'fulfilled') {
+          const rev = vRev.value;
+          const fmtD = (cents: number) =>
+            `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+          lines.push(`Customer retail MRR: ${fmtD(rev.customerRetailMRR)}/mo`);
+          lines.push(`Wholesale cost: ${fmtD(rev.wholesaleMonthly)}/mo`);
+          lines.push(`Gross margin: ${fmtD(rev.grossMargin)}/mo (${Math.round(rev.marginPct)}%)`);
+          lines.push(`Paying customers: ${rev.customerCount}`);
+          const brands: any[] = rev.brands || [];
+          for (const b of brands) {
+            lines.push(`  ${b.label}: ${fmtD(b.customerRetailMRR)}/mo, ${b.customerCount} customers, ${Math.round(b.marginPct)}% margin`);
+          }
+        } else {
+          lines.push('Vendasta revenue data unavailable');
+        }
+        if (vData.status === 'fulfilled' && vData.value.connectionStatus === 'ok') {
+          const all = vData.value.all;
+          lines.push(`Total companies in CRM: ${all.companies}`);
+          lines.push(`Open deals: ${all.openDeals}`);
+          const topDeals = all.topOpenDeals.slice(0, 5);
+          if (topDeals.length > 0) {
+            lines.push('Top open deals:');
+            for (const d of topDeals) {
+              const val = d.projectedFirstYearValueCents > 0
+                ? ` (~$${Math.round(d.projectedFirstYearValueCents / 100).toLocaleString()}/yr projected)`
+                : '';
+              lines.push(`  - ${d.name}${val} [${d.pipelineStage || 'open'}]`);
+            }
+          }
+        }
+        return lines.length > 0 ? lines.join('\n') : 'Vendasta data unavailable right now.';
+      }
+
+      if (name === 'get_transactions') {
+        const keyword = typeof args.keyword === 'string' ? args.keyword.toLowerCase() : '';
+        const limit = typeof args.limit === 'number' ? Math.min(args.limit, 30) : 15;
+        const cash = await getCashData(false); // use cache — transactions don't need force refresh
+        if (cash.connectionStatus !== 'ok') return `Transactions unavailable: ${cash.connectionMessage || 'no credentials'}`;
+        let txns = cash.recent;
+        if (keyword) {
+          txns = txns.filter(t =>
+            t.name.toLowerCase().includes(keyword) ||
+            (t.merchant || '').toLowerCase().includes(keyword) ||
+            t.bucket.toLowerCase().includes(keyword)
+          );
+        }
+        txns = txns.slice(0, limit);
+        if (txns.length === 0) return keyword ? `No transactions matching "${keyword}" found in recent history.` : 'No recent transactions found.';
+        const fmtD = (cents: number) => `$${(Math.abs(cents) / 100).toFixed(2)}`;
+        const lines = txns.map(t =>
+          `${t.date} | ${t.direction === 'in' ? '+' : '-'}${fmtD(Math.abs(t.amount) * 100)} | ${t.merchant || t.name} | ${t.bucket}`
+        );
+        return `${txns.length} transaction${txns.length !== 1 ? 's' : ''}${keyword ? ` matching "${keyword}"` : ''}:\n${lines.join('\n')}`;
+      }
+
+      return `Unknown tool: ${name}`;
+    } catch (e) {
+      return `Error fetching ${name}: ${(e as Error).message}`;
+    }
+  }
+
+  // Gemini Live function declarations — what Nikki can look up mid-call.
+  const NIKKI_LIVE_TOOLS = [{
+    functionDeclarations: [
+      {
+        name: 'get_calendar',
+        description: "Get Dante's upcoming calendar events. Use when asked about schedule, meetings, what's on today, availability, or upcoming appointments.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            days: {
+              type: 'INTEGER',
+              description: 'Number of days to look ahead. 1 = today only, 7 = full week (default).',
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'get_financials',
+        description: "Get Dante's current financial data: revenue, profit/loss, cash runway from QuickBooks. Use when asked about money, revenue, profit, how the business is doing financially, or cash runway.",
+        parameters: { type: 'OBJECT', properties: {}, required: [] },
+      },
+      {
+        name: 'get_pipeline',
+        description: "Get Dante's active sales pipeline and CRM deals. Use when asked about prospects, clients, deals, pipeline, who's in the funnel, or sales status.",
+        parameters: { type: 'OBJECT', properties: {}, required: [] },
+      },
+      {
+        name: 'get_inbox',
+        description: "Get a summary of Dante's recent emails and unread count. Use when asked about email, inbox, messages, or what came in.",
+        parameters: { type: 'OBJECT', properties: {}, required: [] },
+      },
+      {
+        name: 'get_cash',
+        description: "Get Dante's bank account balances from Plaid — checking, savings, credit cards, total liquid cash, and cash runway. Use when asked about bank balance, how much cash is in the bank, account balances, or money in checking/savings.",
+        parameters: { type: 'OBJECT', properties: {}, required: [] },
+      },
+      {
+        name: 'get_vendasta',
+        description: "Get Dante's Vendasta platform data: customer MRR by brand (ImpactWorks vs Rocket Local), wholesale costs, gross margin, paying customer count, and top open deals in the CRM. Use when asked about Vendasta revenue, customer MRR, how many clients, or managed services margins.",
+        parameters: { type: 'OBJECT', properties: {}, required: [] },
+      },
+      {
+        name: 'get_transactions',
+        description: "Search Dante's recent bank transactions from Plaid. Use when asked about specific spending, charges, payments, or 'what did I spend on X'. Optionally filter by keyword.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            keyword: {
+              type: 'STRING',
+              description: 'Optional keyword to filter transactions by merchant name, description, or category (e.g. "OpenAI", "Vendasta", "SaaS", "dining").',
+            },
+            limit: {
+              type: 'INTEGER',
+              description: 'Max number of transactions to return (default 15, max 30).',
+            },
+          },
+          required: [],
+        },
+      },
+    ],
+  }];
+
+  // ── WebSocket: /ws/nikki-live → Gemini Live API ───────────────────────────
+  // Real-time duplex voice for the Nikki card on the Founder Dashboard.
+  // Browser sends 16kHz raw PCM chunks (base64 JSON), receives 24kHz PCM back.
+  // Token-gated exactly like the War Room proxy.
+  // Uses raw WebSocket to Gemini (not SDK) for full session lifecycle control.
+  void import('ws').then(async (wsModule: any) => {
+    const WSServer = wsModule.default?.WebSocketServer ?? wsModule.WebSocketServer;
+    const WSClient = wsModule.WebSocket ?? wsModule.default;
+    if (!WSServer || !WSClient) return;
+
+    if (!GOOGLE_API_KEY) {
+      logger.warn('GOOGLE_API_KEY not set — Nikki Live voice disabled');
+      return;
+    }
+
+    const nikkiLiveWss = new WSServer({ noServer: true });
+
+    const NIKKI_LIVE_SYSTEM = `You are Nikki — Dante's personal AI assistant and the voice of ClaudeClaw.
+You are direct, grounded, and real. You talk like a person, not a language model.
+Speak with a warm, British English accent.
+Keep responses SHORT — this is voice. 1-3 sentences max unless detail is specifically asked for.
+Never say "Certainly!", "Great question!", "I'd be happy to", or similar filler.
+Never apologize excessively. If you got something wrong, fix it and move on.
+Dante is a serial entrepreneur building AI-powered business automation tools.
+He runs ImpactWorks (AI consulting) and Rocket Local AI (local marketing automation).
+When you don't know something specific, say so plainly.`;
+
+    (server as unknown as import('http').Server).on('upgrade', (
+      req: import('http').IncomingMessage,
+      socket: import('stream').Duplex,
+      head: Buffer,
+    ) => {
+      const url = new URL(req.url || '/', `http://${req.headers.host}`);
+      logger.info({ url: req.url, pathname: url.pathname }, 'Nikki Live: upgrade handler path check');
+      if (url.pathname !== '/ws/nikki-live') return;
+
+      const token = url.searchParams.get('token');
+      if (!safeTokenEqual(token, DASHBOARD_TOKEN)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      nikkiLiveWss.handleUpgrade(req, socket, head, (clientWs: any) => {
+        // Start fetching context immediately — in parallel with the Gemini WS
+        // handshake so the snapshot is usually ready before setup needs to send.
+        const contextPromise = buildLiveContext().catch(err => {
+          logger.warn({ err }, 'Nikki Live: context fetch failed, using base system prompt');
+          return '';
+        });
+
+        // Raw WebSocket connection directly to Gemini Live API.
+        // The @google/genai SDK treats each connection as a single turn and
+        // fires onclose after Gemini's first response — raw WS avoids that.
+        const geminiUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${GOOGLE_API_KEY}`;
+        const geminiWs = new WSClient(geminiUrl);
+        let setupComplete = false;
+
+        geminiWs.on('open', () => {
+          // Await the context snapshot (usually already resolved), then send setup.
+          (async () => {
+            let contextBlock = '';
+            try { contextBlock = await contextPromise; } catch { /* already handled */ }
+
+            const systemText = contextBlock
+              ? `${NIKKI_LIVE_SYSTEM}\n\n---\nLIVE BUSINESS CONTEXT (use this to answer questions without needing to call tools for common facts):\n${contextBlock}`
+              : NIKKI_LIVE_SYSTEM;
+
+            geminiWs.send(JSON.stringify({
+              setup: {
+                model: 'models/gemini-3.1-flash-live-preview',
+                generationConfig: {
+                  responseModalities: ['AUDIO'],
+                  speechConfig: {
+                    languageCode: 'en-GB',
+                    voiceConfig: {
+                      prebuiltVoiceConfig: { voiceName: 'Aoede' },
+                    },
+                  },
+                },
+                systemInstruction: {
+                  parts: [{ text: systemText }],
+                },
+                tools: NIKKI_LIVE_TOOLS,
+              },
+            }));
+          })().catch(err => logger.warn({ err }, 'Nikki Live: open handler error'));
+        });
+
+        geminiWs.on('message', (data: Buffer) => {
+          try {
+            const msg = JSON.parse(data.toString());
+
+            // Setup acknowledgement — session is now live
+            if (msg.setupComplete !== undefined || msg.setup_complete !== undefined) {
+              setupComplete = true;
+              logger.info('Nikki Live: Gemini setup complete, session live');
+              // Trigger a proactive greeting from Nikki
+              const hour = new Date().getHours();
+              const timeCtx = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'night';
+              geminiWs.send(JSON.stringify({
+                clientContent: {
+                  turns: [{
+                    role: 'user',
+                    parts: [{ text: `[Session connected — ${timeCtx}. Give Dante a short, clever, varied opening greeting. Under 10 words. Feel free to riff on the time of day, what he might be up to, or just sound like yourself. Don't repeat the same greeting each time.]` }],
+                  }],
+                  turnComplete: true,
+                },
+              }));
+              return;
+            }
+
+            if (clientWs.readyState !== 1) return;
+
+            // ── Tool calls from Gemini (mid-conversation data lookups) ──────
+            const toolCall = msg?.toolCall ?? msg?.tool_call;
+            if (toolCall) {
+              const funcCalls: Array<{ id: string; name: string; args?: Record<string, unknown> }> =
+                toolCall.functionCalls ?? toolCall.function_calls ?? [];
+              logger.info({ tools: funcCalls.map(f => f.name) }, 'Nikki Live: tool call received');
+
+              (async () => {
+                const responses = await Promise.all(funcCalls.map(async (fc) => {
+                  const result = await executeLiveTool(fc.name, fc.args || {});
+                  return { id: fc.id, name: fc.name, response: { result } };
+                }));
+
+                if (geminiWs.readyState === 1) {
+                  geminiWs.send(JSON.stringify({
+                    toolResponse: {
+                      functionResponses: responses.map(r => ({
+                        id: r.id,
+                        name: r.name,
+                        response: r.response,
+                      })),
+                    },
+                  }));
+                }
+              })().catch(err => logger.warn({ err }, 'Nikki Live: tool execution error'));
+              return;
+            }
+
+            // Audio from Gemini → browser
+            const parts = msg?.serverContent?.modelTurn?.parts
+              ?? msg?.server_content?.model_turn?.parts;
+            const audio = parts?.[0]?.inlineData?.data ?? parts?.[0]?.inline_data?.data;
+            if (audio) clientWs.send(JSON.stringify({ audio }));
+
+            // Barge-in / interruption signal
+            const interrupted = msg?.serverContent?.interrupted
+              ?? msg?.server_content?.interrupted;
+            if (interrupted) clientWs.send(JSON.stringify({ interrupted: true }));
+          } catch { /* ignore malformed frames */ }
+        });
+
+        geminiWs.on('close', (code: number, reason: Buffer) => {
+          logger.info({ code, reason: reason?.toString() }, 'Nikki Live: Gemini WS closed');
+          try { if (clientWs.readyState <= 1) clientWs.close(); } catch {}
+        });
+
+        geminiWs.on('error', (err: unknown) => {
+          logger.warn({ err }, 'Nikki Live: Gemini WS error');
+          try { if (clientWs.readyState <= 1) clientWs.close(1011, 'Gemini error'); } catch {}
+        });
+
+        // Mic audio from browser → Gemini
+        clientWs.on('message', (raw: Buffer) => {
+          try {
+            const msg = JSON.parse(raw.toString());
+            if (msg.audio && geminiWs.readyState === 1 && setupComplete) {
+              geminiWs.send(JSON.stringify({
+                realtimeInput: {
+                  audio: {
+                    data: msg.audio,
+                    mimeType: 'audio/pcm;rate=16000',
+                  },
+                },
+              }));
+            }
+          } catch { /* ignore malformed frames */ }
+        });
+
+        clientWs.on('close', () => {
+          try { geminiWs.close(); } catch {}
+        });
+
+        logger.info('Nikki Live: voice session started');
+      });
+    });
+
+    logger.info('Nikki Live WebSocket active at /ws/nikki-live');
+  }).catch((err: unknown) => {
+    logger.warn({ err }, 'Could not set up Nikki Live WS');
+  });
 }

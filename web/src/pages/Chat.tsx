@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Send, Square, Sparkles, ArrowDown } from 'lucide-preact';
+import { Send, Square, Sparkles, ArrowDown, Paperclip, X, FileText, Image } from 'lucide-preact';
 import { PageHeader } from '@/components/PageHeader';
 import { PageState } from '@/components/PageState';
 import { StatusDot } from '@/components/Pill';
@@ -33,8 +33,10 @@ export function Chat() {
   const [processing, setProcessing] = useState(false);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamConnected = chatStreamConnected.value;
   // Track whether the message list is scrolled near the bottom. Drives
   // the floating "scroll to latest" button and tells the auto-scroll
@@ -127,6 +129,27 @@ export function Chat() {
   }, [activeAgent]);
 
   async function send(textOverride?: string) {
+    // If there's an attached file, send it via upload endpoint instead.
+    if (attachedFile && !textOverride) {
+      setSending(true); setError(null);
+      try {
+        const form = new FormData();
+        form.append('file', attachedFile);
+        if (draft.trim()) form.append('caption', draft.trim());
+        const res = await fetch('/api/chat/upload', { method: 'POST', body: form });
+        const json = await res.json() as { ok?: boolean; error?: string };
+        if (!json.ok && json.error) {
+          setError(json.error);
+        } else {
+          setDraft('');
+          setAttachedFile(null);
+        }
+      } catch (err: any) {
+        setError(err?.message || String(err));
+      } finally { setSending(false); }
+      return;
+    }
+
     const message = (textOverride ?? draft).trim();
     if (!message) return;
     setSending(true); setError(null);
@@ -213,6 +236,7 @@ export function Chat() {
 
       <div class="border-t border-[var(--color-border)] px-4 pt-2 pb-3">
         <div class="max-w-4xl mx-auto">
+          {/* Quick action chips */}
           <div class="flex items-center gap-1 mb-2 flex-wrap">
             {QUICK_ACTIONS.map((qa) => (
               <button
@@ -226,7 +250,49 @@ export function Chat() {
               </button>
             ))}
           </div>
+
+          {/* Attached file preview */}
+          {attachedFile && (
+            <div class="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] text-[11.5px]">
+              {attachedFile.type.startsWith('image/') ? <Image size={13} class="text-[var(--color-accent)] shrink-0" /> : <FileText size={13} class="text-[var(--color-accent)] shrink-0" />}
+              <span class="flex-1 truncate text-[var(--color-text-muted)]">{attachedFile.name}</span>
+              <span class="text-[10px] text-[var(--color-text-faint)]">{(attachedFile.size / 1024).toFixed(0)} KB</span>
+              <button
+                type="button"
+                onClick={() => { setAttachedFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                class="text-[var(--color-text-faint)] hover:text-[var(--color-text)] transition-colors"
+                aria-label="Remove attachment"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
+          {/* Input row */}
           <div class="flex items-end gap-2">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf,.txt,.md,.csv,.json"
+              class="hidden"
+              onChange={(e) => {
+                const f = (e.target as HTMLInputElement).files?.[0];
+                if (f) setAttachedFile(f);
+              }}
+            />
+
+            {/* Paperclip button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={processing || sending}
+              title="Attach file (image, PDF, text)"
+              class="flex-none inline-flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Paperclip size={14} />
+            </button>
+
             <textarea
               ref={inputRef}
               value={draft}
@@ -234,10 +300,10 @@ export function Chat() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  if (draft.trim()) void send();
+                  if (draft.trim() || attachedFile) void send();
                 }
               }}
-              placeholder="Type a message. Shift+Enter for newline."
+              placeholder={attachedFile ? 'Add a caption (optional)…' : 'Type a message. Shift+Enter for newline.'}
               rows={1}
               class="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-[13px] outline-none focus:border-[var(--color-accent)] resize-none max-h-32"
             />
@@ -253,7 +319,7 @@ export function Chat() {
               <button
                 type="button"
                 onClick={() => void send()}
-                disabled={!draft.trim() || sending}
+                disabled={(!draft.trim() && !attachedFile) || sending}
                 class="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-[12px] font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <Send size={12} /> {sending ? 'Sending…' : 'Send'}

@@ -61,6 +61,7 @@ function saveSectionOrder(order: string[]): void {
 }
 
 interface BrainProposal { topic: string; hitCount: number; importance: number; examples: string[]; suggestedNoteName: string; }
+interface ProposalMemory { summary: string; importance: number; source: string; created_at: number; }
 
 interface Section<T> { ok: boolean; error: string | null; data: T | null; }
 interface AttentionItem { severity: 'critical' | 'warn' | 'info'; source: 'cash' | 'pipeline' | 'outreach' | 'members'; title: string; detail: string; href: string; }
@@ -99,7 +100,7 @@ interface InvestmentsSummary { asOf: number; configured: boolean; error?: string
 
 interface FounderData {
   generatedAt: number;
-  cash: Section<{ totalCashCents: number; mtdRevenueCents: number; mtdNetCents: number; runwayDays: number | null; last30NetCents: number; connectionStatus: string }>;
+  cash: Section<{ totalCashCents: number; mtdRevenueCents: number; mtdNetCents: number; runwayDays: number | null; last30NetCents: number; connectionStatus: string; asOf: number }>;
   pipeline: Section<{ openDealsCount: number; openDealsValueCents: number; openDealsWeightedCents: number; customersCount: number; customersMRRCents: number | null; customersWholesaleMonthlyCents: number | null }>;
   outreach: Section<{ totalBids: number; membersBehindThem: number; notContacted: number; emailed: number; replied: number; webinarBooked: number; endorsed: number; declined: number; needsFollowupCount: number; topPriority: Array<{ entity: string; city: string | null; email: string; status: string; daysSinceLastTouch: number | null; nextAction: string }> }>;
   members: Section<{ bidsEndorsed: number; activeMembers: number; totalMRRCents: number; pipelineCeilingCents: number }>;
@@ -145,11 +146,19 @@ function Stat({ label, value, tone, sub }: { label: string; value: any; tone?: s
 // Compact 3-stat health view: balance (Plaid), burn/mo (QB or Plaid est.),
 // runway in months. Designed to be scanned in 2 seconds.
 interface CashPulseProps {
-  cash: { totalCashCents: number; last30NetCents: number; connectionStatus: string } | null;
+  cash: { totalCashCents: number; last30NetCents: number; connectionStatus: string; asOf: number } | null;
   qb: QbSummary | null;
 }
 function CashPulseTile({ cash, qb }: CashPulseProps) {
   const plaidOk = cash?.connectionStatus === 'ok';
+  // Data age — warn if the cached balance is > 1 hour old
+  const dataAgeMs   = cash?.asOf ? Date.now() - cash.asOf : null;
+  const isStale     = dataAgeMs != null && dataAgeMs > 60 * 60 * 1000;
+  const ageLabel    = dataAgeMs == null ? null
+    : dataAgeMs < 60_000       ? 'just now'
+    : dataAgeMs < 3_600_000    ? Math.round(dataAgeMs / 60_000) + ' min ago'
+    : dataAgeMs < 86_400_000   ? Math.round(dataAgeMs / 3_600_000) + ' hr ago'
+    : Math.round(dataAgeMs / 86_400_000) + 'd ago';
   const qbOk   = qb?.connectionStatus  === 'ok';
 
   // Monthly burn (positive = spending more than earning).
@@ -209,6 +218,14 @@ function CashPulseTile({ cash, qb }: CashPulseProps) {
               tone={runwayTone}
             />
           </div>
+          {isStale && (
+            <div class="mt-2 text-[10.5px]" style={{ color: TONE['warn'] }}>
+              Balance from {ageLabel} ·{' '}
+              <Link href="/cash">
+                <a class="underline hover:opacity-80">refresh at /cash</a>
+              </Link>
+            </div>
+          )}
           {!qbOk && (
             <div class="mt-2.5 text-[10.5px] text-[var(--color-text-faint)]">
               Using Plaid estimates ·{' '}
@@ -417,6 +434,13 @@ export function Founder() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [accepting, setAccepting] = useState<string | null>(null);
 
+  // Review modal state
+  const [reviewProposal, setReviewProposal] = useState<BrainProposal | null>(null);
+  const [reviewMemories, setReviewMemories] = useState<ProposalMemory[]>([]);
+  const [wikiDraft, setWikiDraft] = useState('');
+  const [loadingMemories, setLoadingMemories] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+
   const today = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }), [data]);
 
   if (loading && !data) return <PageState>Loading dashboard…</PageState>;
@@ -501,6 +525,54 @@ export function Founder() {
       stocksFetch.refresh();
     } catch (e: any) {
       setTickerError(String(e?.body?.reason || e?.message || 'Remove failed'));
+    }
+  }
+
+  // Generate the default wiki note draft — mirrors what the server writes.
+  function generateWikiDraft(p: BrainProposal): string {
+    const today = new Date().toISOString().slice(0, 10);
+    const noteName = p.suggestedNoteName;
+    const exampleLines = p.examples.map(e => `> ${e.replace(/\n+/g, ' ')}`).join('\n\n');
+    return `---\ntitle: ${noteName}\ntags: [proposed, ${today}]\n---\n\n# ${noteName}\n\n*Promoted from memory pattern on ${today}. Edit freely.*\n\n${exampleLines}\n\n## Why this is worth keeping\n\n*Add context here.*\n\n## Related\n\n- *Add wikilinks here*\n`;
+  }
+
+  // Open the review modal: pre-fill the draft and fetch all memories for this topic.
+  async function openReview(p: BrainProposal) {
+    setReviewProposal(p);
+    setWikiDraft(generateWikiDraft(p));
+    setReviewMemories([]);
+    setLoadingMemories(true);
+    try {
+      const res = await fetch(`/api/brain/proposals/memories?topic=${encodeURIComponent(p.topic)}`);
+      const data = await res.json();
+      setReviewMemories(data.memories || []);
+    } catch { setReviewMemories([]); }
+    setLoadingMemories(false);
+  }
+
+  // Save the (possibly edited) draft to the wiki.
+  async function saveDraft() {
+    if (!reviewProposal) return;
+    setSavingDraft(true);
+    try {
+      await apiPost('/api/brain/proposals/accept', {
+        topic: reviewProposal.suggestedNoteName,
+        folder: 'Decisions',
+        examples: reviewProposal.examples,
+        content: wikiDraft,
+      });
+      setDismissed(prev => { const next = new Set(prev); next.add(reviewProposal.topic); return next; });
+      proposalsFetch.refresh();
+      pushToast({
+        tone: 'success',
+        title: `Added "${reviewProposal.suggestedNoteName}" to wiki`,
+        description: 'Created in Decisions/ — Syncthing will push it to Obsidian shortly.',
+      });
+      setReviewProposal(null);
+    } catch (e: any) {
+      pushToast({ tone: 'error', title: 'Failed to save', description: String(e?.body?.error || e?.message || e) });
+    } finally {
+      setSavingDraft(false);
     }
   }
 
@@ -909,14 +981,14 @@ export function Founder() {
           {brainProposalsList.slice(0, 4).map(p => (
             <div key={p.topic} class="flex items-start gap-2 text-[11px] py-1.5 px-2 rounded bg-[var(--color-elevated)]">
               <Library size={12} class="text-[var(--color-accent)] mt-0.5 shrink-0" />
-              <div class="flex-1 min-w-0">
+              <div class="flex-1 min-w-0 cursor-pointer" onClick={() => openReview(p)}>
                 <div class="text-[var(--color-text)] font-medium">{p.suggestedNoteName}</div>
                 <div class="text-[10px] text-[var(--color-text-faint)] truncate">
                   Seen in {p.hitCount} memories · avg importance {p.importance.toFixed(1)} · e.g. "{p.examples[0]?.slice(0, 80)}…"
                 </div>
               </div>
-              <button type="button" onClick={() => acceptProposal(p)} disabled={accepting === p.topic} class="text-[10px] px-2 py-1 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 disabled:opacity-40 shrink-0">
-                {accepting === p.topic ? 'Adding…' : 'Add to wiki'}
+              <button type="button" onClick={() => openReview(p)} class="text-[10px] px-2 py-1 rounded bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:opacity-80 shrink-0">
+                Review
               </button>
               <button type="button" onClick={() => setDismissed(prev => { const n = new Set(prev); n.add(p.topic); return n; })} class="text-[10px] px-1.5 py-1 rounded text-[var(--color-text-faint)] hover:text-[var(--color-text)] shrink-0" aria-label="Dismiss">×</button>
             </div>
@@ -937,6 +1009,72 @@ export function Founder() {
 
   return (
     <div class="flex h-full flex-col">
+      {/* ── Brain Proposal Review Modal ── */}
+      {reviewProposal && (
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.7)">
+          <div class="flex flex-col w-full max-w-4xl max-h-[90vh] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div class="flex items-center justify-between px-5 py-3.5 border-b border-[var(--color-border)] shrink-0">
+              <div class="flex items-center gap-2">
+                <Library size={15} class="text-[var(--color-accent)]" />
+                <span class="font-semibold text-[13px]">{reviewProposal.suggestedNoteName}</span>
+                <span class="text-[11px] text-[var(--color-text-faint)]">· {reviewProposal.hitCount} memories · avg {reviewProposal.importance.toFixed(1)} importance</span>
+              </div>
+              <button type="button" onClick={() => setReviewProposal(null)} class="text-[var(--color-text-faint)] hover:text-[var(--color-text)]"><X size={16} /></button>
+            </div>
+
+            {/* Body — two columns */}
+            <div class="flex flex-1 min-h-0 divide-x divide-[var(--color-border)]">
+              {/* Left: memory list */}
+              <div class="w-2/5 flex flex-col min-h-0">
+                <div class="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-faint)] border-b border-[var(--color-border)] shrink-0">
+                  Memories ({loadingMemories ? '…' : reviewMemories.length})
+                </div>
+                <div class="flex-1 overflow-y-auto p-3 space-y-2">
+                  {loadingMemories && <div class="text-[11px] text-[var(--color-text-faint)] p-2">Loading…</div>}
+                  {!loadingMemories && reviewMemories.length === 0 && <div class="text-[11px] text-[var(--color-text-faint)] p-2">No memories found.</div>}
+                  {reviewMemories.map((m, i) => (
+                    <div key={i} class="rounded-lg border border-[var(--color-border)] bg-[var(--color-elevated)] p-2.5">
+                      <div class="text-[11px] leading-relaxed text-[var(--color-text)]">{m.summary}</div>
+                      <div class="mt-1 flex items-center gap-2 text-[9px] text-[var(--color-text-faint)]">
+                        <span class="uppercase">{m.source}</span>
+                        <span>·</span>
+                        <span>importance {m.importance.toFixed(2)}</span>
+                        <span>·</span>
+                        <span>{new Date(m.created_at * 1000).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right: editable wiki draft */}
+              <div class="flex-1 flex flex-col min-h-0">
+                <div class="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-faint)] border-b border-[var(--color-border)] shrink-0">
+                  Wiki note draft — edit before saving
+                </div>
+                <textarea
+                  class="flex-1 resize-none bg-transparent p-4 text-[12px] font-mono text-[var(--color-text)] leading-relaxed focus:outline-none"
+                  value={wikiDraft}
+                  onInput={(e) => setWikiDraft((e.target as HTMLTextAreaElement).value)}
+                  spellcheck={false}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--color-border)] shrink-0">
+              <button type="button" onClick={() => setReviewProposal(null)} class="px-3 py-1.5 rounded text-[12px] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]">
+                Cancel
+              </button>
+              <button type="button" onClick={saveDraft} disabled={savingDraft} class="px-4 py-1.5 rounded text-[12px] bg-[var(--color-accent)] text-white hover:opacity-90 disabled:opacity-50 font-medium">
+                {savingDraft ? 'Saving…' : 'Save to wiki'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <PageHeader
         title="Founder Dashboard"
         subtitle={today + ' · ImpactWorks + Rocket Local'}

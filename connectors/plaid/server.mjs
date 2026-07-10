@@ -67,8 +67,12 @@ function creds() {
   return { client_id: cid, secret: sec };
 }
 
-async function api(path_, body) {
+async function api(path_, body, timeoutMs = 12_000) {
   const c = creds();
+  // AbortSignal.timeout ensures the fetch never hangs indefinitely.
+  // /accounts/balance/get can take 10-15s on slow institution connections;
+  // 12s gives it a fair shot while keeping dashboard refresh snappy.
+  const signal = AbortSignal.timeout(timeoutMs);
   const res = await fetch(BASE + path_, {
     method: 'POST',
     headers: {
@@ -76,6 +80,7 @@ async function api(path_, body) {
       'Plaid-Version': '2020-09-14',
     },
     body: JSON.stringify({ ...c, ...body }),
+    signal,
   });
   const text = await res.text();
   let data;

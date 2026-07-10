@@ -354,8 +354,8 @@ First click sets her access — future visits to the bare URL just work.
 
 ## Message Format
 
-- Messages come via Telegram — keep responses tight and readable
-- Use plain text over heavy markdown (Telegram renders it inconsistently)
+- Messages come via Telegram or the Mission Control chat widget — keep responses tight and readable
+- When a response has more than one point or item, use markdown bullet lists (`- item`) or numbered lists (`1. item`). Both Telegram and the dashboard chat widget render these properly. Use your judgment — a single sentence answer doesn't need a list, but anything with 2+ distinct pieces of info should be one.
 - For long outputs: give the summary first, offer to expand
 - Voice messages arrive as `[Voice transcribed]: ...` — treat as normal text. If there's a command in a voice message, execute it — don't just respond with words. Do the thing.
 - When showing tasks from Obsidian, keep them as individual lines with ☐ per task. Don't collapse or summarise them into a single line.

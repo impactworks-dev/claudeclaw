@@ -1,19 +1,25 @@
 // Sales pipeline + accounts data for Mission Control.
 //
-// Pipeline columns mirror Vendasta's opportunity pipeline by high-level stage:
-//   Open / Won / Lost  (the configured funnel sub-stages — Lead/Contact/
-//   Qualified/Proposal — are not exposed by the opportunities API).
-// Plus a Customer column (lifecycle Customer accounts) kept with revenue.
+// Architecture:
+//   - Opportunities from Vendasta (open / closed-won / closed-lost)
+//   - Local sub-stages: Lead | Contact | Qualified | Proposal
+//     stored in store/pipeline-stages.json keyed by opp ID
+//   - Locally-created leads (not yet in Vendasta) also in pipeline-stages.json
+//     with isLocal:true and a generated "local-" id
+//   - Won / Lost always come from Vendasta live API
+//   - Customer column: lifecycle Customer accounts with revenue overlay
 //
-// Deals come from the sales-opportunities Connect API (scope sales.opportunity)
-// via the stdio connector. Customers come from the CRM companies (lifecycle
-// Customer). Revenue (retail MRR + wholesale) is background-refreshed and
-// overlaid on customers. Notes are a local store; edits write via updateCard.
+// Stage SOP (gospel):
+//   Lead     → entry, company + contact + problem defined, source tagged
+//   Contact  → first real conversation, discovery call booked / completed
+//   Qualified → ICP fit + BANT confirmed (Budget / Authority / Need / Timeline)
+//   Proposal → proposal sent or presentation scheduled, close date = decision date
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 import { readEnvFile } from './env.js';
 import { PROJECT_ROOT } from './config.js';
@@ -23,8 +29,16 @@ const execFileAsync = promisify(execFile);
 const VENDASTA_SERVER = path.join(PROJECT_ROOT, 'connectors', 'vendasta', 'server.mjs');
 const NOTES_FILE = path.join(PROJECT_ROOT, 'store', 'pipeline-notes.json');
 const STATUS_FILE = path.join(PROJECT_ROOT, 'store', 'pipeline-status.json');
+const STAGES_FILE = path.join(PROJECT_ROOT, 'store', 'pipeline-stages.json');
 const TTL_MS = 3 * 60 * 1000;
 const REVENUE_TTL_MS = 30 * 60 * 1000;
+
+export const SUB_STAGES = ['Lead', 'Contact', 'Qualified', 'Proposal'] as const;
+export type SubStage = typeof SUB_STAGES[number];
+export const BRANDS = ['Rocket Local', 'ImpactWorks'] as const;
+export type Brand = typeof BRANDS[number];
+export const SOURCES = ['BID', 'Inbound', 'Referral', 'Cold outreach', 'Event', 'Partner'] as const;
+export type Source = typeof SOURCES[number];
 
 // Per-customer outreach status (account-management touches). Local store, like notes.
 // Extended for BID Traffic Partnership campaign: 8-stage funnel ending at Endorsed.
@@ -79,12 +93,10 @@ async function clickupCall(tool: string, args: Record<string, unknown>): Promise
   return JSON.parse(stdout);
 }
 
-// Map a status to a single space-free tag slug. Default status = no tag.
 function statusSlug(status: string): string | null {
   if (!status || status === DEFAULT_STATUS) return null;
   return TAG_PREFIX + status.toLowerCase().replace(/\s+/g, '-');
 }
-// Normalize a company name for cross-system matching.
 function normName(s: string | null | undefined): string {
   return (s || '').toLowerCase()
     .replace(/[^a-z0-9 ]+/g, ' ')
@@ -92,7 +104,6 @@ function normName(s: string | null | undefined): string {
     .replace(/\s+/g, ' ').trim();
 }
 
-// Cached normalized-name -> ClickUp Accounts task id map.
 let cuMap: { at: number; byName: Record<string, string> } | null = null;
 async function clickupAccountsMap(): Promise<Record<string, string>> {
   if (cuMap && Date.now() - cuMap.at < CU_MAP_TTL_MS) return cuMap.byName;
@@ -130,8 +141,6 @@ async function mirrorToClickup(companyName: string | null, status: string): Prom
   }
 }
 
-// Mirror outreach status to Vendasta (company tag) and ClickUp (Accounts task tag).
-// Reads the company once to merge tags and recover the name if not supplied.
 async function mirrorStatus(companyId: string, nameHint: string | null, status: string): Promise<string[]> {
   const applied: string[] = [];
   let name = nameHint;
@@ -187,6 +196,33 @@ function saveStatus(id: string, status: string): void {
   fs.writeFileSync(STATUS_FILE, JSON.stringify(s, null, 2));
 }
 
+// ---- Sub-stage + brand local store (keyed by opp id or "local-uuid") ----
+interface StageRecord {
+  subStage: SubStage;
+  brand: Brand;
+  source?: string | null;
+  // Local-only lead fields (not synced to Vendasta yet)
+  isLocal?: true;
+  name?: string;
+  accountName?: string;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  phone?: string | null;
+  value?: number;          // cents
+  notes?: string | null;
+  addedAt?: number;
+}
+
+function loadStages(): Record<string, StageRecord> {
+  try { return JSON.parse(fs.readFileSync(STAGES_FILE, 'utf-8')); } catch { return {}; }
+}
+function saveStageRecord(id: string, record: StageRecord | null): void {
+  const s = loadStages();
+  if (record) s[id] = record; else delete s[id];
+  try { fs.mkdirSync(path.dirname(STAGES_FILE), { recursive: true }); } catch { /* ignore */ }
+  fs.writeFileSync(STAGES_FILE, JSON.stringify(s, null, 2));
+}
+
 // ---- Revenue (background-refreshed) ----
 interface RevenueRow { retailMRR: number; wholesaleMonthly: number; wholesaleLifetime: number; }
 interface RevenueData { byAccount: Record<string, RevenueRow>; totals: { retailMRR: number; wholesaleMonthly: number; accounts: number }; }
@@ -213,11 +249,18 @@ export interface DealCard {
   name: string;
   accountName: string | null;
   accountGroupId: string | null;
-  value: number;          // projected first-year value, cents
-  weighted: number;       // probable first-year value, cents
+  value: number;            // projected first-year value, cents
+  weighted: number;         // probable first-year value, cents
   probability: number | null;
   expectedCloseDate: string | null;
-  stage: string;          // raw pipelineStage
+  stage: string;            // raw Vendasta pipelineStage: open | closed-won | closed-lost
+  subStage: SubStage;       // local sub-stage: Lead | Contact | Qualified | Proposal
+  brand: Brand;             // Rocket Local | ImpactWorks
+  source: string | null;    // BID | Inbound | Referral | etc.
+  isLocal: boolean;         // true = local lead not yet in Vendasta
+  contactName?: string | null;
+  contactEmail?: string | null;
+  notes?: string | null;
 }
 
 export interface AccountCard {
@@ -241,11 +284,29 @@ interface StageTotal { count: number; value: number; weighted: number; }
 
 export interface PipelineData {
   generatedAt: number;
-  deals: { open: DealCard[]; won: DealCard[]; lost: DealCard[] };
-  dealTotals: { open: StageTotal; won: StageTotal; lost: StageTotal };
+  deals: {
+    lead: DealCard[];
+    contact: DealCard[];
+    qualified: DealCard[];
+    proposal: DealCard[];
+    won: DealCard[];
+    lost: DealCard[];
+  };
+  dealTotals: {
+    lead: StageTotal;
+    contact: StageTotal;
+    qualified: StageTotal;
+    proposal: StageTotal;
+    won: StageTotal;
+    lost: StageTotal;
+    openTotal: StageTotal;  // sum of all open sub-stages
+  };
   customers: AccountCard[];
   revenue: { ready: boolean; currency: string; totalRetailMRR: number | null; totalWholesaleMonthly: number | null; asOf: number | null };
   outreachStatuses: string[];
+  subStages: readonly string[];
+  brands: readonly string[];
+  sources: readonly string[];
 }
 
 let cache: { at: number; data: PipelineData } | null = null;
@@ -260,10 +321,10 @@ async function byStage(stage: string, limit = 100): Promise<any[]> {
 }
 
 async function build(): Promise<PipelineData> {
-  // Opportunities (deals)
+  // Opportunities (deals) — live from Vendasta
   const oppRes = await vendastaCall('vendasta_list_opportunities', {});
   const opps: any[] = oppRes.results || [];
-  const dealAgs = [...new Set(opps.map((o) => o.accountGroupId).filter(Boolean))];
+  const dealAgs = [...new Set(opps.map((o: any) => o.accountGroupId).filter(Boolean))];
 
   // Resolve deal account names
   const agName: Record<string, string> = {};
@@ -284,33 +345,85 @@ async function build(): Promise<PipelineData> {
     }
   }
 
-  const toDeal = (o: any): DealCard => ({
-    id: o.opportunityId,
-    name: o.name || '(unnamed deal)',
-    accountName: (o.accountGroupId && agName[o.accountGroupId]) || null,
-    accountGroupId: o.accountGroupId || null,
-    value: Number(o.projectedFirstYearValue || 0),
-    weighted: Number(o.probableFirstYearValue || 0),
-    probability: o.probability != null ? o.probability : null,
-    expectedCloseDate: o.expectedCloseDate || null,
-    stage: o.pipelineStage || 'open',
-  });
+  // Load local stage/brand/source overrides
+  const stages = loadStages();
 
-  const open: DealCard[] = [], won: DealCard[] = [], lost: DealCard[] = [];
+  const toDeal = (o: any): DealCard => {
+    const sr = stages[o.opportunityId] as StageRecord | undefined;
+    return {
+      id: o.opportunityId,
+      name: o.name || '(unnamed deal)',
+      accountName: (o.accountGroupId && agName[o.accountGroupId]) || null,
+      accountGroupId: o.accountGroupId || null,
+      value: Number(o.projectedFirstYearValue || 0),
+      weighted: Number(o.probableFirstYearValue || 0),
+      probability: o.probability != null ? o.probability : null,
+      expectedCloseDate: o.expectedCloseDate || null,
+      stage: o.pipelineStage || 'open',
+      subStage: sr?.subStage ?? 'Lead',
+      brand: sr?.brand ?? 'Rocket Local',
+      source: sr?.source ?? null,
+      isLocal: false,
+    };
+  };
+
+  const lead: DealCard[] = [], contact: DealCard[] = [], qualified: DealCard[] = [], proposal: DealCard[] = [];
+  const won: DealCard[] = [], lost: DealCard[] = [];
+
   for (const o of opps) {
     const st = (o.pipelineStage || '').toLowerCase();
+    // Skip legacy closed opps — hidden pending manual cleanup in Vendasta Partner Center.
+    // Won/Lost columns will populate naturally as real deals close going forward.
+    if (st === 'closed-won' || st === 'closed-lost') continue;
     const card = toDeal(o);
-    if (st === 'closed-won') won.push(card);
-    else if (st === 'closed-lost') lost.push(card);
-    else open.push(card);
+    // Open opp — route to sub-stage column
+    const sub = card.subStage;
+    if (sub === 'Contact') contact.push(card);
+    else if (sub === 'Qualified') qualified.push(card);
+    else if (sub === 'Proposal') proposal.push(card);
+    else lead.push(card);
   }
+
+  // Local leads (not yet in Vendasta)
+  for (const [id, sr] of Object.entries(stages)) {
+    if (!sr.isLocal) continue;
+    const card: DealCard = {
+      id,
+      name: sr.name || '(unnamed lead)',
+      accountName: sr.accountName || null,
+      accountGroupId: null,
+      value: sr.value ?? 0,
+      weighted: sr.value ?? 0,
+      probability: null,
+      expectedCloseDate: null,
+      stage: 'open',
+      subStage: sr.subStage,
+      brand: sr.brand,
+      source: sr.source ?? null,
+      isLocal: true,
+      contactName: sr.contactName ?? null,
+      contactEmail: sr.contactEmail ?? null,
+      notes: sr.notes ?? null,
+    };
+    if (sr.subStage === 'Contact') contact.push(card);
+    else if (sr.subStage === 'Qualified') qualified.push(card);
+    else if (sr.subStage === 'Proposal') proposal.push(card);
+    else lead.push(card);
+  }
+
   const sortByVal = (a: DealCard, b: DealCard) => b.value - a.value;
-  open.sort(sortByVal); won.sort(sortByVal); lost.sort(sortByVal);
+  lead.sort(sortByVal); contact.sort(sortByVal);
+  qualified.sort(sortByVal); proposal.sort(sortByVal);
+  won.sort(sortByVal); lost.sort(sortByVal);
+
   const sum = (arr: DealCard[]): StageTotal => ({
     count: arr.length,
     value: arr.reduce((s, c) => s + c.value, 0),
     weighted: arr.reduce((s, c) => s + c.weighted, 0),
   });
+
+  const allOpen = [...lead, ...contact, ...qualified, ...proposal];
+  const openTotal = sum(allOpen);
 
   // Customers (lifecycle Customer accounts)
   const customerRecs = await byStage('Customer');
@@ -332,11 +445,14 @@ async function build(): Promise<PipelineData> {
 
   return {
     generatedAt: Date.now(),
-    deals: { open, won, lost },
-    dealTotals: { open: sum(open), won: sum(won), lost: sum(lost) },
+    deals: { lead, contact, qualified, proposal, won, lost },
+    dealTotals: { lead: sum(lead), contact: sum(contact), qualified: sum(qualified), proposal: sum(proposal), won: sum(won), lost: sum(lost), openTotal },
     customers,
     revenue: { ready: false, currency: 'USD', totalRetailMRR: null, totalWholesaleMonthly: null, asOf: null },
     outreachStatuses: [...OUTREACH_STATUSES],
+    subStages: SUB_STAGES,
+    brands: BRANDS,
+    sources: SOURCES,
   };
 }
 
@@ -367,7 +483,7 @@ export async function getPipelineData(force = false): Promise<PipelineData> {
   return cache.data;
 }
 
-// ---- Writes (Customer accounts: notes + contact; stage optional) ----
+// ---- Writes: Customer accounts (notes, contact, stage, outreach status) ----
 export interface CardUpdate {
   companyId: string;
   companyName?: string;
@@ -408,11 +524,120 @@ export async function updateCard(u: CardUpdate): Promise<{ ok: true; applied: st
   if (u.outreachStatus !== undefined) {
     saveStatus(u.companyId, u.outreachStatus);
     applied.push('status');
-    // Best-effort mirror to the systems of record (does not block the local save).
     const mirrored = await mirrorStatus(u.companyId, u.companyName ?? null, u.outreachStatus);
     applied.push(...mirrored);
   }
 
   cache = null;
   return { ok: true, applied };
+}
+
+// ---- Writes: Deal sub-stage (local store only) ----
+export interface DealStageUpdate {
+  id: string;
+  subStage: SubStage;
+  brand?: Brand;
+  source?: string | null;
+}
+
+export function updateDealSubStage(u: DealStageUpdate): { ok: true } {
+  if (!u.id) throw new Error('id required');
+  if (!SUB_STAGES.includes(u.subStage)) throw new Error(`invalid subStage: ${u.subStage}`);
+  const stages = loadStages();
+  const existing = stages[u.id] || {};
+  stages[u.id] = {
+    ...existing,
+    subStage: u.subStage,
+    ...(u.brand ? { brand: u.brand } : {}),
+    ...(u.source !== undefined ? { source: u.source } : {}),
+  };
+  try { fs.mkdirSync(path.dirname(STAGES_FILE), { recursive: true }); } catch { /* ignore */ }
+  fs.writeFileSync(STAGES_FILE, JSON.stringify(stages, null, 2));
+  cache = null;
+  return { ok: true };
+}
+
+// ---- Writes: Create a local lead ----
+export interface NewLead {
+  name: string;          // deal/opp name (e.g. "ABC Roofing – Local SEO")
+  accountName?: string;  // company name
+  brand: Brand;
+  subStage?: SubStage;   // default: Lead
+  source?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  phone?: string | null;
+  value?: number;        // estimated value in dollars (will be converted to cents)
+  notes?: string | null;
+}
+
+export function createLocalLead(lead: NewLead): { ok: true; id: string } {
+  if (!lead.name?.trim()) throw new Error('name required');
+  if (!BRANDS.includes(lead.brand)) throw new Error(`invalid brand: ${lead.brand}`);
+  const id = 'local-' + crypto.randomBytes(6).toString('hex');
+  const record: StageRecord = {
+    isLocal: true,
+    subStage: lead.subStage ?? 'Lead',
+    brand: lead.brand,
+    source: lead.source ?? null,
+    name: lead.name.trim(),
+    accountName: lead.accountName?.trim() || lead.name.trim(),
+    contactName: lead.contactName ?? null,
+    contactEmail: lead.contactEmail ?? null,
+    phone: lead.phone ?? null,
+    value: lead.value != null ? Math.round(lead.value * 100) : 0,
+    notes: lead.notes ?? null,
+    addedAt: Date.now(),
+  };
+  saveStageRecord(id, record);
+  cache = null;
+  return { ok: true, id };
+}
+
+// ---- Writes: Update local lead ----
+export interface LocalLeadUpdate {
+  id: string;
+  name?: string;
+  accountName?: string;
+  brand?: Brand;
+  subStage?: SubStage;
+  source?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  phone?: string | null;
+  value?: number;
+  notes?: string | null;
+}
+
+export function updateLocalLead(u: LocalLeadUpdate): { ok: true } {
+  if (!u.id) throw new Error('id required');
+  const stages = loadStages();
+  const existing = stages[u.id];
+  if (!existing || !existing.isLocal) throw new Error('local lead not found: ' + u.id);
+  const updated: StageRecord = {
+    ...existing,
+    ...(u.name !== undefined ? { name: u.name } : {}),
+    ...(u.accountName !== undefined ? { accountName: u.accountName } : {}),
+    ...(u.brand !== undefined ? { brand: u.brand } : {}),
+    ...(u.subStage !== undefined ? { subStage: u.subStage } : {}),
+    ...(u.source !== undefined ? { source: u.source } : {}),
+    ...(u.contactName !== undefined ? { contactName: u.contactName } : {}),
+    ...(u.contactEmail !== undefined ? { contactEmail: u.contactEmail } : {}),
+    ...(u.phone !== undefined ? { phone: u.phone } : {}),
+    ...(u.value !== undefined ? { value: Math.round(u.value * 100) } : {}),
+    ...(u.notes !== undefined ? { notes: u.notes } : {}),
+  };
+  saveStageRecord(u.id, updated);
+  cache = null;
+  return { ok: true };
+}
+
+// ---- Writes: Remove a local lead ----
+export function deleteLocalLead(id: string): { ok: true } {
+  const stages = loadStages();
+  if (!stages[id]?.isLocal) throw new Error('local lead not found: ' + id);
+  delete stages[id];
+  fs.writeFileSync(STAGES_FILE, JSON.stringify(stages, null, 2));
+  cache = null;
+  return { ok: true };
 }
