@@ -152,7 +152,7 @@
   .pt-streak { font-size: 0.85rem; color: var(--muted); }
   .pt-streak b { color: var(--accent); font-size: 1.05rem; }
   .pt-group-h { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 16px 0 8px; }
-  .pt-ex { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .pt-ex { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--border); }
   .pt-ex:last-child { border-bottom: none; }
   .pt-check { width: 26px; height: 26px; border-radius: 7px; border: 2px solid var(--border); background: transparent; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0.9rem; transition: all .15s; margin-top: 1px; }
   .pt-check:hover { border-color: var(--accent); }
@@ -161,9 +161,12 @@
   .pt-name { font-size: 0.9rem; font-weight: 600; }
   .pt-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
   .pt-cue { font-size: 0.78rem; color: var(--muted); margin-top: 4px; line-height: 1.4; }
-  .pt-sheets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
-  .pt-sheets a { display: block; width: 92px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .pt-sheets img { width: 100%; height: 70px; object-fit: cover; display: block; }
+  .pt-ex-img { flex-shrink: 0; width: 180px; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: block; background: #f4f1e8; }
+  .pt-ex-img img { width: 100%; display: block; }
+  .pt-sheets-h { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 18px 0 8px; }
+  .pt-sheets { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pt-sheets a { display: block; width: 120px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #0b0d13; }
+  .pt-sheets img { width: 100%; height: 150px; object-fit: contain; display: block; }
 </style>
 </head>
 <body>
@@ -754,6 +757,7 @@ window.HP = (function () {
     </div>
   </div>
   <div id="pt-list"></div>
+  <div class="pt-sheets-h">Full printout</div>
   <div class="pt-sheets">
     <a href="/pt-sheet1.jpg" target="_blank"><img src="/pt-sheet1.jpg" alt="Exercises 1-2" loading="lazy"></a>
     <a href="/pt-sheet2.jpg" target="_blank"><img src="/pt-sheet2.jpg" alt="Exercises 3-4" loading="lazy"></a>
@@ -840,7 +844,8 @@ window.HP = (function () {
   var groups = ['Upper body', 'Lower body'];
   el('pt-list').innerHTML = groups.map(function (g) {
     return '<div class="pt-group-h">' + g + '</div>' + EX.filter(function (e) { return e.g === g; }).map(function (e) {
-      return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div></div>';
+      var num = e.id.slice(1);
+      return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + num + '. ' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div><a class="pt-ex-img" href="/pt-ex' + num + '.jpg" target="_blank"><img src="/pt-ex' + num + '.jpg" alt="' + e.name + '" loading="lazy"></a></div>';
     }).join('');
   }).join('');
   Array.prototype.forEach.call(document.querySelectorAll('.pt-check'), function (b) { b.addEventListener('click', function () { toggle(b.getAttribute('data-id')); }); });
