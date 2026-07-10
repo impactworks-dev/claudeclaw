@@ -123,6 +123,47 @@
   .avg7-h { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 8px; }
   .avg7-row { display: flex; gap: 18px; flex-wrap: wrap; }
   .avg7-item { flex: 1; min-width: 110px; }
+  /* Trend charts + sparklines */
+  .lchart { width: 100%; height: 120px; display: block; }
+  .lchart-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+  .lchart-legend b { color: var(--text); }
+  .chart-empty { color: var(--muted); font-size: 0.85rem; padding: 18px 4px; text-align: center; }
+  .spark { width: 100%; height: 26px; display: block; margin-top: 6px; }
+  .flagline { margin-top: 10px; font-size: 0.82rem; padding: 8px 10px; border-radius: 8px; border-left: 3px solid var(--yellow); background: rgba(234,179,8,0.08); color: var(--yellow); }
+  .flagline.ok { border-left-color: var(--green); background: rgba(34,197,94,0.08); color: var(--green); }
+  /* Movement goal */
+  .goal { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .goal-ring-wrap { position: relative; width: 120px; height: 120px; flex-shrink: 0; }
+  .goal-ring { width: 120px; height: 120px; transform: rotate(-90deg); }
+  .goal-track { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 11; }
+  .goal-fill { fill: none; stroke: var(--green); stroke-width: 11; stroke-linecap: round; transition: stroke-dashoffset .6s ease; }
+  .goal-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .goal-num { font-size: 1.3rem; font-weight: 800; line-height: 1; }
+  .goal-sub { font-size: 0.68rem; color: var(--muted); }
+  .goal-detail { flex: 1; min-width: 200px; font-size: 0.88rem; line-height: 1.5; }
+  .goal-detail b { color: var(--text); }
+  /* PT exercises */
+  .pt-top { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .pt-prog-ring { position: relative; width: 84px; height: 84px; flex-shrink: 0; }
+  .pt-prog-ring svg { width: 84px; height: 84px; transform: rotate(-90deg); }
+  .pt-prog-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .pt-prog-num { font-size: 1.05rem; font-weight: 800; }
+  .pt-prog-sub { font-size: 0.62rem; color: var(--muted); }
+  .pt-streak { font-size: 0.85rem; color: var(--muted); }
+  .pt-streak b { color: var(--accent); font-size: 1.05rem; }
+  .pt-group-h { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 16px 0 8px; }
+  .pt-ex { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .pt-ex:last-child { border-bottom: none; }
+  .pt-check { width: 26px; height: 26px; border-radius: 7px; border: 2px solid var(--border); background: transparent; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 0.9rem; transition: all .15s; margin-top: 1px; }
+  .pt-check:hover { border-color: var(--accent); }
+  .pt-check.done { background: var(--green); border-color: var(--green); color: #04140a; }
+  .pt-body { flex: 1; min-width: 0; }
+  .pt-name { font-size: 0.9rem; font-weight: 600; }
+  .pt-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .pt-cue { font-size: 0.78rem; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .pt-sheets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .pt-sheets a { display: block; width: 92px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .pt-sheets img { width: 100%; height: 70px; object-fit: cover; display: block; }
 </style>
 </head>
 <body>
@@ -660,9 +701,20 @@ window.HP = (function () {
     return (Math.round(v * 10) / 10).toString();
   }
   function fmtDate(k) { if (!k) return '—'; var d = new Date(k + 'T12:00:00'); return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); }
-  function tile(n, day) { return '<div class="sleep-kpi"><div class="k-label">' + pretty(n) + '</div><div class="k-val">' + fmt(n, day[n]) + ' <span style="font-size:0.68rem;color:var(--muted);font-weight:500">' + unit(n, S.units) + '</span></div></div>'; }
+  function tile(n, day) { return '<div class="sleep-kpi"><div class="k-label">' + pretty(n) + '</div><div class="k-val">' + fmt(n, day[n]) + ' <span style="font-size:0.68rem;color:var(--muted);font-weight:500">' + unit(n, S.units) + '</span></div><svg class="spark" data-m="' + n + '"></svg></div>'; }
   function grid(names, day) { return '<div class="sleep-kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' + names.map(function (n) { return tile(n, day); }).join('') + '</div>'; }
-  var S = { days: {}, units: {} };
+  var S = { days: {}, units: {}, dates: [] };
+  function drawSparks() {
+    Array.prototype.forEach.call(document.querySelectorAll('#vit-body .spark'), function (svg) {
+      var m = svg.getAttribute('data-m');
+      var pts = S.dates.map(function (d) { var v = S.days[d] && S.days[d][m]; return (typeof v === 'number') ? v : null; }).filter(function (v) { return v != null; });
+      if (pts.length < 2) { svg.style.display = 'none'; return; }
+      svg.style.display = 'block'; svg.setAttribute('viewBox', '0 0 100 26'); svg.setAttribute('preserveAspectRatio', 'none');
+      var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts), r = (mx - mn) || 1, n = pts.length;
+      var line = pts.map(function (v, i) { return (i / (n - 1) * 100).toFixed(1) + ',' + (24 - (v - mn) / r * 22).toFixed(1); }).join(' ');
+      svg.innerHTML = '<polyline points="' + line + '" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.8"/>';
+    });
+  }
   function render(date) {
     var day = S.days[date] || {}, used = {};
     el('vit-srcdate').textContent = 'Apple Watch · ' + fmtDate(date);
@@ -674,17 +726,199 @@ window.HP = (function () {
     var extra = Object.keys(day).filter(function (n) { return !used[n]; });
     if (extra.length) html += '<h3 class="sleep-sub-h">Other</h3>' + grid(extra, day);
     el('vit-body').innerHTML = html || '<div class="sleep-empty">No metrics recorded for this day.</div>';
+    drawSparks();
   }
   fetch('/api/health/metrics-history?token=' + encodeURIComponent(tok()))
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (!d || !d.dates || !d.dates.length) return;
-      S.days = d.days; S.units = d.units || {};
+      S.days = d.days; S.units = d.units || {}; S.dates = d.dates;
       el('vitals-card').style.display = '';
       window.HP.addDates(d.dates);
       window.HP.sub(function (date) { render(date); });
     })
     .catch(function () { });
+})();
+</script>
+
+<div class="card" id="pt-card">
+  <div class="pt-top">
+    <div class="pt-prog-ring">
+      <svg viewBox="0 0 84 84"><circle cx="42" cy="42" r="36" class="goal-track"/><circle cx="42" cy="42" r="36" class="goal-fill" id="pt-ring" style="stroke:var(--accent)"/></svg>
+      <div class="pt-prog-center"><div class="pt-prog-num" id="pt-count">0/8</div><div class="pt-prog-sub">today</div></div>
+    </div>
+    <div style="flex:1;min-width:0;">
+      <h2 style="margin:0;"><span>🏋️</span> PT Exercises</h2>
+      <p class="sleep-src">From Psyche Ocampo, Work-Fit · 3 lbs · 10 to 15 to 20 reps · 1 to 2x per day</p>
+      <div class="pt-streak" id="pt-streak"></div>
+    </div>
+  </div>
+  <div id="pt-list"></div>
+  <div class="pt-sheets">
+    <a href="/pt-sheet1.jpg" target="_blank"><img src="/pt-sheet1.jpg" alt="Exercises 1-2" loading="lazy"></a>
+    <a href="/pt-sheet2.jpg" target="_blank"><img src="/pt-sheet2.jpg" alt="Exercises 3-4" loading="lazy"></a>
+    <a href="/pt-sheet3.jpg" target="_blank"><img src="/pt-sheet3.jpg" alt="Exercises 5-6" loading="lazy"></a>
+    <a href="/pt-sheet4.jpg" target="_blank"><img src="/pt-sheet4.jpg" alt="Exercises 7-8" loading="lazy"></a>
+  </div>
+</div>
+
+<div class="card" id="goal-card" style="display:none;">
+  <h2 style="margin:0 0 4px;"><span>🎯</span> Movement Goal</h2>
+  <p class="sleep-src">Daily steps, ramping gently from your recent baseline</p>
+  <div class="goal">
+    <div class="goal-ring-wrap"><svg viewBox="0 0 120 120" class="goal-ring"><circle cx="60" cy="60" r="52" class="goal-track"/><circle cx="60" cy="60" r="52" class="goal-fill" id="goal-ring"/></svg><div class="goal-center"><div class="goal-num" id="goal-steps">—</div><div class="goal-sub">steps today</div></div></div>
+    <div class="goal-detail" id="goal-detail"></div>
+  </div>
+</div>
+
+<div class="card" id="heart-card" style="display:none;">
+  <h2 style="margin:0 0 4px;"><span>❤️</span> Heart Watch</h2>
+  <p class="sleep-src">Resting heart rate and HRV trend, with flags tuned to your stimulant meds.</p>
+  <h3 class="sleep-sub-h">Resting Heart Rate</h3>
+  <svg viewBox="0 0 600 120" preserveAspectRatio="none" class="lchart" id="hw-rhr"></svg>
+  <div class="lchart-legend" id="hw-rhr-leg"></div>
+  <div id="hw-rhr-flag"></div>
+  <h3 class="sleep-sub-h">Heart Rate Variability</h3>
+  <svg viewBox="0 0 600 120" preserveAspectRatio="none" class="lchart" id="hw-hrv"></svg>
+  <div class="lchart-legend" id="hw-hrv-leg"></div>
+  <div id="hw-hrv-flag"></div>
+</div>
+
+<div class="card" id="mob-card" style="display:none;">
+  <h2 style="margin:0 0 4px;"><span>🚶</span> Recovery &amp; Mobility</h2>
+  <p class="sleep-src">Gait markers your PT tracks. Higher speed and step length, lower double-support, are progress.</p>
+  <div id="mob-charts"></div>
+</div>
+
+<script>
+(function () {
+  function tok() { var u = new URLSearchParams(location.search).get('token'); if (u) return u; try { return localStorage.getItem('claudeclaw.token') || ''; } catch (e) { return ''; } }
+  function el(id) { return document.getElementById(id); }
+  var EX = [
+    { id: 'e1', g: 'Upper body', name: 'Shoulder Flexion, full range', cue: 'Arm straight out front, thumb up, raise overhead, lower to your side. Wrist weight.' },
+    { id: 'e2', g: 'Upper body', name: 'Shoulder Abduction, full range', cue: 'Raise arm out to the side and up overhead. Wrist weight, good posture.' },
+    { id: 'e3', g: 'Upper body', name: 'Shoulder Horizontal Abduction + Adduction', cue: 'Back to wall, arms in a W, bring forearms together and return.' },
+    { id: 'e4', g: 'Upper body', name: 'Shoulder Extension, bent elbow', cue: 'Raise hand toward your armpit. Wrist weight, chair for support.' },
+    { id: 'e5', g: 'Lower body', name: 'Hip Abduction', cue: 'Face the counter, raise leg out to the side, keep pelvis level. Ankle weight.' },
+    { id: 'e6', g: 'Lower body', name: 'Hip Flexion + Extension, knee straight', cue: 'Lift knee up, then leg straight back. Do not lean. Ankle weight.' },
+    { id: 'e7', g: 'Lower body', name: 'Knee Flexion', cue: 'Stand tall, lift heel toward your buttocks, bending the knee. Ankle weight.' },
+    { id: 'e8', g: 'Lower body', name: 'Knee Extension', cue: 'Seated, good posture, extend leg straight out. Ankle weight.' }
+  ];
+  var META = '3 lbs · 10 to 15 to 20 reps · 1 to 2x/day';
+  function todayKey() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  var LOG = {}, TODAY = todayKey();
+  function doneCount(day) { var o = LOG[day] || {}; return EX.filter(function (e) { return o[e.id]; }).length; }
+  function ringSet(pct) { var c = 2 * Math.PI * 36, r = el('pt-ring'); if (r) { r.setAttribute('stroke-dasharray', c.toFixed(1)); r.setAttribute('stroke-dashoffset', (c * (1 - pct)).toFixed(1)); } }
+  function streak() {
+    var d = new Date(), s = 0;
+    for (var i = 0; i < 400; i++) {
+      var k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      if (doneCount(k) > 0) s++;
+      else if (k !== TODAY) break; // today not done yet does not break the streak
+      d.setDate(d.getDate() - 1);
+    }
+    return s;
+  }
+  function refresh() {
+    var c = doneCount(TODAY);
+    el('pt-count').textContent = c + '/8';
+    ringSet(c / 8);
+    var st = streak();
+    el('pt-streak').innerHTML = st > 0 ? '<b>' + st + '</b> day streak' : 'Check them off as you go';
+    Array.prototype.forEach.call(document.querySelectorAll('.pt-check'), function (b) {
+      var on = (LOG[TODAY] || {})[b.getAttribute('data-id')];
+      b.classList.toggle('done', !!on); b.textContent = on ? '✓' : '';
+    });
+  }
+  function toggle(id) {
+    if (!LOG[TODAY]) LOG[TODAY] = {};
+    var nv = LOG[TODAY][id] ? 0 : 1;
+    if (nv) LOG[TODAY][id] = 1; else delete LOG[TODAY][id];
+    refresh();
+    fetch('/api/health/log?token=' + encodeURIComponent(tok()), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'pt', date: TODAY, key: id, value: nv }) }).catch(function () {});
+  }
+  var groups = ['Upper body', 'Lower body'];
+  el('pt-list').innerHTML = groups.map(function (g) {
+    return '<div class="pt-group-h">' + g + '</div>' + EX.filter(function (e) { return e.g === g; }).map(function (e) {
+      return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div></div>';
+    }).join('');
+  }).join('');
+  Array.prototype.forEach.call(document.querySelectorAll('.pt-check'), function (b) { b.addEventListener('click', function () { toggle(b.getAttribute('data-id')); }); });
+  refresh();
+  fetch('/api/health/log?kind=pt&token=' + encodeURIComponent(tok()))
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d && d.data) { LOG = d.data; refresh(); } })
+    .catch(function () {});
+})();
+</script>
+
+<script>
+(function () {
+  function tok() { var u = new URLSearchParams(location.search).get('token'); if (u) return u; try { return localStorage.getItem('claudeclaw.token') || ''; } catch (e) { return ''; } }
+  function el(id) { return document.getElementById(id); }
+  function fmtNum(v) { return (Math.round(v * 10) / 10).toString(); }
+  function avg(pts) { return pts.length ? pts.reduce(function (a, p) { return a + p.v; }, 0) / pts.length : 0; }
+  function seriesFor(days, dates, m) { return dates.map(function (d) { var v = days[d] && days[d][m]; return { d: d, v: (typeof v === 'number' ? v : null) }; }).filter(function (p) { return p.v != null; }); }
+  function lineChart(svgId, legId, pts, opts) {
+    opts = opts || {}; var svg = el(svgId), leg = el(legId); if (!svg) return;
+    if (!pts || pts.length < 2) { svg.innerHTML = ''; if (leg) leg.innerHTML = 'Not enough history yet, needs a few days of data.'; return; }
+    var W = 600, H = 120, pad = 12, vs = pts.map(function (p) { return p.v; });
+    var vmin = Math.min.apply(null, vs), vmax = Math.max.apply(null, vs);
+    if (opts.threshold != null) { vmin = Math.min(vmin, opts.threshold); vmax = Math.max(vmax, opts.threshold); }
+    var vr = (vmax - vmin) || 1, n = pts.length;
+    function X(i) { return pad + (i / (n - 1)) * (W - 2 * pad); }
+    function Y(v) { return pad + (1 - (v - vmin) / vr) * (H - 2 * pad); }
+    var line = pts.map(function (p, i) { return X(i).toFixed(1) + ',' + Y(p.v).toFixed(1); });
+    var area = 'M' + X(0).toFixed(1) + ',' + (H - pad) + ' L' + line.join(' L') + ' L' + X(n - 1).toFixed(1) + ',' + (H - pad) + ' Z';
+    var col = opts.color || '#5b8af5', gid = svgId + '-g', th = '';
+    if (opts.threshold != null) { var ty = Y(opts.threshold).toFixed(1); th = '<line x1="' + pad + '" y1="' + ty + '" x2="' + (W - pad) + '" y2="' + ty + '" stroke="' + (opts.thColor || '#f87171') + '" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>'; }
+    svg.innerHTML = '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + col + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + col + '" stop-opacity="0"/></linearGradient></defs>' +
+      '<path d="' + area + '" fill="url(#' + gid + ')"/>' + th +
+      '<polyline points="' + line.join(' ') + '" fill="none" stroke="' + col + '" stroke-width="2" stroke-linejoin="round"/>' +
+      '<circle cx="' + X(n - 1).toFixed(1) + '" cy="' + Y(pts[n - 1].v).toFixed(1) + '" r="3" fill="' + col + '"/>';
+    if (leg) { var a = Math.round(avg(pts) * 10) / 10, u = opts.unit || ''; leg.innerHTML = 'Latest <b>' + fmtNum(pts[n - 1].v) + ' ' + u + '</b> · avg ' + fmtNum(a) + ' · range ' + fmtNum(vmin) + ' to ' + fmtNum(vmax) + ' · ' + n + ' days'; }
+  }
+  fetch('/api/health/metrics-history?token=' + encodeURIComponent(tok()))
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || !d.dates || !d.dates.length) return;
+      var days = d.days, dates = d.dates, units = d.units || {};
+      // Heart Watch
+      el('heart-card').style.display = '';
+      var rhr = seriesFor(days, dates, 'resting_heart_rate');
+      lineChart('hw-rhr', 'hw-rhr-leg', rhr, { color: '#f87171', unit: 'bpm', threshold: 90, thColor: '#f87171' });
+      var f = el('hw-rhr-flag');
+      if (rhr.length >= 3) {
+        var last = rhr[rhr.length - 1].v, rec = rhr.slice(-5), rise = rec[rec.length - 1].v - rec[0].v;
+        if (last >= 90) f.innerHTML = '<div class="flagline">Resting HR reached ' + Math.round(last) + ' bpm. With Vyvanse + Strattera, worth flagging to your prescriber if it stays here.</div>';
+        else if (rise >= 4) f.innerHTML = '<div class="flagline">Resting HR is trending up (about +' + Math.round(rise) + ' bpm recently). Keep an eye on it given the stimulant meds.</div>';
+        else f.innerHTML = '<div class="flagline ok">Resting HR steady in a normal range.</div>';
+      } else f.innerHTML = '';
+      var hrv = seriesFor(days, dates, 'heart_rate_variability');
+      lineChart('hw-hrv', 'hw-hrv-leg', hrv, { color: '#8b5cf6', unit: 'ms' });
+      var fh = el('hw-hrv-flag');
+      if (hrv.length >= 3) { var ha = avg(hrv); fh.innerHTML = ha < 25 ? '<div class="flagline">HRV is on the low side (' + Math.round(ha) + ' ms avg). Low HRV can reflect stress, short sleep, or stimulant load.</div>' : '<div class="flagline ok">HRV holding in a reasonable range.</div>'; } else fh.innerHTML = '';
+      // Mobility
+      var MOB = [['walking_speed', 'Walking Speed', '#34d399'], ['walking_step_length', 'Step Length', '#5b8af5'], ['walking_double_support_percentage', 'Double Support', '#fb923c']];
+      var hasMob = MOB.some(function (m) { return seriesFor(days, dates, m[0]).length; });
+      if (hasMob) {
+        el('mob-card').style.display = '';
+        el('mob-charts').innerHTML = MOB.map(function (m) { return '<h3 class="sleep-sub-h">' + m[1] + '</h3><svg viewBox="0 0 600 120" preserveAspectRatio="none" class="lchart" id="mob-' + m[0] + '"></svg><div class="lchart-legend" id="mob-' + m[0] + '-leg"></div>'; }).join('');
+        MOB.forEach(function (m) { lineChart('mob-' + m[0], 'mob-' + m[0] + '-leg', seriesFor(days, dates, m[0]), { color: m[2], unit: units[m[0]] || '' }); });
+      }
+      // Movement goal
+      var steps = seriesFor(days, dates, 'step_count');
+      if (steps.length) {
+        var latest = steps[steps.length - 1].v, base = Math.round(avg(steps.slice(-7)));
+        var target = Math.max(base + 250, Math.round(base * 1.1), 2000);
+        el('goal-card').style.display = '';
+        el('goal-steps').textContent = Math.round(latest).toLocaleString();
+        var c = 2 * Math.PI * 52, gr = el('goal-ring'); gr.setAttribute('stroke-dasharray', c.toFixed(1)); gr.setAttribute('stroke-dashoffset', (c * (1 - Math.min(1, latest / target))).toFixed(1));
+        var togo = Math.max(0, target - latest);
+        el('goal-detail').innerHTML = 'Target <b>' + target.toLocaleString() + '</b> steps, a gentle bump over your <b>' + base.toLocaleString() + '</b> recent average. ' + (togo > 0 ? '<b>' + Math.round(togo).toLocaleString() + '</b> to go today.' : 'Goal met, nice work.') + '<br><span style="color:var(--muted);font-size:0.8rem">Small steady increases beat big jumps. A short walk after meals is an easy win.</span>';
+      }
+    })
+    .catch(function () {});
 })();
 </script>
 

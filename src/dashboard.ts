@@ -501,7 +501,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // Top-level static files copied from web/public/ at Vite build time
   // (e.g. /brain.glb for the 3D Hive Mind view). Stable filenames so they
   // sit at the root, not under /assets/.
-  app.get('/:filename{.+\\.(glb|gltf|bin|ktx2|wasm|svg|png|webp|ico|html)}', (c) => {
+  app.get('/:filename{.+\\.(glb|gltf|bin|ktx2|wasm|svg|png|webp|ico|html|jpg|jpeg)}', (c) => {
     const filename = c.req.param('filename');
     const distRoot = path.join(PROJECT_ROOT, 'dist', 'web');
     const storeRoot = STORE_DIR;
@@ -525,6 +525,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       : ext === '.wasm' ? 'application/wasm'
       : ext === '.svg' ? 'image/svg+xml'
       : ext === '.png' ? 'image/png'
+      : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
       : ext === '.webp' ? 'image/webp'
       : ext === '.ico' ? 'image/x-icon'
       : ext === '.html' ? 'text/html; charset=utf-8'
@@ -554,6 +555,9 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // Per-day snapshot of each metric so the whole Health Profile can be
   // filtered by date. A single multi-day export backfills this in one shot.
   const HEALTH_METRIC_HIST_PATH = path.join(STORE_DIR, 'health-metric-history.json');
+  // Generic daily log for user-entered data (PT exercise completions today,
+  // and reusable for movement goals, BP, etc.). Shape: { kind: { date: { key: value } } }.
+  const HEALTH_LOG_PATH = path.join(STORE_DIR, 'health-logs.json');
 
   // Parse Health Auto Export date strings like "2026-07-10 07:17:56 -0400"
   // into epoch ms. Node's Date.parse is lenient but we normalize the offset
@@ -803,6 +807,35 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     } catch {
       return c.json({ ok: false, error: 'read failed' }, 500);
     }
+  });
+
+  // Generic daily log (PT completions today, and reusable for goals/BP).
+  app.get('/api/health/log', (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    const kind = c.req.query('kind') || '';
+    let all: any = {};
+    try { if (fs.existsSync(HEALTH_LOG_PATH)) all = JSON.parse(fs.readFileSync(HEALTH_LOG_PATH, 'utf-8')); } catch { all = {}; }
+    return c.json({ ok: true, kind, data: kind ? (all[kind] || {}) : all });
+  });
+
+  app.post('/api/health/log', async (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    let b: any; try { b = await c.req.json(); } catch { return c.json({ ok: false, error: 'invalid JSON' }, 400); }
+    const kind = String(b?.kind || '').trim();
+    const date = String(b?.date || '').slice(0, 10);
+    const key = String(b?.key || '').trim();
+    if (!kind || !date || !key) return c.json({ ok: false, error: 'kind, date, key required' }, 400);
+    let all: any = {};
+    try { if (fs.existsSync(HEALTH_LOG_PATH)) all = JSON.parse(fs.readFileSync(HEALTH_LOG_PATH, 'utf-8')); } catch { all = {}; }
+    if (!all[kind]) all[kind] = {};
+    if (!all[kind][date]) all[kind][date] = {};
+    const v = b.value;
+    if (v === 0 || v === false || v === null || v === undefined) delete all[kind][date][key];
+    else all[kind][date][key] = v;
+    if (Object.keys(all[kind][date]).length === 0) delete all[kind][date];
+    try { fs.writeFileSync(HEALTH_LOG_PATH, JSON.stringify(all, null, 2), 'utf-8'); }
+    catch { return c.json({ ok: false, error: 'write failed' }, 500); }
+    return c.json({ ok: true, kind, date, key, value: v });
   });
 
   // War Room page. The SPA has its own WarRoom view at /warroom (Preact router).
