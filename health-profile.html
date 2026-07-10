@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Health Profile - Dante Crescenzi</title>
+<style>
+  :root { --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a; --text: #e4e4e7; --muted: #9ca3af; --accent: #6366f1; --green: #22c55e; --yellow: #eab308; --red: #ef4444; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 20px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 8px; }
+  h1 span { font-size: 2rem; margin-right: 8px; }
+  .subtitle { color: var(--muted); margin-bottom: 24px; font-size: 0.9rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 1.1rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card h2 span { font-size: 1.2rem; }
+  .card h3 { font-size: 0.95rem; color: var(--accent); margin: 16px 0 8px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; padding: 8px 12px; background: rgba(99,102,241,0.1); color: var(--accent); font-weight: 600; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .status-normal { background: rgba(34,197,94,0.15); color: var(--green); }
+  .status-flag { background: rgba(239,68,68,0.15); color: var(--red); }
+  .status-excellent { background: rgba(34,197,94,0.15); color: var(--green); }
+  .interaction { padding: 10px 14px; background: rgba(234,179,8,0.08); border-left: 3px solid var(--yellow); margin-bottom: 8px; border-radius: 0 6px 6px 0; font-size: 0.85rem; }
+  .interaction strong { color: var(--yellow); }
+  .bg-item { padding: 6px 0; font-size: 0.9rem; color: var(--muted); }
+  .bg-item::before { content: ""; display: inline-block; width: 6px; height: 6px; background: var(--accent); border-radius: 50%; margin-right: 10px; }
+  .summary-box { background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); border-radius: 8px; padding: 16px; font-size: 0.9rem; line-height: 1.6; }
+  .med-row td:first-child { font-weight: 600; }
+  .med-row td:nth-child(3) { color: var(--muted); font-size: 0.8rem; }
+  .flag-callout { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px; padding: 14px; margin-top: 12px; font-size: 0.85rem; }
+  .flag-callout strong { color: var(--red); }
+  .updated { text-align: center; color: var(--muted); font-size: 0.75rem; margin-top: 24px; padding-bottom: 20px; }
+  .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-size: 0.85rem; margin-bottom: 18px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; transition: all 0.15s; }
+  .back-link:hover { color: var(--text); border-color: var(--accent); background: rgba(99,102,241,0.08); }
+</style>
+</head>
+<body>
+
+<a href="/" class="back-link">← Mission Control</a>
+
+<h1><span>🩺</span> Health Profile</h1>
+<p class="subtitle">Dante Vincent Crescenzi | DOB: Oct 2, 1973 | Age: 52</p>
+
+<div class="card">
+  <h2><span>📋</span> Background</h2>
+  <div class="bg-item">AVM (arteriovenous malformation) - had brain surgery</div>
+  <div class="bg-item">Stroke during surgery - recovering</div>
+  <div class="bg-item">Reduced right-hand dexterity (post-stroke)</div>
+  <div class="bg-item">Physical therapy with Psyche Ocampo at Work Fit Total Therapy Centre</div>
+  <div class="bg-item">Physician: Dr. Aisha Asmat Chaudhary</div>
+</div>
+
+<div class="card">
+  <h2><span>💊</span> Daily Medications (July 2026)</h2>
+  <table>
+    <thead>
+      <tr><th>Medication</th><th>Dose / Schedule</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr class="med-row"><td>Atorvastatin</td><td>40mg - each evening</td><td>Cholesterol (statin)</td></tr>
+      <tr class="med-row"><td>Lisdexamfetamine (Vyvanse)</td><td>40mg - each morning</td><td>ADHD / focus</td></tr>
+      <tr class="med-row"><td>Baclofen</td><td>10mg - twice daily</td><td>Muscle relaxant (post-stroke spasticity)</td></tr>
+      <tr class="med-row"><td>Atomoxetine (Strattera)</td><td>40mg - each morning</td><td>ADHD / focus</td></tr>
+      <tr class="med-row"><td>Low dose aspirin</td><td>Each morning</td><td>Blood thinner (stroke prevention)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2><span>⚠️</span> Medication Interaction Notes</h2>
+  <div class="interaction"><strong>Vyvanse + Strattera:</strong> Both increase norepinephrine. Can amplify cardiovascular effects (elevated HR, higher BP). Most significant combo given stroke history. Prescribing team likely monitoring intentionally.</div>
+  <div class="interaction"><strong>Baclofen + Vyvanse:</strong> CNS depressant vs stimulant. Partially counteract each other. Not dangerous but may reduce perceived effectiveness of either.</div>
+  <div class="interaction"><strong>Aspirin + stimulants:</strong> Stimulants raise HR/BP, aspirin is protective against clotting. Smart pairing for stroke risk.</div>
+  <div class="interaction"><strong>Atorvastatin:</strong> No significant interactions with any other med on the list. Different metabolic pathways.</div>
+  <div style="margin-top: 12px; font-size: 0.85rem; color: var(--yellow);">Regular BP and heart rate checks recommended due to Vyvanse + Strattera overlap.</div>
+</div>
+
+<div class="card">
+  <h2><span>🩸</span> Lab Results - June 29, 2026</h2>
+  <p style="color: var(--muted); font-size: 0.8rem; margin-bottom: 12px;">Ordered by Dr. Aisha Asmat Chaudhary | Kennedy Lab, Mississauga, Ontario</p>
+
+  <h3>CBC (Complete Blood Count) - All Normal</h3>
+  <table>
+    <thead><tr><th>Test</th><th>Result</th><th>Reference</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>WBC</td><td>5.4</td><td>4.0 - 11.0 x E9/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>RBC</td><td>5.31</td><td>4.50 - 6.00 x E12/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Hemoglobin</td><td>163</td><td>135 - 175 g/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Hematocrit</td><td>0.474</td><td>0.400 - 0.500 L/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>MCV</td><td>89</td><td>80 - 100 fL</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>MCH</td><td>30.7</td><td>27.5 - 33.0 pg</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>MCHC</td><td>344</td><td>305 - 360 g/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>RDW</td><td>12.2</td><td>11.5 - 14.5 %</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Platelets</td><td>207</td><td>150 - 400 x E9/L</td><td><span class="status status-normal">Normal</span></td></tr>
+    </tbody>
+  </table>
+
+  <h3>General Chemistry</h3>
+  <table>
+    <thead><tr><th>Test</th><th>Result</th><th>Reference</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>HbA1c</td><td>5.3%</td><td>&lt; 6.0%</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Sodium</td><td>139</td><td>135 - 145 mmol/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Potassium</td><td>4.3</td><td>3.5 - 5.2 mmol/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Creatinine</td><td>72</td><td>67 - 117 umol/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>eGFR</td><td>106</td><td>&gt;= 60 mL/min</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Albumin</td><td>50</td><td>35 - 52 g/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>Alk Phos</td><td>125</td><td>40 - 129 U/L</td><td><span class="status status-normal">Normal</span></td></tr>
+      <tr><td>ALT</td><td>44</td><td>&lt; 50 U/L</td><td><span class="status status-normal">Normal</span></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Muscle Enzymes</h3>
+  <table>
+    <thead><tr><th>Test</th><th>Result</th><th>Reference</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Creatine Kinase</td><td><strong>418</strong></td><td>44 - 275 U/L</td><td><span class="status status-flag">ELEVATED</span></td></tr>
+    </tbody>
+  </table>
+  <div class="flag-callout">
+    <strong>Flag:</strong> CK elevation may be related to atorvastatin (statin) use. Monitor for myopathy symptoms (muscle pain, weakness, cramping). Could also be from recent exercise before the draw.
+  </div>
+
+  <h3>Lipids (12hr Fasting)</h3>
+  <table>
+    <thead><tr><th>Test</th><th>Result</th><th>Reference</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Triglycerides</td><td>0.99</td><td>&lt; 1.70 mmol/L</td><td><span class="status status-excellent">Excellent</span></td></tr>
+      <tr><td>Total Cholesterol</td><td>3.74</td><td>&lt; 5.20 mmol/L</td><td><span class="status status-excellent">Excellent</span></td></tr>
+      <tr><td>HDL</td><td>1.37</td><td>&gt;= 1.00 mmol/L</td><td><span class="status status-normal">Good</span></td></tr>
+      <tr><td>Non-HDL</td><td>2.37</td><td>&lt; 4.20 mmol/L</td><td><span class="status status-excellent">Excellent</span></td></tr>
+      <tr><td>LDL</td><td>1.94</td><td>&lt; 3.50 mmol/L</td><td><span class="status status-excellent">Excellent</span></td></tr>
+      <tr><td>Chol/HDL Ratio</td><td>2.7</td><td>Risk &gt; 6.0</td><td><span class="status status-excellent">Excellent</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2><span>⌚</span> Apple Watch Data (91 Days: Apr 9 - Jul 8, 2026)</h2>
+  <p style="color: var(--muted); font-size: 0.8rem; margin-bottom: 16px;">Source: Health Auto Export | 91 days of continuous monitoring</p>
+
+  <h3>Cardiovascular</h3>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px;">
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Resting HR (avg)</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--yellow);">85</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">bpm (range 67-96)</div>
+    </div>
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">HRV (avg)</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--yellow);">17.8</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">ms (low for age)</div>
+    </div>
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Blood Oxygen</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--green);">96.9</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">% avg (range 93.6-99.5)</div>
+    </div>
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Peak HR</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--text);">139</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">bpm (Jun 5)</div>
+    </div>
+  </div>
+
+  <div class="flag-callout" style="margin-bottom: 16px;">
+    <strong>Resting HR trending up:</strong> Apr: 82 bpm, May: 84, Jun: 86, Jul: 88. Upward trend coincides with Vyvanse + Strattera use. 11 of 44 recorded days had resting HR at or above 90 bpm. Worth discussing with prescribing team if trend continues.
+  </div>
+
+  <h3>Activity</h3>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px;">
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Daily Steps (avg)</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--red);">1,692</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">target: 7,000+</div>
+    </div>
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Daily Distance</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--text);">0.79</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">mi/day avg</div>
+    </div>
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Active Energy</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--text);">221</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">kcal/day avg</div>
+    </div>
+    <div style="background: rgba(99,102,241,0.08); border-radius: 8px; padding: 14px; text-align: center;">
+      <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">Flights Climbed</div>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--text);">2.3</div>
+      <div style="font-size: 0.7rem; color: var(--muted);">per day avg</div>
+    </div>
+  </div>
+
+  <h3>Gait & Mobility (Stroke Recovery Markers)</h3>
+  <table>
+    <thead><tr><th>Metric</th><th>Your Avg</th><th>Normal Range</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Walking Speed</td><td>1.90 mi/hr</td><td>2.5 - 3.5 mi/hr</td><td><span class="status status-flag">Below Normal</span></td></tr>
+      <tr><td>Step Length</td><td>20.8 in</td><td>24 - 30 in</td><td><span class="status status-flag">Short</span></td></tr>
+      <tr><td>Walking Asymmetry</td><td>19.8%</td><td>&lt; 10%</td><td><span class="status status-flag">Elevated</span></td></tr>
+      <tr><td>Double Support</td><td>33.1%</td><td>20 - 25%</td><td><span class="status status-flag">Elevated</span></td></tr>
+    </tbody>
+  </table>
+  <div style="margin-top: 10px; font-size: 0.85rem; color: var(--muted);">
+    Walking asymmetry and double support are consistent with right-side deficit from stroke. These are key PT progress markers. 14 of 33 recorded days had asymmetry above 15%.
+  </div>
+</div>
+
+<div class="card">
+  <div class="summary-box">
+    <strong>Summary:</strong> Lab results excellent - atorvastatin working well on lipids, only concern is elevated CK (418). Apple Watch data shows resting HR trending upward (82 to 88 bpm over 3 months) and low HRV (17.8 ms), both worth monitoring given stimulant medications. Step count is very low at 1,692/day. Gait metrics reflect ongoing stroke recovery with elevated asymmetry and reduced walking speed. Blood oxygen normal.
+  </div>
+</div>
+
+<p class="updated">Last updated: July 9, 2026 | Lab data: Jun 29 | Watch data: Apr 9 - Jul 8 (91 days)</p>
+
+</body>
+</html>
