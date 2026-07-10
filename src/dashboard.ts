@@ -551,6 +551,9 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // can browse past nights and show trends. Each daily export only carries one
   // night, so we merge rather than overwrite.
   const HEALTH_SLEEP_PATH = path.join(STORE_DIR, 'health-sleep-history.json');
+  // Per-day snapshot of each metric so the whole Health Profile can be
+  // filtered by date. A single multi-day export backfills this in one shot.
+  const HEALTH_METRIC_HIST_PATH = path.join(STORE_DIR, 'health-metric-history.json');
 
   // Parse Health Auto Export date strings like "2026-07-10 07:17:56 -0400"
   // into epoch ms. Node's Date.parse is lenient but we normalize the offset
@@ -676,6 +679,28 @@ export function startDashboard(botApi?: Api<RawApi>): void {
             }
           }
 
+          // Transparent sleep score (0-100), mirroring the common
+          // Duration(/50) + Bedtime(/30) + Interruptions(/20) rubric. This is
+          // our own computation from the exported totals, not Apple's or a
+          // third-party app's proprietary score. If the payload ever carries a
+          // real "sleep score" metric we prefer that (see appleScore below).
+          const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+          const hm = String(p.sleepStart || '').match(/ (\d{2}):(\d{2})/);
+          const fellHour = hm ? (parseInt(hm[1], 10) + parseInt(hm[2], 10) / 60) : null;
+          const durScore = asleep != null ? Math.round(clamp01(asleep / 8) * 50) : 0;
+          const awkFrac = (asleep != null && awake != null && (asleep + awake) > 0) ? awake / (asleep + awake) : 0;
+          const intScore = Math.round(clamp01(1 - awkFrac / 0.25) * 20);
+          let bedScore = 20;
+          if (fellHour != null) {
+            let dist = Math.abs(fellHour - 23);
+            if (fellHour < 12) dist = Math.abs(fellHour + 24 - 23); // after-midnight
+            bedScore = Math.round(clamp01(1 - dist / 3) * 30);
+          }
+          const total = durScore + bedScore + intScore;
+          const label = total >= 85 ? 'Excellent' : total >= 70 ? 'Good' : total >= 55 ? 'OK' : total >= 40 ? 'Fair' : 'Low';
+          const appleScore = typeof p.sleepScore === 'number' ? p.sleepScore
+            : (typeof p.score === 'number' ? p.score : null);
+
           history[key] = {
             date: key,
             asleep, deep, rem, core, awake,
@@ -684,6 +709,11 @@ export function startDashboard(botApi?: Api<RawApi>): void {
             sleepStart: p.sleepStart ?? null, sleepEnd: p.sleepEnd ?? null,
             inBedStart: p.inBedStart ?? null, inBedEnd: p.inBedEnd ?? null,
             hr,
+            score: {
+              total, label, appleScore,
+              duration: durScore, bedtime: bedScore, interruptions: intScore,
+              max: { duration: 50, bedtime: 30, interruptions: 20 },
+            },
             updatedAt: summary.updatedAt,
           };
           nightsAdded++;
@@ -696,7 +726,46 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       }
     } catch { /* history is best-effort; never fail the import over it */ }
 
-    return c.json({ ok: true, metricsReceived: summary.metricNames.length, nightsAdded, updatedAt: summary.updatedAt });
+    // ── Accumulate per-day metric history (for the whole-profile date filter) ──
+    // Bucket each metric's points by local day and aggregate (sum for counts /
+    // energy / distance, average for rates). One multi-day export backfills all.
+    let daysTouched = 0;
+    try {
+      const sumRe = /(step_count|energy|flights|distance|exercise_time|stand_time|daylight)/i;
+      let mh: any = { units: {}, days: {} };
+      try {
+        if (fs.existsSync(HEALTH_METRIC_HIST_PATH)) {
+          const parsed = JSON.parse(fs.readFileSync(HEALTH_METRIC_HIST_PATH, 'utf-8'));
+          if (parsed && parsed.days) mh = { units: parsed.units || {}, days: parsed.days };
+        }
+      } catch { mh = { units: {}, days: {} }; }
+
+      if (Array.isArray(metricsIn)) {
+        for (const m of metricsIn) {
+          if (!m || typeof m.name !== 'string' || !Array.isArray(m.data)) continue;
+          if (/sleep/i.test(m.name)) continue; // sleep has its own store
+          if (m.units) mh.units[m.name] = m.units;
+          const isSum = sumRe.test(m.name);
+          const buckets: Record<string, number[]> = {};
+          for (const pt of m.data) {
+            const day = String(pt.date || '').slice(0, 10); if (!day) continue;
+            const v = pointVal(pt); if (typeof v !== 'number') continue;
+            (buckets[day] = buckets[day] || []).push(v);
+          }
+          for (const day of Object.keys(buckets)) {
+            const arr = buckets[day];
+            const val = isSum ? arr.reduce((a, b) => a + b, 0) : arr.reduce((a, b) => a + b, 0) / arr.length;
+            if (!mh.days[day]) { mh.days[day] = {}; daysTouched++; }
+            mh.days[day][m.name] = Math.round(val * 100) / 100;
+          }
+        }
+      }
+      const dayKeys = Object.keys(mh.days).sort();
+      if (dayKeys.length > 180) for (const k of dayKeys.slice(0, dayKeys.length - 180)) delete mh.days[k];
+      fs.writeFileSync(HEALTH_METRIC_HIST_PATH, JSON.stringify(mh, null, 2), 'utf-8');
+    } catch { /* best-effort */ }
+
+    return c.json({ ok: true, metricsReceived: summary.metricNames.length, nightsAdded, daysTouched, updatedAt: summary.updatedAt });
   });
 
   app.get('/api/health/data', (c) => {
@@ -718,6 +787,19 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       const nights = JSON.parse(fs.readFileSync(HEALTH_SLEEP_PATH, 'utf-8'));
       const dates = Object.keys(nights).sort();
       return c.json({ ok: true, dates, latest: dates.length ? dates[dates.length - 1] : null, nights });
+    } catch {
+      return c.json({ ok: false, error: 'read failed' }, 500);
+    }
+  });
+
+  // Per-day metric history for the whole-profile date filter.
+  app.get('/api/health/metrics-history', (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    if (!fs.existsSync(HEALTH_METRIC_HIST_PATH)) return c.json({ ok: true, dates: [], latest: null, units: {}, days: {} });
+    try {
+      const mh = JSON.parse(fs.readFileSync(HEALTH_METRIC_HIST_PATH, 'utf-8'));
+      const dates = Object.keys(mh.days || {}).sort();
+      return c.json({ ok: true, dates, latest: dates.length ? dates[dates.length - 1] : null, units: mh.units || {}, days: mh.days || {} });
     } catch {
       return c.json({ ok: false, error: 'read failed' }, 500);
     }
