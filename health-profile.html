@@ -103,6 +103,15 @@
   .score-frac { font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .score-src { font-size: 0.72rem; color: var(--muted); margin-top: 10px; font-style: italic; }
   .vitals-card .k-val { color: var(--text); }
+  .gdate-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; padding: 10px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; flex-wrap: wrap; }
+  .gdate-lbl { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+  .gdate-input { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 8px; font-size: 0.85rem; color-scheme: dark; }
+  .gdate-latest { margin-left: auto; background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 12px; font-size: 0.8rem; cursor: pointer; }
+  .gdate-latest:hover { border-color: var(--accent); color: var(--accent); }
+  .avg7 { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+  .avg7-h { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 8px; }
+  .avg7-row { display: flex; gap: 18px; flex-wrap: wrap; }
+  .avg7-item { flex: 1; min-width: 110px; }
 </style>
 </head>
 <body>
@@ -120,6 +129,55 @@
 
 <script>
   if (new URLSearchParams(location.search).get('embed') === '1') document.body.classList.add('embed');
+</script>
+
+<div class="gdate-bar" id="gdate-bar" style="display:none;">
+  <span class="gdate-lbl">📅 Viewing</span>
+  <button class="sleep-navbtn" id="gdate-prev" aria-label="Previous day">‹</button>
+  <input type="date" id="gdate-input" class="gdate-input"/>
+  <button class="sleep-navbtn" id="gdate-next" aria-label="Next day">›</button>
+  <button class="gdate-latest" id="gdate-latest">Latest</button>
+</div>
+
+<script>
+// Shared date bus: the Sleep and Daily Metrics cards each contribute their
+// available dates and subscribe here, so one control drives the whole page.
+window.HP = (function () {
+  var cur = null, subs = [], dset = {};
+  function union() { return Object.keys(dset).sort(); }
+  function emit() { subs.forEach(function (f) { try { f(cur); } catch (e) {} }); }
+  function get(id) { return document.getElementById(id); }
+  function updateBtns() {
+    var d = union(), i = d.indexOf(cur), p = get('gdate-prev'), n = get('gdate-next');
+    if (p) p.disabled = i <= 0; if (n) n.disabled = i < 0 || i >= d.length - 1;
+  }
+  function rebuild() {
+    var d = union(), bar = get('gdate-bar'); if (!bar) return;
+    if (!d.length) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    if (!cur) cur = d[d.length - 1];
+    var inp = get('gdate-input'); if (inp) { inp.min = d[0]; inp.max = d[d.length - 1]; inp.value = cur; }
+    updateBtns();
+  }
+  var API = {
+    get date() { return cur; },
+    dates: union,
+    addDates: function (arr) { (arr || []).forEach(function (x) { dset[x] = 1; }); rebuild(); emit(); },
+    set: function (v) { if (!v) return; cur = v; var inp = get('gdate-input'); if (inp) inp.value = v; updateBtns(); emit(); },
+    step: function (dir) { var d = union(), i = d.indexOf(cur); if (i < 0) return; var j = i + dir; if (j >= 0 && j < d.length) API.set(d[j]); },
+    sub: function (f) { subs.push(f); if (cur) try { f(cur); } catch (e) {} }
+  };
+  function wire() {
+    var p = get('gdate-prev'), n = get('gdate-next'), inp = get('gdate-input'), lt = get('gdate-latest');
+    if (p) p.addEventListener('click', function () { API.step(-1); });
+    if (n) n.addEventListener('click', function () { API.step(1); });
+    if (inp) inp.addEventListener('change', function () { if (inp.value) API.set(inp.value); });
+    if (lt) lt.addEventListener('click', function () { var d = union(); if (d.length) API.set(d[d.length - 1]); });
+    rebuild();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
+  return API;
+})();
 </script>
 
 <div class="card">
@@ -217,8 +275,8 @@
 </div>
 
 <div class="card">
-  <h2><span>⌚</span> Apple Watch Data (91 Days: Apr 9 - Jul 8, 2026)</h2>
-  <p style="color: var(--muted); font-size: 0.8rem; margin-bottom: 16px;">Source: Health Auto Export | 91 days of continuous monitoring</p>
+  <h2><span>⌚</span> 90-Day Overview (Apr 9 - Jul 8, 2026)</h2>
+  <p style="color: var(--muted); font-size: 0.8rem; margin-bottom: 16px;">Long-term averages from Apple Watch. For a specific day, use the date picker and the Daily Metrics card above.</p>
 
   <h3>Cardiovascular</h3>
   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px;">
@@ -340,6 +398,15 @@
       </div>
     </div>
 
+    <div class="avg7" id="avg7" style="display:none;">
+      <div class="avg7-h" id="avg7-h">Trailing average</div>
+      <div class="avg7-row">
+        <div class="avg7-item"><div class="k-label">Sleep</div><div class="k-val" id="avg7-sleep">—</div></div>
+        <div class="avg7-item"><div class="k-label">Efficiency</div><div class="k-val" id="avg7-eff">—</div></div>
+        <div class="avg7-item"><div class="k-label">Score</div><div class="k-val" id="avg7-score">—</div></div>
+      </div>
+    </div>
+
     <h3 class="sleep-sub-h">Stages</h3>
     <div class="stage-segbar" id="stage-segbar"></div>
     <div class="stage-rows" id="stage-rows"></div>
@@ -454,44 +521,60 @@
     el('hr-max').innerHTML = 'MAX <strong>' + Math.round(vmax) + '</strong>';
   }
 
-  function renderTrend() {
+  function renderTrend(cur) {
     var last = STATE.dates.slice(-14);
     var maxv = Math.max.apply(null, last.map(function (k) { var n = STATE.nights[k]; return (n && n.asleep) || 0; })) || 1;
     el('trend').innerHTML = last.map(function (k) {
       var n = STATE.nights[k], v = (n && n.asleep) || 0, hpx = Math.max(4, Math.round((v / maxv) * 70));
-      var sel = k === STATE.dates[STATE.i] ? ' sel' : '';
+      var sel = k === cur ? ' sel' : '';
       var lab = new Date(k + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'narrow' });
       return '<div class="trend-bar' + sel + '" data-k="' + k + '"><div class="trend-col" style="height:' + hpx + 'px"></div><div class="trend-lab">' + lab + '</div></div>';
     }).join('');
     Array.prototype.forEach.call(document.querySelectorAll('.trend-bar'), function (b) {
-      b.addEventListener('click', function () { var idx = STATE.dates.indexOf(b.getAttribute('data-k')); if (idx >= 0) { STATE.i = idx; renderNight(); } });
+      b.addEventListener('click', function () { window.HP.set(b.getAttribute('data-k')); });
     });
   }
 
-  function renderNight() {
-    var k = STATE.dates[STATE.i], n = STATE.nights[k];
-    if (!n) { showEmpty(); return; }
-    el('sleep-empty').style.display = 'none'; el('sleep-body').style.display = ''; el('sleep-nav').style.display = 'flex';
-    el('sleep-navdate').textContent = fmtDate(k);
-    el('sleep-prev').disabled = STATE.i <= 0; el('sleep-next').disabled = STATE.i >= STATE.dates.length - 1;
+  function avg(arr) { var v = arr.filter(function (x) { return typeof x === 'number' && !isNaN(x); }); return v.length ? v.reduce(function (a, b) { return a + b; }, 0) / v.length : null; }
+  function renderAvg(cur) {
+    var upto = STATE.dates.filter(function (k) { return k <= cur; });
+    var last = upto.slice(-7).map(function (k) { return STATE.nights[k]; }).filter(Boolean);
+    if (last.length < 2) { el('avg7').style.display = 'none'; return; }
+    el('avg7').style.display = 'block';
+    el('avg7-h').textContent = 'Trailing ' + last.length + '-night average';
+    var as = avg(last.map(function (n) { return n.asleep; }));
+    var ef = avg(last.map(function (n) { return n.efficiency; }));
+    var sc = avg(last.map(function (n) { return n.score ? (n.score.appleScore != null ? n.score.appleScore : n.score.total) : null; }));
+    el('avg7-sleep').textContent = fmtHM(as);
+    el('avg7-eff').textContent = ef != null ? Math.round(ef) + '%' : '—';
+    el('avg7-score').textContent = sc != null ? Math.round(sc) : '—';
+  }
+
+  function renderFor(date) {
+    var n = STATE.nights[date];
+    if (!n) {
+      el('sleep-body').style.display = 'none';
+      var e = el('sleep-empty'); e.style.display = 'block';
+      e.textContent = 'No sleep recorded for ' + fmtDate(date) + '.';
+      return;
+    }
+    el('sleep-empty').style.display = 'none'; el('sleep-body').style.display = '';
     el('sum-asleep').textContent = fmtHM(n.asleep);
     el('sum-inbed').textContent = fmtHM(n.inBedHours);
     el('sum-eff').textContent = (n.efficiency != null ? n.efficiency + '%' : '—');
     el('sum-awake').textContent = fmtHM(n.awake);
     el('sum-hr').textContent = (n.hr && n.hr.min != null && n.hr.max != null) ? (n.hr.min + '–' + n.hr.max + ' bpm') : '—';
     ring(n.efficiency != null ? n.efficiency : (n.asleep && n.inBedHours ? (n.asleep / n.inBedHours * 100) : 0));
-    renderScore(n); renderStages(n); renderHR(n); renderTrend();
+    renderScore(n); renderStages(n); renderHR(n); renderTrend(date); renderAvg(date);
   }
-
-  el('sleep-prev').addEventListener('click', function () { if (STATE.i > 0) { STATE.i--; renderNight(); } });
-  el('sleep-next').addEventListener('click', function () { if (STATE.i < STATE.dates.length - 1) { STATE.i++; renderNight(); } });
 
   fetch('/api/health/sleep?token=' + encodeURIComponent(tok()))
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (!d || !d.dates || !d.dates.length) { showEmpty(); return; }
-      STATE.dates = d.dates; STATE.nights = d.nights; STATE.i = d.dates.length - 1;
-      renderNight();
+      STATE.dates = d.dates; STATE.nights = d.nights;
+      window.HP.addDates(d.dates);
+      window.HP.sub(function (date) { renderFor(date); });
     })
     .catch(function () { showEmpty(); });
 })();
@@ -500,24 +583,23 @@
 <div class="card vitals-card" id="vitals-card" style="display:none;">
   <div class="sleep-head">
     <div>
-      <h2 style="margin:0;"><span>📈</span> Daily Vitals</h2>
-      <p class="sleep-src">Apple Watch metrics · pick a date</p>
-    </div>
-    <div class="sleep-nav">
-      <button class="sleep-navbtn" id="vit-prev" aria-label="Previous day">‹</button>
-      <div class="sleep-navdate" id="vit-date">—</div>
-      <button class="sleep-navbtn" id="vit-next" aria-label="Next day">›</button>
+      <h2 style="margin:0;"><span>📈</span> Daily Metrics</h2>
+      <p class="sleep-src" id="vit-srcdate">Apple Watch metrics for the selected day</p>
     </div>
   </div>
-  <div class="sleep-kpis" id="vit-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));"></div>
+  <div id="vit-body"></div>
 </div>
 
 <script>
 (function () {
   function tok() { var u = new URLSearchParams(location.search).get('token'); if (u) return u; try { return localStorage.getItem('claudeclaw.token') || ''; } catch (e) { return ''; } }
   function el(id) { return document.getElementById(id); }
-  var LABELS = { resting_heart_rate: ['Resting HR', 'bpm'], heart_rate: ['Heart Rate', 'bpm'], heart_rate_variability: ['HRV', 'ms'], blood_oxygen_saturation: ['Blood Oxygen', '%'], step_count: ['Steps', ''], walking_running_distance: ['Distance', ''], active_energy: ['Active Energy', 'kcal'], basal_energy_burned: ['Resting Energy', 'kcal'], flights_climbed: ['Flights', ''], apple_exercise_time: ['Exercise', 'min'], apple_stand_time: ['Stand', 'min'], walking_speed: ['Walking Speed', ''], walking_step_length: ['Step Length', ''], walking_double_support_percentage: ['Double Support', '%'], time_in_daylight: ['Daylight', 'min'], physical_effort: ['Physical Effort', ''], headphone_audio_exposure: ['Headphone Audio', 'dB'] };
-  var ORDER = ['resting_heart_rate', 'heart_rate_variability', 'blood_oxygen_saturation', 'heart_rate', 'step_count', 'walking_running_distance', 'active_energy', 'flights_climbed', 'apple_exercise_time', 'walking_speed', 'walking_step_length', 'walking_double_support_percentage', 'time_in_daylight', 'basal_energy_burned'];
+  var LABELS = { resting_heart_rate: ['Resting HR', 'bpm'], heart_rate: ['Heart Rate', 'bpm'], heart_rate_variability: ['HRV', 'ms'], blood_oxygen_saturation: ['Blood Oxygen', '%'], step_count: ['Steps', ''], walking_running_distance: ['Distance', ''], active_energy: ['Active Energy', 'kcal'], basal_energy_burned: ['Resting Energy', 'kcal'], flights_climbed: ['Flights', ''], apple_exercise_time: ['Exercise', 'min'], apple_stand_time: ['Stand', 'min'], walking_speed: ['Walking Speed', ''], walking_step_length: ['Step Length', ''], walking_double_support_percentage: ['Double Support', '%'], time_in_daylight: ['Daylight', 'min'], physical_effort: ['Physical Effort', ''], headphone_audio_exposure: ['Headphone Audio', 'dB'], apple_stand_hour: ['Stand Hours', 'hr'] };
+  var GROUPS = [
+    { title: 'Cardiovascular', metrics: ['resting_heart_rate', 'heart_rate_variability', 'blood_oxygen_saturation', 'heart_rate'] },
+    { title: 'Activity', metrics: ['step_count', 'walking_running_distance', 'active_energy', 'basal_energy_burned', 'flights_climbed', 'apple_exercise_time', 'apple_stand_time', 'apple_stand_hour', 'time_in_daylight'] },
+    { title: 'Mobility & Gait', metrics: ['walking_speed', 'walking_step_length', 'walking_double_support_percentage'] }
+  ];
   function pretty(name) { var l = LABELS[name]; return l ? l[0] : name.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
   function unit(name, units) { var l = LABELS[name]; if (l && l[1]) return l[1]; return (units && units[name]) || ''; }
   function fmt(name, v) {
@@ -528,21 +610,30 @@
     return (Math.round(v * 10) / 10).toString();
   }
   function fmtDate(k) { if (!k) return '—'; var d = new Date(k + 'T12:00:00'); return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); }
-  var S = { dates: [], days: {}, units: {}, i: 0 };
-  function render() {
-    var k = S.dates[S.i], day = S.days[k] || {};
-    el('vit-date').textContent = fmtDate(k);
-    el('vit-prev').disabled = S.i <= 0; el('vit-next').disabled = S.i >= S.dates.length - 1;
-    var names = ORDER.filter(function (n) { return day[n] != null; }).concat(Object.keys(day).filter(function (n) { return ORDER.indexOf(n) < 0; }));
-    el('vit-grid').innerHTML = names.map(function (n) {
-      return '<div class="sleep-kpi"><div class="k-label">' + pretty(n) + '</div><div class="k-val">' + fmt(n, day[n]) + ' <span style="font-size:0.68rem;color:var(--muted);font-weight:500">' + unit(n, S.units) + '</span></div></div>';
-    }).join('') || '<div class="sleep-empty">No metrics recorded for this day.</div>';
+  function tile(n, day) { return '<div class="sleep-kpi"><div class="k-label">' + pretty(n) + '</div><div class="k-val">' + fmt(n, day[n]) + ' <span style="font-size:0.68rem;color:var(--muted);font-weight:500">' + unit(n, S.units) + '</span></div></div>'; }
+  function grid(names, day) { return '<div class="sleep-kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' + names.map(function (n) { return tile(n, day); }).join('') + '</div>'; }
+  var S = { days: {}, units: {} };
+  function render(date) {
+    var day = S.days[date] || {}, used = {};
+    el('vit-srcdate').textContent = 'Apple Watch · ' + fmtDate(date);
+    var html = GROUPS.map(function (g) {
+      var ms = g.metrics.filter(function (n) { return day[n] != null; });
+      ms.forEach(function (n) { used[n] = 1; });
+      return ms.length ? '<h3 class="sleep-sub-h">' + g.title + '</h3>' + grid(ms, day) : '';
+    }).join('');
+    var extra = Object.keys(day).filter(function (n) { return !used[n]; });
+    if (extra.length) html += '<h3 class="sleep-sub-h">Other</h3>' + grid(extra, day);
+    el('vit-body').innerHTML = html || '<div class="sleep-empty">No metrics recorded for this day.</div>';
   }
-  el('vit-prev').addEventListener('click', function () { if (S.i > 0) { S.i--; render(); } });
-  el('vit-next').addEventListener('click', function () { if (S.i < S.dates.length - 1) { S.i++; render(); } });
   fetch('/api/health/metrics-history?token=' + encodeURIComponent(tok()))
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) { if (!d || !d.dates || !d.dates.length) return; S.dates = d.dates; S.days = d.days; S.units = d.units || {}; S.i = d.dates.length - 1; el('vitals-card').style.display = ''; render(); })
+    .then(function (d) {
+      if (!d || !d.dates || !d.dates.length) return;
+      S.days = d.days; S.units = d.units || {};
+      el('vitals-card').style.display = '';
+      window.HP.addDates(d.dates);
+      window.HP.sub(function (date) { render(date); });
+    })
     .catch(function () { });
 })();
 </script>
