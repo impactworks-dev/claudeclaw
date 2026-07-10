@@ -161,7 +161,7 @@
   .pt-name { font-size: 0.9rem; font-weight: 600; }
   .pt-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
   .pt-cue { font-size: 0.78rem; color: var(--muted); margin-top: 4px; line-height: 1.4; }
-  .pt-ex-img { flex-shrink: 0; width: 180px; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: block; background: #f4f1e8; }
+  .pt-ex-img { flex-shrink: 0; width: 200px; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: block; background: #fff; padding: 6px; }
   .pt-ex-img img { width: 100%; display: block; }
   .pt-sheets-h { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 18px 0 8px; }
   .pt-sheets { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -845,7 +845,8 @@ window.HP = (function () {
   el('pt-list').innerHTML = groups.map(function (g) {
     return '<div class="pt-group-h">' + g + '</div>' + EX.filter(function (e) { return e.g === g; }).map(function (e) {
       var num = e.id.slice(1);
-      return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + num + '. ' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div><a class="pt-ex-img" href="/pt-ex' + num + '.jpg?v=2" target="_blank"><img src="/pt-ex' + num + '.jpg?v=2" alt="' + e.name + '" loading="lazy"></a></div>';
+      var img = (+num <= 6) ? ('/pt-icon' + num + '.svg') : ('/pt-fig' + num + '.png');
+      return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + num + '. ' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div><a class="pt-ex-img" href="' + img + '" target="_blank"><img src="' + img + '" alt="' + e.name + '" loading="lazy"></a></div>';
     }).join('');
   }).join('');
   Array.prototype.forEach.call(document.querySelectorAll('.pt-check'), function (b) { b.addEventListener('click', function () { toggle(b.getAttribute('data-id')); }); });
