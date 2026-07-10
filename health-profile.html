@@ -759,10 +759,10 @@ window.HP = (function () {
   <div id="pt-list"></div>
   <div class="pt-sheets-h">Full printout</div>
   <div class="pt-sheets">
-    <a href="/pt-sheet1.jpg" target="_blank"><img src="/pt-sheet1.jpg" alt="Exercises 1-2" loading="lazy"></a>
-    <a href="/pt-sheet2.jpg" target="_blank"><img src="/pt-sheet2.jpg" alt="Exercises 3-4" loading="lazy"></a>
-    <a href="/pt-sheet3.jpg" target="_blank"><img src="/pt-sheet3.jpg" alt="Exercises 5-6" loading="lazy"></a>
-    <a href="/pt-sheet4.jpg" target="_blank"><img src="/pt-sheet4.jpg" alt="Exercises 7-8" loading="lazy"></a>
+    <a href="/pt-sheet1.jpg?v=2" target="_blank"><img src="/pt-sheet1.jpg?v=2" alt="Exercises 1-2" loading="lazy"></a>
+    <a href="/pt-sheet2.jpg?v=2" target="_blank"><img src="/pt-sheet2.jpg?v=2" alt="Exercises 3-4" loading="lazy"></a>
+    <a href="/pt-sheet3.jpg?v=2" target="_blank"><img src="/pt-sheet3.jpg?v=2" alt="Exercises 5-6" loading="lazy"></a>
+    <a href="/pt-sheet4.jpg?v=2" target="_blank"><img src="/pt-sheet4.jpg?v=2" alt="Exercises 7-8" loading="lazy"></a>
   </div>
 </div>
 
@@ -845,7 +845,7 @@ window.HP = (function () {
   el('pt-list').innerHTML = groups.map(function (g) {
     return '<div class="pt-group-h">' + g + '</div>' + EX.filter(function (e) { return e.g === g; }).map(function (e) {
       var num = e.id.slice(1);
-      return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + num + '. ' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div><a class="pt-ex-img" href="/pt-ex' + num + '.jpg" target="_blank"><img src="/pt-ex' + num + '.jpg" alt="' + e.name + '" loading="lazy"></a></div>';
+      return '<div class="pt-ex"><button class="pt-check" data-id="' + e.id + '" aria-label="Mark done"></button><div class="pt-body"><div class="pt-name">' + num + '. ' + e.name + '</div><div class="pt-meta">' + META + '</div><div class="pt-cue">' + e.cue + '</div></div><a class="pt-ex-img" href="/pt-ex' + num + '.jpg?v=2" target="_blank"><img src="/pt-ex' + num + '.jpg?v=2" alt="' + e.name + '" loading="lazy"></a></div>';
     }).join('');
   }).join('');
   Array.prototype.forEach.call(document.querySelectorAll('.pt-check'), function (b) { b.addEventListener('click', function () { toggle(b.getAttribute('data-id')); }); });
