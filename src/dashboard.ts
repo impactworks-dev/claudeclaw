@@ -539,6 +539,81 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     });
   });
 
+  // ── Apple Health ingest ────────────────────────────────────────────────
+  // The Health Auto Export iOS app (paid "REST API" automation) POSTs a JSON
+  // payload here on a daily schedule. We persist the raw payload (for debugging
+  // / re-parsing) plus a normalized summary the Health Profile page renders.
+  // Auth reuses the dashboard token via ?token= — the app lets you put the full
+  // URL (query string included) in the automation.
+  const HEALTH_RAW_PATH = path.join(STORE_DIR, 'health-export.json');
+  const HEALTH_DATA_PATH = path.join(STORE_DIR, 'health-data.json');
+
+  app.post('/api/health/import', async (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    let payload: any;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: 'invalid JSON body' }, 400);
+    }
+    try {
+      fs.writeFileSync(HEALTH_RAW_PATH, JSON.stringify(payload, null, 2), 'utf-8');
+    } catch (e: any) {
+      return c.json({ ok: false, error: 'write failed: ' + (e?.message || e) }, 500);
+    }
+    // Health Auto Export shape: { data: { metrics: [ { name, units,
+    // data: [ { date, qty|Avg|Min|Max|... } ] } ], workouts: [...] } }.
+    // Index every metric by name and compute latest value + a simple average
+    // so the page can render whatever the user chose to export without us
+    // hardcoding a fixed metric list. Tolerant of top-level `metrics` too.
+    const metricsIn = payload?.data?.metrics ?? payload?.metrics;
+    const pointVal = (p: any): number | null =>
+      typeof p?.qty === 'number' ? p.qty
+      : typeof p?.Avg === 'number' ? p.Avg
+      : typeof p?.avg === 'number' ? p.avg : null;
+    const metrics: Record<string, any> = {};
+    if (Array.isArray(metricsIn)) {
+      for (const m of metricsIn) {
+        if (!m || typeof m.name !== 'string') continue;
+        const points = Array.isArray(m.data) ? m.data : [];
+        const nums = points.map(pointVal).filter((n: any): n is number => typeof n === 'number');
+        const last = points.length ? points[points.length - 1] : null;
+        metrics[m.name] = {
+          units: m.units ?? null,
+          count: points.length,
+          latest: last ? pointVal(last) : null,
+          latestDate: last?.date ?? null,
+          average: nums.length ? nums.reduce((a: number, b: number) => a + b, 0) / nums.length : null,
+          // Full last data point — preserves structured sub-fields (e.g. sleep
+          // phases: asleep/inBed/deep/rem/core/awake) that don't fit qty/Avg.
+          latestPoint: last,
+          // Last 7 raw points so the page can compute short trends / weekly
+          // averages without us re-deriving them server-side.
+          recent: points.slice(-7),
+        };
+      }
+    }
+    const summary = {
+      updatedAt: new Date().toISOString(),
+      metricNames: Object.keys(metrics),
+      metrics,
+    };
+    try {
+      fs.writeFileSync(HEALTH_DATA_PATH, JSON.stringify(summary, null, 2), 'utf-8');
+    } catch { /* summary is best-effort; raw payload is already saved */ }
+    return c.json({ ok: true, metricsReceived: summary.metricNames.length, updatedAt: summary.updatedAt });
+  });
+
+  app.get('/api/health/data', (c) => {
+    const auth = requireToken(c); if (auth) return auth;
+    if (!fs.existsSync(HEALTH_DATA_PATH)) return c.json({ ok: true, updatedAt: null, metrics: {} });
+    try {
+      return c.json(JSON.parse(fs.readFileSync(HEALTH_DATA_PATH, 'utf-8')));
+    } catch {
+      return c.json({ ok: false, error: 'read failed' }, 500);
+    }
+  });
+
   // War Room page. The SPA has its own WarRoom view at /warroom (Preact router).
   // The original /warroom HTML is preserved as the "classic" entry-point for
   // direct legacy access (voice room, deep-links that carry ?token=).
