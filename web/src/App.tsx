@@ -21,6 +21,7 @@ const Webinars       = lazy(() => import('@/pages/Webinars').then(m => ({ defaul
 const Members        = lazy(() => import('@/pages/Members').then(m => ({ default: m.Members })));
 const Cash           = lazy(() => import('@/pages/Cash').then(m => ({ default: m.Cash })));
 const Journal        = lazy(() => import('@/pages/Journal').then(m => ({ default: m.JournalPage })));
+const HealthProfile  = lazy(() => import('@/pages/HealthProfile').then(m => ({ default: m.HealthProfile })));
 const Founder        = lazy(() => import('@/pages/Founder').then(m => ({ default: m.Founder })));
 const Scheduled      = lazy(() => import('@/pages/Scheduled').then(m => ({ default: m.Scheduled })));
 const Audit          = lazy(() => import('@/pages/Audit').then(m => ({ default: m.Audit })));
@@ -70,6 +71,7 @@ export function App() {
           <Route path="/members"><Members /></Route>
           <Route path="/cash"><Cash /></Route>
           <Route path="/journal"><Journal /></Route>
+          <Route path="/health"><HealthProfile /></Route>
           <Route path="/chat"><Chat /></Route>
           <Route path="/memories"><Memories /></Route>
           <Route path="/brain"><Brain /></Route>

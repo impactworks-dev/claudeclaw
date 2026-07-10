@@ -151,7 +151,7 @@ export function JournalPage() {
   );
 
   return (
-    <div class="journal-page min-h-screen pb-32">
+    <div class="journal-page h-full overflow-y-auto pb-16">
       {/* Page header — date navigation */}
       <div class="max-w-3xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between">
         <button
@@ -318,6 +318,16 @@ export function JournalPage() {
         {loading && (
           <div class="text-center py-4 opacity-60 text-[12px]">Loading…</div>
         )}
+
+        {/* Themed footer — gives the page a proper bottom instead of
+            running off the edge. */}
+        <footer class="journal-footer">
+          <div class="journal-footer-rule" />
+          <Leaf class="journal-footer-leaf" size={16} />
+          <div class="journal-footer-text">
+            Five-Minute Journal · one honest page a day
+          </div>
+        </footer>
       </div>
 
       {meditationOpen && (

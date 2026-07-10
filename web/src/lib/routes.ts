@@ -13,6 +13,7 @@ import {
   BookHeart,
   BookOpen,
   Lightbulb,
+  HeartPulse,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
 
@@ -44,6 +45,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/cash',       label: 'Cash',            section: 'workspace',    icon: Wallet,        shortcut: 'g $' },
   { path: '/chat',       label: 'Chat',            section: 'workspace',    icon: MessageSquare, shortcut: 'g c' },
   { path: '/journal',    label: 'Journal',         section: 'workspace',    icon: BookHeart,     shortcut: 'g j' },
+  { path: '/health',     label: 'Health Profile',  section: 'workspace',    icon: HeartPulse,    shortcut: 'g y' },
 
   { path: '/brain',           label: 'Brain',           section: 'intelligence', icon: Library,       shortcut: 'g k' },
   { path: '/brain-proposals', label: 'Brain Proposals', section: 'intelligence', icon: Lightbulb,     shortcut: 'g l' },
