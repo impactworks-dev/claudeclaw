@@ -47,7 +47,18 @@
   .sleep-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
   .sleep-val { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
   .sleep-sub { font-size: 0.7rem; color: var(--muted); }
-  .sleep-empty { color: var(--muted); font-size: 0.9rem; line-height: 1.5; padding: 6px 0; }
+  .sleep-empty { color: var(--muted); font-size: 0.88rem; line-height: 1.5; padding: 30px 20px; text-align: center; background: rgba(255,255,255,0.02); border: 1px dashed var(--border); border-radius: 12px; }
+  .sleep-empty .se-moon { font-size: 1.9rem; display: block; margin-bottom: 8px; opacity: 0.65; }
+  .sleep-empty .se-title { color: var(--text); font-weight: 600; font-size: 1rem; margin-bottom: 4px; }
+  .insights { display: flex; flex-direction: column; gap: 8px; }
+  .insight { display: flex; gap: 10px; align-items: flex-start; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; padding: 10px 12px; }
+  .insight-ico { font-size: 0.9rem; line-height: 1.35; flex-shrink: 0; width: 16px; text-align: center; }
+  .insight-t { font-size: 0.85rem; font-weight: 600; }
+  .insight-d { font-size: 0.78rem; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+  .insight.good { border-left-color: var(--green); } .insight.good .insight-ico { color: var(--green); }
+  .insight.watch { border-left-color: var(--yellow); } .insight.watch .insight-ico { color: var(--yellow); }
+  .insight.warn { border-left-color: var(--red); } .insight.warn .insight-ico { color: var(--red); }
+  .insight.info { border-left-color: var(--accent); } .insight.info .insight-ico { color: var(--accent); }
   .sleep-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
   .sleep-src { color: var(--muted); font-size: 0.78rem; margin-top: 4px; margin-bottom: 12px; }
   .sleep-nav { display: flex; align-items: center; gap: 8px; }
@@ -419,6 +430,9 @@ window.HP = (function () {
 
     <h3 class="sleep-sub-h">Recent Nights</h3>
     <div class="trend" id="trend"></div>
+
+    <h3 class="sleep-sub-h">Insights</h3>
+    <div class="insights" id="sleep-insights"></div>
   </div>
 </div>
 
@@ -433,7 +447,12 @@ window.HP = (function () {
   function el(id) { return document.getElementById(id); }
   function fmtHM(h) { if (h == null || isNaN(h)) return '—'; var m = Math.round(h * 60); return Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
   function fmtDate(k) { if (!k) return '—'; var d = new Date(k + 'T12:00:00'); return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); }
-  function showEmpty() { if (el('sleep-empty')) el('sleep-empty').style.display = 'block'; if (el('sleep-body')) el('sleep-body').style.display = 'none'; if (el('sleep-nav')) el('sleep-nav').style.display = 'none'; }
+  function showEmpty() {
+    var e = el('sleep-empty');
+    if (e) { e.style.display = 'block'; e.innerHTML = '<span class="se-moon">🌙</span><div class="se-title">Waiting for your first sync</div><div>Sleep data appears here automatically once Health Auto Export runs.</div>'; }
+    if (el('sleep-body')) el('sleep-body').style.display = 'none';
+    if (el('sleep-nav')) el('sleep-nav').style.display = 'none';
+  }
 
   var STATE = { dates: [], nights: {}, i: 0 };
 
@@ -550,12 +569,43 @@ window.HP = (function () {
     el('avg7-score').textContent = sc != null ? Math.round(sc) : '—';
   }
 
+  function insights(n) {
+    var out = [], asleep = n.asleep, eff = n.efficiency, deep = n.deep, rem = n.rem, awake = n.awake;
+    var deepPct = (deep != null && asleep) ? deep / asleep * 100 : null;
+    var remPct = (rem != null && asleep) ? rem / asleep * 100 : null;
+    if (asleep != null) {
+      if (asleep < 6) out.push(['warn', 'Short night', 'You slept ' + fmtHM(asleep) + ', under the recommended 7 to 9 hours. Short nights can hit focus, mood, and recovery.']);
+      else if (asleep < 7) out.push(['watch', 'A bit under target', 'At ' + fmtHM(asleep) + ' you were just short of the 7 to 9 hour range.']);
+      else if (asleep <= 9) out.push(['good', 'Healthy duration', 'At ' + fmtHM(asleep) + ' you landed in the recommended 7 to 9 hour range.']);
+      else out.push(['watch', 'Long night', 'At ' + fmtHM(asleep) + ' you slept more than a typical night.']);
+    }
+    if (eff != null) {
+      if (eff >= 85) out.push(['good', 'Efficient sleep', eff + '% of your time in bed was actually asleep.']);
+      else out.push(['watch', 'Restless in bed', 'Only ' + eff + '% of time in bed was asleep' + (awake ? ', with ' + fmtHM(awake) + ' awake' : '') + '. A steadier bedtime and wind-down routine can help.']);
+    }
+    if (deepPct != null) {
+      if (deepPct < 13) out.push(['watch', 'Light on deep sleep', 'Deep sleep was ' + Math.round(deepPct) + '% (typical is 13 to 23%). Deep sleep is when the body does most of its physical repair.']);
+      else out.push(['good', 'Solid deep sleep', 'Deep sleep was ' + Math.round(deepPct) + '%, in the healthy 13 to 23% band.']);
+    }
+    if (remPct != null && remPct < 18) out.push(['watch', 'Low REM', 'REM was ' + Math.round(remPct) + '% (typical is 20 to 25%). REM supports memory and mood.']);
+    if (awake != null && awake >= 1) out.push(['watch', 'Frequent waking', fmtHM(awake) + ' awake overnight. Caffeine timing, alcohol, and screen light before bed are common causes.']);
+    if (n.hr && n.hr.min != null) out.push(['info', 'Sleeping heart rate', 'Dipped to ' + n.hr.min + ' bpm' + (n.hr.avg != null ? ', averaging ' + n.hr.avg + ' bpm' : '') + ' overnight. A clear overnight dip is a good sign of rest.']);
+    return out.slice(0, 5);
+  }
+  function renderInsights(n) {
+    var items = insights(n);
+    el('sleep-insights').innerHTML = items.map(function (x) {
+      var ico = x[0] === 'good' ? '✓' : x[0] === 'warn' ? '▲' : x[0] === 'watch' ? '!' : '♥';
+      return '<div class="insight ' + x[0] + '"><div class="insight-ico">' + ico + '</div><div><div class="insight-t">' + x[1] + '</div><div class="insight-d">' + x[2] + '</div></div></div>';
+    }).join('');
+  }
+
   function renderFor(date) {
     var n = STATE.nights[date];
     if (!n) {
       el('sleep-body').style.display = 'none';
       var e = el('sleep-empty'); e.style.display = 'block';
-      e.textContent = 'No sleep recorded for ' + fmtDate(date) + '.';
+      e.innerHTML = '<span class="se-moon">🌙</span><div class="se-title">No sleep tracked this night</div><div>Nothing was recorded for ' + fmtDate(date) + '. Wear the watch to bed to capture your sleep here.</div>';
       return;
     }
     el('sleep-empty').style.display = 'none'; el('sleep-body').style.display = '';
@@ -565,7 +615,7 @@ window.HP = (function () {
     el('sum-awake').textContent = fmtHM(n.awake);
     el('sum-hr').textContent = (n.hr && n.hr.min != null && n.hr.max != null) ? (n.hr.min + '–' + n.hr.max + ' bpm') : '—';
     ring(n.efficiency != null ? n.efficiency : (n.asleep && n.inBedHours ? (n.asleep / n.inBedHours * 100) : 0));
-    renderScore(n); renderStages(n); renderHR(n); renderTrend(date); renderAvg(date);
+    renderScore(n); renderStages(n); renderHR(n); renderTrend(date); renderAvg(date); renderInsights(n);
   }
 
   fetch('/api/health/sleep?token=' + encodeURIComponent(tok()))
