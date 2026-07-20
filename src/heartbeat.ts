@@ -434,7 +434,11 @@ export async function runMoneyIdeas(api: Api<RawApi> | null, chatId: string, opt
 
   let body: string;
   try {
-    body = cleanGemini(await generateContent(prompt));
+    // Force plain-text output. generateContent defaults to responseMimeType
+    // 'application/json', which overrides the prompt's "plain text only"
+    // instruction and makes Gemini emit a JSON idea array that gets sent raw
+    // to Telegram. text/plain lets it follow the 💡/→/"Why now" format.
+    body = cleanGemini(await generateContent(prompt, 'gemini-2.5-flash', 'text/plain'));
   } catch (e) {
     logger.error({ err: String((e as Error)?.message || e) }, 'money-ideas: gemini failed');
     return { ok: false, reason: 'gemini failed' };
