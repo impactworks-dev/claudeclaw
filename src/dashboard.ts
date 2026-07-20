@@ -631,7 +631,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     try {
       const findMetric = (re: RegExp) =>
         Array.isArray(metricsIn) ? metricsIn.find((m: any) => m && typeof m.name === 'string' && re.test(m.name)) : null;
-      const sleepMetric = findMetric(/sleep/i);
+      const sleepMetric = findMetric(/^sleep_analysis$/i) || findMetric(/sleep_analysis/i);
       const hrMetric = findMetric(/^heart_rate$/i) || findMetric(/heart_rate/i);
       const hrPoints: any[] = hrMetric && Array.isArray(hrMetric.data) ? hrMetric.data : [];
 
