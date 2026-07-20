@@ -642,6 +642,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
         } catch { history = {}; }
 
         for (const p of sleepMetric.data) {
+         try {
           const startMs = parseHealthDate(p.inBedStart) ?? parseHealthDate(p.sleepStart);
           const endMs = parseHealthDate(p.inBedEnd) ?? parseHealthDate(p.sleepEnd);
           const key = String(p.sleepEnd || p.date || '').slice(0, 10);
@@ -724,14 +725,22 @@ export function startDashboard(botApi?: Api<RawApi>): void {
             updatedAt: summary.updatedAt,
           };
           nightsAdded++;
+         } catch (perr) {
+           // One malformed night must never abort the whole history write.
+           logger.warn({ err: String((perr as Error)?.message || perr), key: String(p?.sleepEnd || p?.date || '').slice(0, 10) }, 'health: skipped a sleep night (per-night error)');
+         }
         }
 
         // Cap to the most recent 180 nights.
         const keys = Object.keys(history).sort();
         if (keys.length > 180) for (const k of keys.slice(0, keys.length - 180)) delete history[k];
-        fs.writeFileSync(HEALTH_SLEEP_PATH, JSON.stringify(history, null, 2), 'utf-8');
+        try {
+          fs.writeFileSync(HEALTH_SLEEP_PATH, JSON.stringify(history, null, 2), 'utf-8');
+        } catch (werr) {
+          logger.error({ err: String((werr as Error)?.message || werr), path: HEALTH_SLEEP_PATH, nights: Object.keys(history).length }, 'health: FAILED to write sleep history');
+        }
       }
-    } catch { /* history is best-effort; never fail the import over it */ }
+    } catch (herr) { logger.warn({ err: String((herr as Error)?.message || herr) }, 'health: sleep history block failed (best-effort, import continues)'); }
 
     // ── Accumulate per-day metric history (for the whole-profile date filter) ──
     // Bucket each metric's points by local day and aggregate (sum for counts /
