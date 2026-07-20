@@ -34,7 +34,7 @@ import { promisify } from 'node:util';
 import type { Api, RawApi } from 'grammy';
 
 import {
-  ALLOWED_CHAT_ID, GOOGLE_API_KEY, PROJECT_ROOT,
+  ALLOWED_CHAT_ID, GOOGLE_API_KEY, PROJECT_ROOT, STORE_DIR,
 } from './config.js';
 import {
   shouldFireSignal, insertProactiveAlert, markAlertSent,
@@ -277,6 +277,39 @@ function formatBatch(alerts: Alert[]): string {
   return lines.join('\n');
 }
 
+// ── Apple Health sync freshness ──────────────────────────────────────
+// The Health Profile only refreshes when the Health Auto Export iOS app
+// POSTs to /api/health/import. If that stops (automation off, or Dante only
+// did a manual file export), the profile silently goes stale. Nudge him each
+// morning to run the push so the data keeps flowing.
+function checkHealthSyncStale(): Alert[] {
+  const out: Alert[] = [];
+  // Morning-only: heartbeat starts at 7am, so this catches the first scans of the day.
+  if (nowLocalHour() >= 11) return out;
+  try {
+    const healthDataFile = path.join(STORE_DIR, 'health-data.json');
+    if (!fs.existsSync(healthDataFile)) return out;
+    const raw = JSON.parse(fs.readFileSync(healthDataFile, 'utf-8'));
+    const ua = raw?.updatedAt;
+    const ms = typeof ua === 'number' ? ua : (ua ? Date.parse(ua) : NaN);
+    if (!ms || Number.isNaN(ms)) return out;
+    const ageHrs = (Date.now() - ms) / HR;
+    if (ageHrs >= 28) {
+      const days = Math.max(1, Math.floor(ageHrs / 24));
+      const since = new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      out.push({
+        signalKey: 'health_sync_stale',
+        severity: 'info',
+        title: 'Health data not syncing',
+        body: `Your Health Profile hasn't updated since ${since} (${days}d ago). Open Health Auto Export on your phone and run the export so it pushes to Nikki — and double-check its automation is still turned on.`,
+        cooldownMs: 20 * HR,
+        emoji: '📲',
+      });
+    }
+  } catch (e) { logger.warn({ err: String((e as Error)?.message || e) }, 'heartbeat: health-sync check failed'); }
+  return out;
+}
+
 export async function runHeartbeatScan(api: Api<RawApi> | null, chatId: string, opts: { force?: boolean } = {}): Promise<{ checked: number; emitted: number; sent: number; alerts?: Array<{ id: number; signalKey: string; title: string; body: string }>; reason?: string }> {
   if (!chatId) return { checked: 0, emitted: 0, sent: 0, reason: 'no chatId' };
   if (!opts.force && isQuietHours()) return { checked: 0, emitted: 0, sent: 0, reason: 'quiet hours (use force=true to override)' };
@@ -290,6 +323,7 @@ export async function runHeartbeatScan(api: Api<RawApi> | null, chatId: string, 
     Promise.resolve(checkUnactedBriefs()),
     checkVendastaQuiet(),
     checkStaleImportantEmails(),
+    Promise.resolve(checkHealthSyncStale()),
   ]);
   const allEmitted = buckets.flat();
 
