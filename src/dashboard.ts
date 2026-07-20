@@ -655,6 +655,9 @@ export function startDashboard(botApi?: Api<RawApi>): void {
             : (typeof p.asleep === 'number' && p.asleep > 0 ? p.asleep : null);
           if (asleep == null && (deep != null || rem != null || core != null))
             asleep = (deep || 0) + (rem || 0) + (core || 0);
+          // Skip skeleton entries that have no actual sleep duration data.
+          // Health Auto Export sometimes sends these and they overwrite valid nights.
+          if (asleep == null || asleep <= 0) continue;
           const inBedHours = (startMs != null && endMs != null && endMs > startMs)
             ? (endMs - startMs) / 3600000
             : (typeof p.inBed === 'number' && p.inBed > 0 ? p.inBed : null);
