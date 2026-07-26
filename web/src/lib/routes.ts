@@ -14,6 +14,7 @@ import {
   BookOpen,
   Lightbulb,
   HeartPulse,
+  Bot,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
 
@@ -37,6 +38,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/mission',    label: 'Mission Control', section: 'workspace',    icon: LayoutGrid,    shortcut: 'g m' },
   { path: '/scheduled',  label: 'Scheduled',       section: 'workspace',    icon: ListTodo,      shortcut: 'g s' },
   { path: '/agents',     label: 'Agents',          section: 'workspace',    icon: Users,         shortcut: 'g a' },
+  { path: '/super-agents', label: 'Super Agents',  section: 'workspace',    icon: Bot,           shortcut: 'g x' },
   { path: '/pipeline',   label: 'Sales Pipeline',  section: 'workspace',    icon: TrendingUp,    shortcut: 'g p' },
   { path: '/playbook',   label: 'Playbook',        section: 'workspace',    icon: BookOpen,      href: '/resources.html' },
   { path: '/outreach',   label: 'Outreach Tracker',section: 'workspace',    icon: Send,          shortcut: 'g o' },
