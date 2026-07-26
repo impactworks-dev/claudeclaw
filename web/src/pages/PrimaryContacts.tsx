@@ -64,6 +64,24 @@ export function PrimaryContacts() {
   const accounts = data?.accounts || [];
   const selections = data?.draft.selections || {};
   const completed = useMemo(() => accounts.filter(a => selections[a.clickupTaskId]).length, [accounts, selections]);
+  const reviewSummary = useMemo(() => {
+    const result = {
+      existing: [] as Account[],
+      manual: [] as Account[],
+      inactive: [] as Account[],
+      none: [] as Account[],
+      reviewLater: [] as Account[],
+    };
+    for (const account of accounts) {
+      const choice = selections[account.clickupTaskId];
+      if (choice === INACTIVE) result.inactive.push(account);
+      else if (choice === NONE) result.none.push(account);
+      else if (choice === REVIEW_LATER) result.reviewLater.push(account);
+      else if (choice?.startsWith('manual:')) result.manual.push(account);
+      else if (choice) result.existing.push(account);
+    }
+    return result;
+  }, [accounts, selections]);
   const current = accounts[index];
 
   useEffect(() => {
@@ -143,6 +161,58 @@ export function PrimaryContacts() {
             <div class="h-full rounded-full bg-[var(--color-accent)] transition-all" style={{ width: `${pct}%` }} />
           </div>
         </div>
+
+        {completed === accounts.length && accounts.length > 0 && (
+          <div class="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 md:p-6">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-400">
+                  <Check size={14} /> Review complete
+                </div>
+                <h2 class="mt-1 text-[18px] font-semibold text-[var(--color-text)]">Final change summary</h2>
+                <p class="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                  These are saved draft decisions. Nothing below has been written to ClickUp.
+                </p>
+              </div>
+              <span class="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-400">100%</span>
+            </div>
+            <div class="mt-4 grid grid-cols-2 gap-2 md:grid-cols-5">
+              {[
+                ['Existing contacts', reviewSummary.existing.length],
+                ['Manual contacts', reviewSummary.manual.length],
+                ['Inactive customers', reviewSummary.inactive.length],
+                ['Contact missing', reviewSummary.none.length],
+                ['Review later', reviewSummary.reviewLater.length],
+              ].map(([label, count]) => (
+                <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+                  <div class="text-[20px] font-bold text-[var(--color-text)]">{count}</div>
+                  <div class="mt-0.5 text-[10px] text-[var(--color-text-muted)]">{label}</div>
+                </div>
+              ))}
+            </div>
+            {(reviewSummary.manual.length > 0 || reviewSummary.inactive.length > 0 || reviewSummary.none.length > 0 || reviewSummary.reviewLater.length > 0) && (
+              <div class="mt-4 grid gap-3 md:grid-cols-2">
+                {[
+                  ['Manual contacts to create', reviewSummary.manual],
+                  ['Customers marked inactive', reviewSummary.inactive],
+                  ['Customers missing a contact', reviewSummary.none],
+                  ['Customers marked review later', reviewSummary.reviewLater],
+                ].filter(([, items]) => (items as Account[]).length > 0).map(([label, items]) => (
+                  <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+                    <div class="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-faint)]">{label as string}</div>
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                      {(items as Account[]).map(account => (
+                        <span class="rounded-full bg-[var(--color-elevated)] px-2 py-1 text-[10px] text-[var(--color-text-muted)]">
+                          {account.companyName}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div class="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-xl shadow-black/10">
           <div class="border-b border-[var(--color-border)] p-5 md:p-6">
