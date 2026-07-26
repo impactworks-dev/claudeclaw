@@ -217,7 +217,7 @@ export async function getPrimaryContactReview(force = false): Promise<{
       currentEmail: currentEmail || null,
       candidates,
     };
-  }).sort((a, b) => a.companyName.localeCompare(b.companyName));
+  }).sort((a: ContactReviewAccount, b: ContactReviewAccount) => a.companyName.localeCompare(b.companyName));
 
   cache = { at: Date.now(), accounts };
   return { generatedAt: cache.at, accounts, draft: loadDraft() };
