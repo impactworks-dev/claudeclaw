@@ -1513,7 +1513,10 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     try {
       const clickupTaskId = c.req.param('taskId');
       const body = await c.req.json();
-      return c.json({ ok: true, draft: savePrimaryContactSelection(clickupTaskId, body.contactId) });
+      return c.json({
+        ok: true,
+        draft: savePrimaryContactSelection(clickupTaskId, body.contactId, body.manualContact),
+      });
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'primary contact draft save failed');
       return c.json({ error: String((e as Error)?.message || e) }, 500);

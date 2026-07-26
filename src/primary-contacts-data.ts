@@ -34,7 +34,14 @@ export interface ContactReviewAccount {
 
 export interface ContactReviewDraft {
   selections: Record<string, string>;
+  manualContacts: Record<string, ManualContactDraft>;
   updatedAt: number;
+}
+
+export interface ManualContactDraft {
+  name: string;
+  email: string | null;
+  phone: string | null;
 }
 
 function fieldMap(row: any): Record<string, any> {
@@ -97,15 +104,32 @@ async function allVendastaRecords(resourceTypeCode: 'companies' | 'contacts', ar
 function loadDraft(): ContactReviewDraft {
   try {
     const parsed = JSON.parse(fs.readFileSync(DRAFT_FILE, 'utf8'));
-    return { selections: parsed.selections || {}, updatedAt: Number(parsed.updatedAt || 0) };
+    return {
+      selections: parsed.selections || {},
+      manualContacts: parsed.manualContacts || {},
+      updatedAt: Number(parsed.updatedAt || 0),
+    };
   } catch {
-    return { selections: {}, updatedAt: 0 };
+    return { selections: {}, manualContacts: {}, updatedAt: 0 };
   }
 }
 
-export function savePrimaryContactSelection(clickupTaskId: string, contactId: string): ContactReviewDraft {
+export function savePrimaryContactSelection(
+  clickupTaskId: string,
+  contactId: string,
+  manualContact?: ManualContactDraft,
+): ContactReviewDraft {
   if (!clickupTaskId || !contactId) throw new Error('clickupTaskId and contactId are required');
   const draft = loadDraft();
+  if (contactId.startsWith('manual:')) {
+    const name = String(manualContact?.name || '').trim();
+    const email = String(manualContact?.email || '').trim() || null;
+    const phone = String(manualContact?.phone || '').trim() || null;
+    if (!name) throw new Error('A name is required for a manual contact');
+    draft.manualContacts[clickupTaskId] = { name, email, phone };
+  } else {
+    delete draft.manualContacts[clickupTaskId];
+  }
   draft.selections[clickupTaskId] = contactId;
   draft.updatedAt = Date.now();
   fs.mkdirSync(path.dirname(DRAFT_FILE), { recursive: true });
