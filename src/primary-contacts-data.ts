@@ -114,6 +114,13 @@ function loadDraft(): ContactReviewDraft {
   }
 }
 
+function writeDraft(draft: ContactReviewDraft): ContactReviewDraft {
+  draft.updatedAt = Date.now();
+  fs.mkdirSync(path.dirname(DRAFT_FILE), { recursive: true });
+  fs.writeFileSync(DRAFT_FILE, JSON.stringify(draft, null, 2));
+  return draft;
+}
+
 export function savePrimaryContactSelection(
   clickupTaskId: string,
   contactId: string,
@@ -131,10 +138,7 @@ export function savePrimaryContactSelection(
     delete draft.manualContacts[clickupTaskId];
   }
   draft.selections[clickupTaskId] = contactId;
-  draft.updatedAt = Date.now();
-  fs.mkdirSync(path.dirname(DRAFT_FILE), { recursive: true });
-  fs.writeFileSync(DRAFT_FILE, JSON.stringify(draft, null, 2));
-  return draft;
+  return writeDraft(draft);
 }
 
 let cache: { at: number; accounts: ContactReviewAccount[] } | null = null;
@@ -176,6 +180,7 @@ export async function getPrimaryContactReview(force = false): Promise<{
   }
 
   const contactsByCompany = new Map<string, ContactCandidate[]>();
+  const contactByEmail = new Map<string, { candidate: ContactCandidate; companyId: string }>();
   for (const row of contacts) {
     const f = fieldMap(row);
     const companyId = String(f.standard__contact_primary_company_id || '');
@@ -199,8 +204,13 @@ export async function getPrimaryContactReview(force = false): Promise<{
     );
     if (!duplicate) bucket.push(candidate);
     contactsByCompany.set(companyId, bucket);
+    if (candidate.email) {
+      contactByEmail.set(candidate.email.toLowerCase(), { candidate, companyId });
+    }
   }
 
+  const draft = loadDraft();
+  let draftChanged = false;
   const activeTasks = (clickup.tasks || []).filter((t: any) => String(t.status?.status || '').toLowerCase() === 'active');
   const accounts: ContactReviewAccount[] = activeTasks.map((task: any) => {
     const explicitId = String(customField(task, 'Vendasta Company ID') || '');
@@ -217,6 +227,26 @@ export async function getPrimaryContactReview(force = false): Promise<{
     }
     const companyId = company?.system__company_id || explicitId || null;
     let candidates = companyId ? [...(contactsByCompany.get(companyId) || [])] : [];
+    const currentVendastaContact = currentEmail
+      ? contactByEmail.get(String(currentEmail).toLowerCase())
+      : null;
+    if (!company && currentVendastaContact) {
+      const domain = String(currentEmail).split('@')[1]?.toLowerCase();
+      candidates = (contactsByCompany.get(currentVendastaContact.companyId) || [])
+        .filter(c => !domain || c.email?.split('@')[1]?.toLowerCase() === domain);
+    }
+    const manual = draft.manualContacts[task.id];
+    const existingManualContact = manual?.email
+      ? contactByEmail.get(manual.email.toLowerCase())
+      : null;
+    if (existingManualContact && !candidates.some(c => c.id === existingManualContact.candidate.id)) {
+      candidates.push(existingManualContact.candidate);
+    }
+    if (draft.selections[task.id]?.startsWith('manual:') && existingManualContact) {
+      draft.selections[task.id] = existingManualContact.candidate.id;
+      delete draft.manualContacts[task.id];
+      draftChanged = true;
+    }
     if (currentEmail && !candidates.some(c => c.email?.toLowerCase() === String(currentEmail).toLowerCase())) {
       candidates.unshift({
         id: `clickup:${task.id}`,
@@ -244,5 +274,6 @@ export async function getPrimaryContactReview(force = false): Promise<{
   }).sort((a: ContactReviewAccount, b: ContactReviewAccount) => a.companyName.localeCompare(b.companyName));
 
   cache = { at: Date.now(), accounts };
-  return { generatedAt: cache.at, accounts, draft: loadDraft() };
+  if (draftChanged) writeDraft(draft);
+  return { generatedAt: cache.at, accounts, draft };
 }
