@@ -33,6 +33,7 @@ const WarRoom        = lazy(() => import('@/pages/WarRoom').then(m => ({ default
 const AgentFiles     = lazy(() => import('@/pages/AgentFiles').then(m => ({ default: m.AgentFiles })));
 const BrainProposals = lazy(() => import('@/pages/BrainProposals').then(m => ({ default: m.BrainProposals })));
 const SuperAgents    = lazy(() => import('@/pages/SuperAgents').then(m => ({ default: m.SuperAgents })));
+const PrimaryContacts = lazy(() => import('@/pages/PrimaryContacts').then(m => ({ default: m.PrimaryContacts })));
 
 export function App() {
   const open = sidebarOpen.value;
@@ -66,6 +67,7 @@ export function App() {
           <Route path="/scheduled"><Scheduled /></Route>
           <Route path="/agents"><Agents /></Route>
           <Route path="/super-agents"><SuperAgents /></Route>
+          <Route path="/primary-contacts"><PrimaryContacts /></Route>
           <Route path="/agents/:id/files"><AgentFiles /></Route>
           <Route path="/pipeline"><Pipeline /></Route>
           <Route path="/outreach"><Outreach /></Route>

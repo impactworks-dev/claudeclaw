@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, DASHBOARD_URL, MESSENGER_TYPE, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT, agentDefaultModel, GOOGLE_API_KEY } from './config.js';
 import { readEnvFile } from './env.js';
 import crypto from 'crypto';
+import { getPrimaryContactReview, savePrimaryContactSelection } from './primary-contacts-data.js';
 
 const execFileAsync = promisify(execFile);
 import {
@@ -1492,6 +1493,29 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json(data);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'pipeline endpoint failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  // Primary-contact review: live Vendasta candidates, draft selections only.
+  // This intentionally does not write to ClickUp until a separate approval
+  // workflow is added and explicitly confirmed by Dante.
+  app.get('/api/primary-contacts', async (c) => {
+    try {
+      return c.json(await getPrimaryContactReview(c.req.query('refresh') === '1'));
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'primary contacts review failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.put('/api/primary-contacts/:taskId', async (c) => {
+    try {
+      const clickupTaskId = c.req.param('taskId');
+      const body = await c.req.json();
+      return c.json({ ok: true, draft: savePrimaryContactSelection(clickupTaskId, body.contactId) });
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'primary contact draft save failed');
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
   });

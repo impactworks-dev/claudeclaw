@@ -15,6 +15,7 @@ import {
   Lightbulb,
   HeartPulse,
   Bot,
+  ContactRound,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
 
@@ -40,6 +41,7 @@ export const ROUTES: RouteDef[] = [
   { path: '/agents',     label: 'Agents',          section: 'workspace',    icon: Users,         shortcut: 'g a' },
   { path: '/super-agents', label: 'Super Agents',  section: 'workspace',    icon: Bot,           shortcut: 'g x' },
   { path: '/pipeline',   label: 'Sales Pipeline',  section: 'workspace',    icon: TrendingUp,    shortcut: 'g p' },
+  { path: '/primary-contacts', label: 'Primary Contacts', section: 'workspace', icon: ContactRound },
   { path: '/playbook',   label: 'Playbook',        section: 'workspace',    icon: BookOpen,      href: '/resources.html' },
   { path: '/outreach',   label: 'Outreach Tracker',section: 'workspace',    icon: Send,          shortcut: 'g o' },
   { path: '/webinars',   label: 'Webinars',        section: 'workspace',    icon: Presentation,  shortcut: 'g b' },
