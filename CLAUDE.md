@@ -504,6 +504,17 @@ lowering the bar each week.
 
 Workflow: `Idea → Interview → Source Brief → Draft → Dante Review → Approved → Published`
 
+**Codex review happens inside the Draft stage** — there is no separate ClickUp
+status for it. Keep the card in **Draft** while ChatGPT/Codex reviews, and move
+it to **Dante Review** only after that editorial review is complete. A card in
+Dante Review means Codex is already done with it.
+
+**Public-history decision (2026-08-03):** Dante has accepted the existing public
+git history as-is. Do not rewrite history, force-push, or change repository
+visibility for this project. The forward rule stands: detailed stories,
+interviews, medical and family material, source briefs and drafts stay out of
+this repo.
+
 ### Story Capture behaviour — keep this restrained
 
 When Dante *naturally* mentions a recovery memory, an AI experiment, a
