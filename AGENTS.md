@@ -1,5 +1,17 @@
 # Shared Responsibility Map
 
+## ImpactWorks brand standard (mandatory)
+
+For every ImpactWorks-facing artifact, treat `/Users/dantecrescenzi/Downloads/ImpactWorks Brand Guidelines.pdf` (November 2025, SHA-256 `115d252c608f2d77143c66ac71fabde081329a8d3e7b3defc2101c80b294a9c7`) as the canonical brand source. Follow it by default unless the user explicitly directs otherwise for a specific deliverable.
+
+- Position ImpactWorks as a creative, data, and technology agency built to inspire growth for ambitious brands, combining creative agency, consultancy, and technology capabilities.
+- Express the core values: modernity, trustworthiness, minimalism, and creativity.
+- Use the full logo as the default. Use the logomark only in compact contexts or where the brand is already established. Preserve contrast, proportions, orientation, colors, and construction; never stretch, skew, rotate, recolor individual elements, add effects or strokes, or modify the artwork.
+- Use the approved palette: primary `#023E8A`, secondary `#0077B6`, tertiary `#ABD3FF`, white `#FFFFFF`, and black `#000000`.
+- Use SF Pro throughout: Bold for headers, Semibold for subheaders, and Regular for body copy. Keep headlines short and catchy, layouts clean, hierarchy obvious, and copy clear and approachable.
+- Use the approved star/flare pattern and the cohesive blue icon style as subtle supporting elements, not decoration that overwhelms the message.
+- When exact logo artwork, pattern geometry, icon styling, imagery, or layout treatment matters, inspect the canonical PDF rather than recreating those elements from memory.
+
 This file is a template. It is loaded into every delegated agent's context by the orchestrator and acts as the operating agreement between your agents. Edit it to match the agents you have actually configured and the workflows you care about. The example roles below (ops, research, comms, content) are starting points, not a prescribed setup.
 
 ## Core principles

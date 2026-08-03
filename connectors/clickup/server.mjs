@@ -172,6 +172,19 @@ const tools = [
     },
   },
   {
+    name: 'clickup_set_custom_field',
+    description: 'Set a custom field value on a task (WRITE). Required: task_id, field_id, value.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string' },
+        field_id: { type: 'string' },
+        value: {},
+      },
+      required: ['task_id', 'field_id', 'value'],
+    },
+  },
+  {
     name: 'clickup_create_comment',
     description: 'Add a comment to a task (WRITE).',
     inputSchema: {
@@ -241,6 +254,10 @@ async function callTool(name, args) {
       }
       return api('PUT', `/task/${enc(args.task_id)}`, { body });
     }
+    case 'clickup_set_custom_field':
+      return api('POST', `/task/${enc(args.task_id)}/field/${enc(args.field_id)}`, {
+        body: { value: args.value },
+      });
     case 'clickup_create_comment':
       return api('POST', `/task/${enc(args.task_id)}/comment`, {
         body: { comment_text: args.comment_text, notify_all: args.notify_all ?? false },

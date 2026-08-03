@@ -10,7 +10,12 @@ import { promisify } from 'node:util';
 import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, DASHBOARD_URL, MESSENGER_TYPE, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT, agentDefaultModel, GOOGLE_API_KEY } from './config.js';
 import { readEnvFile } from './env.js';
 import crypto from 'crypto';
-import { getPrimaryContactReview, savePrimaryContactSelection } from './primary-contacts-data.js';
+import {
+  applyPrimaryContactSelections,
+  getPrimaryContactReview,
+  retryPrimaryContactPhoneFormats,
+  savePrimaryContactSelection,
+} from './primary-contacts-data.js';
 
 const execFileAsync = promisify(execFile);
 import {
@@ -1523,6 +1528,26 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     }
   });
 
+  app.post('/api/primary-contacts/apply', async (c) => {
+    try {
+      const body = await c.req.json();
+      return c.json(await applyPrimaryContactSelections(body.confirmation, body.taskIds));
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'primary contact apply failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
+  app.post('/api/primary-contacts/retry-phones', async (c) => {
+    try {
+      const body = await c.req.json();
+      return c.json(await retryPrimaryContactPhoneFormats(body.confirmation, body.taskIds));
+    } catch (e) {
+      logger.error({ err: String((e as Error)?.message || e) }, 'primary contact phone retry failed');
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+
   // Edit a pipeline card (stage -> Vendasta, contact -> Vendasta, outreach status + notes -> local).
   app.post('/api/pipeline/card', async (c) => {
     try {
@@ -2926,7 +2951,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
           id,
           name: config.name,
           description: config.description,
-          model: config.model ?? 'claude-opus-4-6',
+          model: config.model ?? 'claude-opus-5',
           running,
           todayTurns: stats.todayTurns,
           todayCost: stats.todayCost,
@@ -2961,7 +2986,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       // authoritative; no need to go through the conn file for main itself.
       const mainTelegramConnected = mainRunning ? getTelegramConnected() : false;
       allAgents = [
-        { id: 'main', name: 'Main', description: getMainDescription(), model: 'claude-opus-4-6', running: mainRunning, todayTurns: mainStats.todayTurns, todayCost: mainStats.todayCost, telegramConnected: mainTelegramConnected },
+        { id: 'main', name: 'Main', description: getMainDescription(), model: agentDefaultModel ?? 'claude-opus-5', running: mainRunning, todayTurns: mainStats.todayTurns, todayCost: mainStats.todayCost, telegramConnected: mainTelegramConnected },
         ...agents,
       ];
     } else {
@@ -3036,7 +3061,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     const model = body?.model?.trim();
     if (!model) return c.json({ error: 'model required' }, 400);
 
-    const validModels = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5'];
+    const validModels = ['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5'];
     if (!validModels.includes(model)) return c.json({ error: `Invalid model` }, 400);
 
     const agentIds = listAgentIds();
@@ -3054,7 +3079,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     const model = body?.model?.trim();
     if (!model) return c.json({ error: 'model required' }, 400);
 
-    const validModels = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5'];
+    const validModels = ['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5'];
     if (!validModels.includes(model)) return c.json({ error: `Invalid model. Valid: ${validModels.join(', ')}` }, 400);
 
     try {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { ArrowLeft, ArrowRight, Check, CircleHelp, ContactRound, Mail, Phone, Plus, RefreshCw, UserRoundX } from 'lucide-preact';
-import { apiGet, apiPut } from '@/lib/api';
+import { apiGet, apiPost, apiPut } from '@/lib/api';
 
 interface Candidate {
   id: string;
@@ -36,6 +36,22 @@ interface ManualContact {
   phone: string | null;
 }
 
+interface ApplyItem {
+  clickupTaskId: string;
+  companyName: string;
+  status: 'updated' | 'unchanged' | 'skipped' | 'failed';
+  contactName?: string;
+  email?: string | null;
+  phone?: string | null;
+  reason?: string;
+}
+
+interface ApplyResult {
+  appliedAt: number;
+  totals: Record<ApplyItem['status'], number>;
+  items: ApplyItem[];
+}
+
 const REVIEW_LATER = '__review_later__';
 const NONE = '__none__';
 const INACTIVE = '__inactive__';
@@ -49,6 +65,9 @@ export function PrimaryContacts() {
   const [manualName, setManualName] = useState('');
   const [manualEmail, setManualEmail] = useState('');
   const [manualPhone, setManualPhone] = useState('');
+  const [showApply, setShowApply] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
 
   const load = async (refresh = false) => {
     setError('');
@@ -111,6 +130,24 @@ export function PrimaryContacts() {
       setError(e?.message || 'Selection could not be saved.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const applyToClickUp = async () => {
+    if (applying) return;
+    setApplying(true);
+    setError('');
+    try {
+      const result = await apiPost<ApplyResult>('/api/primary-contacts/apply', {
+        confirmation: 'APPLY_PRIMARY_CONTACTS',
+      });
+      setApplyResult(result);
+      setShowApply(false);
+      await load(true);
+    } catch (e: any) {
+      setError(e?.body?.error || e?.message || 'Could not apply contacts to ClickUp.');
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -209,6 +246,72 @@ export function PrimaryContacts() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            {!applyResult && !showApply && (
+              <button
+                type="button"
+                onClick={() => setShowApply(true)}
+                class="mt-5 w-full rounded-xl bg-[var(--color-accent)] px-4 py-3 text-[12px] font-semibold text-white"
+              >
+                Review and apply to ClickUp
+              </button>
+            )}
+            {!applyResult && showApply && (
+              <div class="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4">
+                <div class="text-[12px] font-semibold text-amber-300">Confirm ClickUp update</div>
+                <p class="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                  This will update Contact Name, Email, and Phone for approved contacts. Inactive, missing, and review-later customers will be skipped. Every update will be read back from ClickUp and verified.
+                </p>
+                <div class="mt-3 flex justify-end gap-2">
+                  <button type="button" disabled={applying} onClick={() => setShowApply(false)}
+                    class="rounded-lg px-3 py-2 text-[11px] text-[var(--color-text-muted)]">Cancel</button>
+                  <button type="button" disabled={applying} onClick={() => void applyToClickUp()}
+                    class="rounded-lg bg-[var(--color-accent)] px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">
+                    {applying ? 'Applying and verifying…' : 'Apply approved contacts'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {applyResult && (
+              <div class="mt-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-[12px] font-semibold text-[var(--color-text)]">ClickUp reconciliation report</div>
+                    <div class="mt-0.5 text-[10px] text-[var(--color-text-faint)]">
+                      Applied {new Date(applyResult.appliedAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setApplyResult(null)}
+                    class="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[10px] text-[var(--color-text-muted)]">
+                    Run again
+                  </button>
+                </div>
+                <div class="mt-3 grid grid-cols-4 gap-2">
+                  {[
+                    ['Updated', applyResult.totals.updated, 'text-emerald-400'],
+                    ['Unchanged', applyResult.totals.unchanged, 'text-sky-400'],
+                    ['Skipped', applyResult.totals.skipped, 'text-amber-400'],
+                    ['Failed', applyResult.totals.failed, 'text-red-400'],
+                  ].map(([label, count, color]) => (
+                    <div class="rounded-lg bg-[var(--color-elevated)] p-2 text-center">
+                      <div class={`text-[18px] font-bold ${color}`}>{count}</div>
+                      <div class="text-[9px] text-[var(--color-text-faint)]">{label}</div>
+                    </div>
+                  ))}
+                </div>
+                {(applyResult.totals.skipped > 0 || applyResult.totals.failed > 0) && (
+                  <div class="mt-3 max-h-48 space-y-1.5 overflow-y-auto">
+                    {applyResult.items.filter(item => item.status === 'skipped' || item.status === 'failed').map(item => (
+                      <div class="flex items-start justify-between gap-3 rounded-lg bg-[var(--color-elevated)] px-3 py-2 text-[10px]">
+                        <span class="font-medium text-[var(--color-text)]">{item.companyName}</span>
+                        <span class={item.status === 'failed' ? 'text-red-400' : 'text-amber-400'}>
+                          {item.reason || item.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -30,6 +30,11 @@ export interface ContactReviewAccount {
   currentName: string | null;
   currentEmail: string | null;
   candidates: ContactCandidate[];
+  fieldIds: {
+    contactName: string | null;
+    email: string | null;
+    phone: string | null;
+  };
 }
 
 export interface ContactReviewDraft {
@@ -44,12 +49,32 @@ export interface ManualContactDraft {
   phone: string | null;
 }
 
+export interface PrimaryContactApplyItem {
+  clickupTaskId: string;
+  companyName: string;
+  status: 'updated' | 'unchanged' | 'skipped' | 'failed';
+  contactName?: string;
+  email?: string | null;
+  phone?: string | null;
+  reason?: string;
+}
+
+export interface PrimaryContactApplyResult {
+  appliedAt: number;
+  totals: Record<PrimaryContactApplyItem['status'], number>;
+  items: PrimaryContactApplyItem[];
+}
+
 function fieldMap(row: any): Record<string, any> {
   return Object.fromEntries((row?.fields || []).map((f: any) => [f.id, f.value]));
 }
 
 function customField(task: any, name: string): any {
   return (task.custom_fields || []).find((f: any) => f.name === name)?.value ?? null;
+}
+
+function customFieldId(task: any, name: string): string | null {
+  return (task.custom_fields || []).find((f: any) => f.name === name)?.id || null;
 }
 
 function norm(value: string | null | undefined): string {
@@ -181,6 +206,7 @@ export async function getPrimaryContactReview(force = false): Promise<{
 
   const contactsByCompany = new Map<string, ContactCandidate[]>();
   const contactByEmail = new Map<string, { candidate: ContactCandidate; companyId: string }>();
+  const contactById = new Map<string, ContactCandidate>();
   for (const row of contacts) {
     const f = fieldMap(row);
     const companyId = String(f.standard__contact_primary_company_id || '');
@@ -204,6 +230,7 @@ export async function getPrimaryContactReview(force = false): Promise<{
     );
     if (!duplicate) bucket.push(candidate);
     contactsByCompany.set(companyId, bucket);
+    contactById.set(id, candidate);
     if (candidate.email) {
       contactByEmail.set(candidate.email.toLowerCase(), { candidate, companyId });
     }
@@ -227,6 +254,15 @@ export async function getPrimaryContactReview(force = false): Promise<{
     }
     const companyId = company?.system__company_id || explicitId || null;
     let candidates = companyId ? [...(contactsByCompany.get(companyId) || [])] : [];
+    const selectedContactId = draft.selections[task.id];
+    const selectedContact = selectedContactId && !selectedContactId.startsWith('__')
+      && !selectedContactId.startsWith('manual:')
+      && !selectedContactId.startsWith('clickup:')
+      ? contactById.get(selectedContactId)
+      : null;
+    if (selectedContact && !candidates.some(c => c.id === selectedContact.id)) {
+      candidates.push(selectedContact);
+    }
     const currentVendastaContact = currentEmail
       ? contactByEmail.get(String(currentEmail).toLowerCase())
       : null;
@@ -270,10 +306,274 @@ export async function getPrimaryContactReview(force = false): Promise<{
       currentName: currentName || null,
       currentEmail: currentEmail || null,
       candidates,
+      fieldIds: {
+        contactName: customFieldId(task, 'Contact Name'),
+        email: customFieldId(task, 'Email'),
+        phone: customFieldId(task, 'Phone'),
+      },
     };
   }).sort((a: ContactReviewAccount, b: ContactReviewAccount) => a.companyName.localeCompare(b.companyName));
 
   cache = { at: Date.now(), accounts };
   if (draftChanged) writeDraft(draft);
   return { generatedAt: cache.at, accounts, draft };
+}
+
+function normalized(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function normalizePhoneForClickUp(value: unknown): string {
+  const raw = normalized(value);
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (raw.startsWith('+') && digits.length >= 8 && digits.length <= 15) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  throw new Error(`Phone number is not valid E.164: ${raw}`);
+}
+
+export async function applyPrimaryContactSelections(
+  confirmation: string,
+  taskIds?: string[],
+): Promise<PrimaryContactApplyResult> {
+  if (confirmation !== 'APPLY_PRIMARY_CONTACTS') {
+    throw new Error('Explicit confirmation is required');
+  }
+
+  const review = await getPrimaryContactReview(true);
+  const items: PrimaryContactApplyItem[] = [];
+  const targets = taskIds?.length ? new Set(taskIds.filter(Boolean)) : null;
+  if (targets) {
+    const known = new Set(review.accounts.map(account => account.clickupTaskId));
+    const unknown = [...targets].filter(taskId => !known.has(taskId));
+    if (unknown.length) throw new Error(`Unknown ClickUp task ID: ${unknown.join(', ')}`);
+  }
+
+  for (const account of review.accounts) {
+    if (targets && !targets.has(account.clickupTaskId)) continue;
+    const selection = review.draft.selections[account.clickupTaskId];
+    if (!selection) {
+      items.push({
+        clickupTaskId: account.clickupTaskId,
+        companyName: account.companyName,
+        status: 'skipped',
+        reason: 'Not reviewed',
+      });
+      continue;
+    }
+    if (selection === '__inactive__' || selection === '__none__' || selection === '__review_later__') {
+      const reasons: Record<string, string> = {
+        __inactive__: 'Customer marked inactive',
+        __none__: 'Correct contact is missing',
+        __review_later__: 'Marked for later review',
+      };
+      items.push({
+        clickupTaskId: account.clickupTaskId,
+        companyName: account.companyName,
+        status: 'skipped',
+        reason: reasons[selection],
+      });
+      continue;
+    }
+
+    const contact = selection.startsWith('manual:')
+      ? review.draft.manualContacts[account.clickupTaskId]
+      : account.candidates.find(candidate => candidate.id === selection);
+    if (!contact) {
+      items.push({
+        clickupTaskId: account.clickupTaskId,
+        companyName: account.companyName,
+        status: 'failed',
+        reason: 'Selected contact could not be resolved',
+      });
+      continue;
+    }
+
+    const desired = {
+      name: normalized(contact.name),
+      email: normalized(contact.email),
+      phone: normalizePhoneForClickUp(contact.phone),
+    };
+    const current = {
+      name: normalized(account.currentName),
+      email: normalized(account.currentEmail),
+      phone: '',
+    };
+
+    try {
+      const task = await connector(CLICKUP_SERVER, 'clickup_get_task', {
+        task_id: account.clickupTaskId,
+      }, clickupEnv());
+      current.phone = normalizePhoneForClickUp(customField(task, 'Phone'));
+      const fieldIds = {
+        contactName: customFieldId(task, 'Contact Name') || account.fieldIds.contactName,
+        email: customFieldId(task, 'Email') || account.fieldIds.email,
+        phone: customFieldId(task, 'Phone') || account.fieldIds.phone,
+      };
+      const changes = [
+        { label: 'Contact Name', id: fieldIds.contactName, value: desired.name, current: current.name },
+        { label: 'Email', id: fieldIds.email, value: desired.email, current: current.email },
+        { label: 'Phone', id: fieldIds.phone, value: desired.phone, current: current.phone },
+      ].filter(field => field.value !== field.current);
+
+      const missing = changes.filter(field => !field.id).map(field => field.label);
+      if (missing.length) throw new Error(`Missing ClickUp custom field: ${missing.join(', ')}`);
+
+      for (const field of changes) {
+        await connector(CLICKUP_SERVER, 'clickup_set_custom_field', {
+          task_id: account.clickupTaskId,
+          field_id: field.id,
+          value: field.value,
+        }, clickupEnv());
+      }
+
+      const verified = await connector(CLICKUP_SERVER, 'clickup_get_task', {
+        task_id: account.clickupTaskId,
+      }, clickupEnv());
+      const actual = {
+        name: normalized(customField(verified, 'Contact Name')),
+        email: normalized(customField(verified, 'Email')),
+        phone: normalizePhoneForClickUp(customField(verified, 'Phone')),
+      };
+      const mismatches = Object.keys(desired).filter(
+        key => desired[key as keyof typeof desired] !== actual[key as keyof typeof actual],
+      );
+      if (mismatches.length) throw new Error(`Verification failed for: ${mismatches.join(', ')}`);
+
+      items.push({
+        clickupTaskId: account.clickupTaskId,
+        companyName: account.companyName,
+        status: changes.length ? 'updated' : 'unchanged',
+        contactName: desired.name,
+        email: desired.email || null,
+        phone: desired.phone || null,
+      });
+    } catch (error) {
+      items.push({
+        clickupTaskId: account.clickupTaskId,
+        companyName: account.companyName,
+        status: 'failed',
+        contactName: desired.name,
+        email: desired.email || null,
+        phone: desired.phone || null,
+        reason: String((error as Error)?.message || error),
+      });
+    }
+  }
+
+  const totals: PrimaryContactApplyResult['totals'] = {
+    updated: 0,
+    unchanged: 0,
+    skipped: 0,
+    failed: 0,
+  };
+  for (const item of items) totals[item.status] += 1;
+  cache = null;
+  return { appliedAt: Date.now(), totals, items };
+}
+
+export async function retryPrimaryContactPhoneFormats(
+  confirmation: string,
+  taskIds: string[],
+): Promise<PrimaryContactApplyResult> {
+  if (confirmation !== 'RETRY_PRIMARY_CONTACT_PHONES') {
+    throw new Error('Explicit phone-retry confirmation is required');
+  }
+  const targets = new Set((taskIds || []).filter(Boolean));
+  if (!targets.size) throw new Error('At least one explicit task ID is required');
+
+  const review = await getPrimaryContactReview(true);
+  const accountsById = new Map(review.accounts.map(account => [account.clickupTaskId, account]));
+  const items: PrimaryContactApplyItem[] = [];
+
+  for (const taskId of targets) {
+    const account = accountsById.get(taskId);
+    if (!account) {
+      items.push({ clickupTaskId: taskId, companyName: taskId, status: 'failed', reason: 'Account is not active' });
+      continue;
+    }
+    const selection = review.draft.selections[taskId];
+    if (!selection || selection.startsWith('__')) {
+      items.push({
+        clickupTaskId: taskId,
+        companyName: account.companyName,
+        status: 'skipped',
+        reason: 'Record is not an approved contact selection',
+      });
+      continue;
+    }
+    const contact = selection.startsWith('manual:')
+      ? review.draft.manualContacts[taskId]
+      : account.candidates.find(candidate => candidate.id === selection);
+    if (!contact) {
+      items.push({
+        clickupTaskId: taskId,
+        companyName: account.companyName,
+        status: 'failed',
+        reason: 'Selected contact could not be resolved',
+      });
+      continue;
+    }
+
+    try {
+      const desired = {
+        name: normalized(contact.name),
+        email: normalized(contact.email),
+        phone: normalizePhoneForClickUp(contact.phone),
+      };
+      if (!desired.phone) throw new Error('Selected contact has no phone number to retry');
+      const task = await connector(CLICKUP_SERVER, 'clickup_get_task', { task_id: taskId }, clickupEnv());
+      const currentName = normalized(customField(task, 'Contact Name'));
+      const currentEmail = normalized(customField(task, 'Email'));
+      if (currentName !== desired.name || currentEmail.toLowerCase() !== desired.email.toLowerCase()) {
+        throw new Error('Safety check failed: ClickUp name or email does not match the approved contact');
+      }
+      const phoneFieldId = customFieldId(task, 'Phone') || account.fieldIds.phone;
+      if (!phoneFieldId) throw new Error('Missing ClickUp custom field: Phone');
+      const currentPhone = normalizePhoneForClickUp(customField(task, 'Phone'));
+
+      if (currentPhone === desired.phone) {
+        items.push({
+          clickupTaskId: taskId,
+          companyName: account.companyName,
+          status: 'unchanged',
+          contactName: desired.name,
+          email: desired.email || null,
+          phone: desired.phone,
+        });
+        continue;
+      }
+
+      await connector(CLICKUP_SERVER, 'clickup_set_custom_field', {
+        task_id: taskId,
+        field_id: phoneFieldId,
+        value: desired.phone,
+      }, clickupEnv());
+      const verified = await connector(CLICKUP_SERVER, 'clickup_get_task', { task_id: taskId }, clickupEnv());
+      const actualPhone = normalizePhoneForClickUp(customField(verified, 'Phone'));
+      if (actualPhone !== desired.phone) throw new Error('Phone verification failed after ClickUp update');
+
+      items.push({
+        clickupTaskId: taskId,
+        companyName: account.companyName,
+        status: 'updated',
+        contactName: desired.name,
+        email: desired.email || null,
+        phone: desired.phone,
+      });
+    } catch (error) {
+      items.push({
+        clickupTaskId: taskId,
+        companyName: account.companyName,
+        status: 'failed',
+        reason: String((error as Error)?.message || error),
+      });
+    }
+  }
+
+  const totals: PrimaryContactApplyResult['totals'] = { updated: 0, unchanged: 0, skipped: 0, failed: 0 };
+  for (const item of items) totals[item.status] += 1;
+  cache = null;
+  return { appliedAt: Date.now(), totals, items };
 }
