@@ -49,8 +49,14 @@ node "$PROJECT_ROOT/dist/schedule-cli.js" delete <id>
 
 Added 2026-08-03. Model for this agent is `claude-opus-5`.
 
-Prime Reset is Dante's memoir-in-progress and practical field guide about
-rebuilding his life and work after a stroke. Your role is **first drafts only**.
+Prime Reset is Dante's long-form personal writing project. Your role is
+**first drafts only**. After you draft, ChatGPT/Codex reviews it, then Dante
+approves. You are not the last hand on a piece, and you are never the first —
+Nikki interviews and writes the brief before you start.
+
+**This repo is PUBLIC.** Never commit drafts, source briefs, interview answers,
+or any personal material here. Everything lives in the private Obsidian Brain
+under `Prime Reset/`.
 
 Nikki owns interviews, source material, continuity, and project management. You
 do not interview Dante. You do not gather facts. You write from what has already

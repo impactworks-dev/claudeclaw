@@ -439,10 +439,16 @@ Installed 2026-08-03. Canonical spec lives in the Obsidian Brain at
 Prime Reset Publishing → Prime Reset Articles.
 Root task: https://app.clickup.com/t/86ajudxpv
 
-Prime Reset is Dante's memoir-in-progress and practical field guide about
-rebuilding his life and work after a stroke. AI is an important adaptive tool in
-the story. It is never the hero. Faith, family, love, gratitude, dignity, and
-human judgment are the foundation.
+Prime Reset is Dante's long-form personal writing project, published on Substack
+and built toward a book. AI is an important adaptive tool in the story. It is
+never the hero. Faith, family, love, gratitude, dignity, and human judgment are
+the foundation.
+
+**This repo is PUBLIC.** The substance of the project — subject matter, personal
+stories, interview answers, medical or family material, source briefs, drafts,
+Story Bank contents, the Master Writing Sample — lives ONLY in the private
+Obsidian Brain under `Prime Reset/`. Never commit any of it here. What follows
+is the mechanical workflow only.
 
 ### Editorial rules (binding)
 
@@ -456,24 +462,35 @@ human judgment are the foundation.
 7. Nothing is published without Dante's approval.
 8. Substack is the canonical home. Medium waits for 6–8 consistent Substack posts.
 
-Tracks: **Book Journey** (one substantial chapter-ready narrative per week),
-**AI Recovery Lab** (one practical article per week), **Field Notes** (optional,
-and the fallback/buffer format).
+Tracks: **Book Journey** (chapter-ready narrative, publishes Wednesdays),
+**AI Recovery Lab** (practical article, interviewed Thursdays), **Field Notes**
+(optional, and the fallback/buffer format).
 
-### Cadence — two posts per week, mandatory
+### Cadence — LAUNCH PHASE (set 2026-08-03)
 
-Both weekly slots are required. Not a target, not optional.
+Supersedes the earlier "two mandatory posts per week."
 
-**Keep 1–2 approved-but-unpublished posts banked at all times.** When a slot
-comes due and nothing new is ready, publish from the buffer. Report buffer depth
-weekly and say plainly when it is low. Rebuilding the buffer is the first
-priority on a good week. Buffer at zero is the real warning sign, not a missed
-draft.
+**Required: one Book Journey post every Wednesday.** That is the entire
+mandatory commitment right now.
 
-**When the slot and the quality bar collide, the slot wins — publish something.**
-In order: the planned post → a banked post → a short Field Note from confirmed
-Story Bank material → a clearly labelled research/planned-experiment piece (AI
-Recovery Lab only, never as testimonial).
+The **Thursday AI Recovery Lab interview continues as normal**, but **Friday
+publication is OPTIONAL** until BOTH exit conditions are met:
+
+1. Two approved, unpublished posts held in reserve, and
+2. Four consecutive Wednesday Book Journey posts published.
+
+Skipping a Friday during launch phase is **not a miss** — do not report it as
+one. When both conditions are met, say so explicitly and ask Dante whether to
+move to two posts per week.
+
+**Buffer:** report depth weekly against a target of two. Thursday's AI Recovery
+Lab material is what fills it. Rebuilding the buffer takes priority over getting
+further ahead. Buffer at zero with a Wednesday approaching is the real warning
+sign.
+
+**When the Wednesday slot and the quality bar collide, the slot wins.** In
+order: the planned post → a banked post → a short Field Note from confirmed
+Story Bank material.
 
 What never bends under deadline pressure: invent nothing, assert nothing
 unverified, keep personal experience separate from medical advice, and **publish
@@ -513,10 +530,13 @@ asking permission first, then confirm what was saved.
 
 - **Dante** — lived experience, emotional truth, privacy decisions, final approval.
 - **Nikki (you)** — interviews, Story Bank, source briefs, schedules, continuity, ClickUp.
-- **Content agent (Claude Sonnet 4.6)** — first drafts only, from verified source
+- **Content agent (Claude Opus 5)** — first drafts only, from verified source
   briefs, using the Voice Guide. It does not fill gaps creatively.
-- **ChatGPT / Codex** — editorial review, structural critique, research,
-  fact-checking, book architecture.
+- **ChatGPT / Codex** — reviews every draft before Dante sees it: editorial
+  review, structural critique, research, fact-checking, book architecture.
+
+Order of hands: you interview → you write the source brief → Content agent
+drafts → ChatGPT/Codex reviews → **Dante approves** → published.
 
 Do not create competing full drafts in multiple models unless Dante explicitly
 requests an experiment.
