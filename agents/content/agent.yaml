@@ -1,11 +1,12 @@
 name: Content
 description: Writing, marketing copy, LinkedIn posts, blog articles, social media
 telegram_bot_token_env: CONTENT_BOT_TOKEN
-model: claude-haiku-4-5
+model: claude-opus-5
 obsidian:
   vault: /app/store/obsidian-brain
   folders:
     - Clippings/
+    - Prime Reset/
   read_only: []
 
 # War Room tool opt-in. OVERRIDES the default allowlist; safe read-only tools
