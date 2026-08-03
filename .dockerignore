@@ -54,3 +54,14 @@ __mocks__
 *.swp
 *.swo
 .cache
+
+# Local scratch and generated media — never needed in the image.
+# Without these the build context carried ~220MB of junk (videos/ 84M,
+# output/ 75M, tmp/ 48M) into every deploy.
+output/
+outputs/
+videos/
+tmp/
+tmp_*
+upwork_assets/
+*.csv

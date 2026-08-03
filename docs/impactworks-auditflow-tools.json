@@ -1,0 +1,570 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "product": "ImpactWorks AuditFlow",
+  "version": "1.0.0",
+  "mcpProtocolVersion": "2025-11-25",
+  "tools": [
+    {
+      "name": "create_audit",
+      "title": "Start an AI Automation Audit",
+      "description": "Creates a new ImpactWorks AuditFlow audit and stores the business profile, goals, constraints, and baseline assumptions. Use this before recording workflows.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "business": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "industry": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "employee_count": { "type": "integer", "minimum": 1, "maximum": 100000 },
+              "annual_revenue_usd": { "type": "number", "minimum": 0 },
+              "locations": { "type": "integer", "minimum": 1, "default": 1 },
+              "country": { "type": "string", "minLength": 2, "maxLength": 80 },
+              "primary_goal": {
+                "type": "string",
+                "enum": [
+                  "reduce_cost",
+                  "increase_capacity",
+                  "improve_customer_experience",
+                  "grow_revenue",
+                  "reduce_risk",
+                  "other"
+                ]
+              }
+            },
+            "required": ["name", "industry", "employee_count", "primary_goal"],
+            "additionalProperties": false
+          },
+          "constraints": {
+            "type": "object",
+            "properties": {
+              "budget_range_usd": {
+                "type": "object",
+                "properties": {
+                  "min": { "type": "number", "minimum": 0 },
+                  "max": { "type": "number", "minimum": 0 }
+                },
+                "required": ["min", "max"],
+                "additionalProperties": false
+              },
+              "target_timeline_days": { "type": "integer", "minimum": 1, "maximum": 730 },
+              "regulated_data": { "type": "boolean", "default": false },
+              "data_residency_notes": { "type": "string", "maxLength": 500 },
+              "must_keep_systems": {
+                "type": "array",
+                "items": { "type": "string", "maxLength": 100 },
+                "maxItems": 30
+              }
+            },
+            "additionalProperties": false
+          },
+          "default_loaded_hourly_rate_usd": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 1000,
+            "default": 45
+          },
+          "source": {
+            "type": "string",
+            "enum": ["self_serve", "consultant_led", "partner_led"],
+            "default": "self_serve"
+          }
+        },
+        "required": ["business"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string", "pattern": "^aud_[a-zA-Z0-9]+$" },
+          "status": { "type": "string", "const": "intake" },
+          "missing_fields": { "type": "array", "items": { "type": "string" } },
+          "next_action": { "type": "string" }
+        },
+        "required": ["audit_id", "status", "missing_fields", "next_action"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "upsert_workflow",
+      "title": "Record a Business Workflow",
+      "description": "Adds or updates one manual or partially automated workflow in an audit. Capture observed facts separately from estimates and unknowns.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string", "pattern": "^aud_[a-zA-Z0-9]+$" },
+          "workflow_id": { "type": "string", "pattern": "^wf_[a-zA-Z0-9]+$" },
+          "workflow": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "minLength": 3, "maxLength": 140 },
+              "department": { "type": "string", "minLength": 2, "maxLength": 100 },
+              "trigger": { "type": "string", "minLength": 3, "maxLength": 500 },
+              "desired_outcome": { "type": "string", "minLength": 3, "maxLength": 500 },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sequence": { "type": "integer", "minimum": 1 },
+                    "action": { "type": "string", "minLength": 2, "maxLength": 500 },
+                    "owner_role": { "type": "string", "maxLength": 100 },
+                    "system": { "type": "string", "maxLength": 100 },
+                    "minutes": { "type": "number", "minimum": 0, "maximum": 10080 },
+                    "manual": { "type": "boolean" }
+                  },
+                  "required": ["sequence", "action", "owner_role", "manual"],
+                  "additionalProperties": false
+                }
+              },
+              "monthly_volume": { "type": "number", "minimum": 0 },
+              "minutes_per_run": { "type": "number", "minimum": 0, "maximum": 10080 },
+              "loaded_hourly_rate_usd": { "type": "number", "minimum": 10, "maximum": 1000 },
+              "error_rate_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+              "cost_per_error_usd": { "type": "number", "minimum": 0 },
+              "annual_revenue_at_risk_usd": { "type": "number", "minimum": 0 },
+              "systems": {
+                "type": "array",
+                "items": { "type": "string", "maxLength": 100 },
+                "maxItems": 30
+              },
+              "pain_points": {
+                "type": "array",
+                "items": { "type": "string", "maxLength": 300 },
+                "maxItems": 20
+              },
+              "exception_rate_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+              "data_sensitivity": {
+                "type": "string",
+                "enum": ["public", "internal", "confidential", "regulated"]
+              },
+              "evidence_quality": {
+                "type": "string",
+                "enum": ["measured", "owner_estimate", "team_estimate", "unknown"]
+              },
+              "notes": { "type": "string", "maxLength": 2000 }
+            },
+            "required": [
+              "name",
+              "department",
+              "trigger",
+              "desired_outcome",
+              "steps",
+              "monthly_volume",
+              "minutes_per_run",
+              "data_sensitivity",
+              "evidence_quality"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["audit_id", "workflow"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string" },
+          "workflow_id": { "type": "string" },
+          "completeness_percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "next_action": { "type": "string" }
+        },
+        "required": ["audit_id", "workflow_id", "completeness_percent", "warnings", "next_action"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "score_opportunities",
+      "title": "Score Automation Opportunities",
+      "description": "Scores recorded workflows for business impact, automation feasibility, risk, evidence confidence, and overall priority. The server performs deterministic scoring; the model must not invent scores.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string", "pattern": "^aud_[a-zA-Z0-9]+$" },
+          "workflow_ids": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^wf_[a-zA-Z0-9]+$" },
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "force_recalculate": { "type": "boolean", "default": false }
+        },
+        "required": ["audit_id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$defs": {
+          "score": { "type": "integer", "minimum": 0, "maximum": 100 }
+        },
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string" },
+          "scoring_version": { "type": "string" },
+          "opportunities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "workflow_id": { "type": "string" },
+                "workflow_name": { "type": "string" },
+                "impact_score": { "$ref": "#/$defs/score" },
+                "feasibility_score": { "$ref": "#/$defs/score" },
+                "risk_score": { "$ref": "#/$defs/score" },
+                "confidence_score": { "$ref": "#/$defs/score" },
+                "priority_score": { "$ref": "#/$defs/score" },
+                "priority_band": {
+                  "type": "string",
+                  "enum": ["quick_win", "strategic_bet", "foundation_first", "defer"]
+                },
+                "automation_pattern": {
+                  "type": "string",
+                  "enum": [
+                    "rules_automation",
+                    "document_ai",
+                    "copilot",
+                    "agentic_workflow",
+                    "integration",
+                    "analytics",
+                    "not_recommended"
+                  ]
+                },
+                "reasons": { "type": "array", "items": { "type": "string" } },
+                "blockers": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": [
+                "workflow_id",
+                "workflow_name",
+                "impact_score",
+                "feasibility_score",
+                "risk_score",
+                "confidence_score",
+                "priority_score",
+                "priority_band",
+                "automation_pattern",
+                "reasons",
+                "blockers"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["audit_id", "scoring_version", "opportunities"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "estimate_roi",
+      "title": "Estimate Automation ROI",
+      "description": "Calculates low, expected, and high ROI scenarios for selected workflows. Returns assumptions separately from calculated values and never represents estimates as guarantees.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string", "pattern": "^aud_[a-zA-Z0-9]+$" },
+          "workflow_ids": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^wf_[a-zA-Z0-9]+$" },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "implementation_cost_usd": { "type": "number", "minimum": 0 },
+          "annual_software_cost_usd": { "type": "number", "minimum": 0 },
+          "automation_coverage_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+          "adoption_rate_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+          "include_revenue_uplift": { "type": "boolean", "default": false }
+        },
+        "required": ["audit_id", "workflow_ids"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string" },
+          "currency": { "type": "string", "const": "USD" },
+          "scenarios": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "enum": ["low", "expected", "high"] },
+                "annual_hours_recovered": { "type": "number", "minimum": 0 },
+                "annual_labor_value_usd": { "type": "number" },
+                "annual_error_reduction_value_usd": { "type": "number" },
+                "annual_revenue_uplift_usd": { "type": "number" },
+                "annual_net_benefit_usd": { "type": "number" },
+                "first_year_roi_percent": { "type": ["number", "null"] },
+                "payback_months": { "type": ["number", "null"] }
+              },
+              "required": [
+                "name",
+                "annual_hours_recovered",
+                "annual_labor_value_usd",
+                "annual_error_reduction_value_usd",
+                "annual_revenue_uplift_usd",
+                "annual_net_benefit_usd",
+                "first_year_roi_percent",
+                "payback_months"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "assumptions": { "type": "array", "items": { "type": "string" } },
+          "excluded_benefits": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "disclaimer": { "type": "string" }
+        },
+        "required": ["audit_id", "currency", "scenarios", "assumptions", "excluded_benefits", "confidence", "disclaimer"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "recommend_solution_stack",
+      "title": "Recommend an Automation Approach",
+      "description": "Recommends implementation patterns and vendor-neutral capability categories for selected workflows. Named products are optional examples, not paid endorsements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string", "pattern": "^aud_[a-zA-Z0-9]+$" },
+          "workflow_ids": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^wf_[a-zA-Z0-9]+$" },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "preference": {
+            "type": "string",
+            "enum": ["lowest_cost", "fastest_launch", "most_scalable", "least_change", "balanced"],
+            "default": "balanced"
+          },
+          "allow_named_products": { "type": "boolean", "default": true }
+        },
+        "required": ["audit_id", "workflow_ids"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string" },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "workflow_id": { "type": "string" },
+                "architecture_pattern": { "type": "string" },
+                "capabilities": { "type": "array", "items": { "type": "string" } },
+                "example_products": { "type": "array", "items": { "type": "string" } },
+                "human_review_points": { "type": "array", "items": { "type": "string" } },
+                "security_controls": { "type": "array", "items": { "type": "string" } },
+                "implementation_complexity": { "type": "string", "enum": ["low", "medium", "high"] }
+              },
+              "required": [
+                "workflow_id",
+                "architecture_pattern",
+                "capabilities",
+                "example_products",
+                "human_review_points",
+                "security_controls",
+                "implementation_complexity"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["audit_id", "recommendations"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "generate_roadmap",
+      "title": "Build a 90-Day Automation Roadmap",
+      "description": "Creates a sequenced 30/60/90-day roadmap from scored opportunities, ROI estimates, dependencies, and business constraints.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string", "pattern": "^aud_[a-zA-Z0-9]+$" },
+          "workflow_ids": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^wf_[a-zA-Z0-9]+$" },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "start_date": { "type": "string", "format": "date" },
+          "delivery_capacity": {
+            "type": "string",
+            "enum": ["owner_only", "small_internal_team", "implementation_partner", "mixed_team"],
+            "default": "mixed_team"
+          },
+          "max_parallel_initiatives": { "type": "integer", "minimum": 1, "maximum": 5, "default": 2 }
+        },
+        "required": ["audit_id", "workflow_ids"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string" },
+          "roadmap_id": { "type": "string", "pattern": "^rm_[a-zA-Z0-9]+$" },
+          "phases": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "properties": {
+                "phase": { "type": "string", "enum": ["days_1_30", "days_31_60", "days_61_90"] },
+                "objective": { "type": "string" },
+                "initiatives": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "workflow_id": { "type": "string" },
+                      "deliverable": { "type": "string" },
+                      "owner_role": { "type": "string" },
+                      "dependencies": { "type": "array", "items": { "type": "string" } },
+                      "success_metric": { "type": "string" },
+                      "decision_gate": { "type": "string" }
+                    },
+                    "required": ["workflow_id", "deliverable", "owner_role", "dependencies", "success_metric", "decision_gate"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["phase", "objective", "initiatives"],
+              "additionalProperties": false
+            }
+          },
+          "critical_dependencies": { "type": "array", "items": { "type": "string" } },
+          "executive_decisions": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["audit_id", "roadmap_id", "phases", "critical_dependencies", "executive_decisions"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_audit_report",
+      "title": "Generate the AuditFlow Report",
+      "description": "Returns the current executive audit report with ranked opportunities, ROI scenarios, roadmap, evidence gaps, and ImpactWorks sprint-fit assessment.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string", "pattern": "^aud_[a-zA-Z0-9]+$" },
+          "audience": {
+            "type": "string",
+            "enum": ["owner", "executive_team", "operations_team", "implementation_partner"],
+            "default": "owner"
+          },
+          "detail_level": {
+            "type": "string",
+            "enum": ["executive", "standard", "implementation"],
+            "default": "standard"
+          },
+          "include_sprint_fit": { "type": "boolean", "default": true }
+        },
+        "required": ["audit_id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": { "type": "string" },
+          "report_version": { "type": "string" },
+          "generated_at": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "enum": ["draft", "decision_ready", "complete"] },
+          "business_snapshot": { "type": "object" },
+          "executive_summary": { "type": "string" },
+          "top_opportunities": { "type": "array", "items": { "type": "object" } },
+          "roi_summary": { "type": "object" },
+          "roadmap_summary": { "type": "object" },
+          "evidence_gaps": { "type": "array", "items": { "type": "string" } },
+          "risks": { "type": "array", "items": { "type": "string" } },
+          "sprint_fit": {
+            "type": "object",
+            "properties": {
+              "qualified": { "type": "boolean" },
+              "fit_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+              "recommended_sprint": { "type": ["string", "null"] },
+              "scope": { "type": "array", "items": { "type": "string" } },
+              "reasons": { "type": "array", "items": { "type": "string" } },
+              "next_step": { "type": "string" }
+            },
+            "required": ["qualified", "fit_score", "recommended_sprint", "scope", "reasons", "next_step"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "audit_id",
+          "report_version",
+          "generated_at",
+          "status",
+          "business_snapshot",
+          "executive_summary",
+          "top_opportunities",
+          "roi_summary",
+          "roadmap_summary",
+          "evidence_gaps",
+          "risks",
+          "sprint_fit"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "_meta": {
+        "ui": { "resourceUri": "ui://impactworks-auditflow/report.html" },
+        "openai/outputTemplate": "ui://impactworks-auditflow/report.html",
+        "openai/toolInvocation/invoking": "Building your AuditFlow report",
+        "openai/toolInvocation/invoked": "AuditFlow report ready"
+      }
+    }
+  ]
+}

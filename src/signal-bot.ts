@@ -205,7 +205,7 @@ function extractFileMarkers(text: string): { text: string; files: FileMarker[] }
 }
 
 const AVAILABLE_MODELS: Record<string, string> = {
-  opus: 'claude-opus-4-6',
+  opus: 'claude-opus-5',
   sonnet: 'claude-sonnet-4-5',
   haiku: 'claude-haiku-4-5',
 };
@@ -364,7 +364,7 @@ export function createSignalBot(): SignalBot {
     const userModel = chatModelOverride.get(chatId) ?? agentDefaultModel;
     const effectiveModel = (SMART_ROUTING_ENABLED && !userModel && classifyMessageComplexity(message) === 'simple')
       ? SMART_ROUTING_CHEAP_MODEL
-      : (userModel ?? 'claude-opus-4-6');
+      : (userModel ?? 'claude-opus-5');
 
     void sendTyping(chatId);
     const typingInterval = setInterval(() => void sendTyping(chatId), SIGNAL_TYPING_REFRESH_MS);
@@ -585,7 +585,7 @@ export function createSignalBot(): SignalBot {
       case 'model': {
         const key = arg.toLowerCase();
         if (!key) {
-          const current = chatModelOverride.get(chatId) ?? agentDefaultModel ?? 'claude-opus-4-6';
+          const current = chatModelOverride.get(chatId) ?? agentDefaultModel ?? 'claude-opus-5';
           await sendMessage(chatId, `Current model: ${current}\n\nUsage: /model <opus|sonnet|haiku>`);
           return true;
         }

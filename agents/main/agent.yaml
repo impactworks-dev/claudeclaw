@@ -3,7 +3,7 @@ description: Primary assistant -- operations, admin, scheduling, task management
 
 telegram_bot_token_env: TELEGRAM_BOT_TOKEN
 
-model: claude-opus-4-6
+model: claude-opus-5
 
 obsidian:
   vault: /app/store/obsidian-brain
