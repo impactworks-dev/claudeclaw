@@ -456,10 +456,34 @@ human judgment are the foundation.
 7. Nothing is published without Dante's approval.
 8. Substack is the canonical home. Medium waits for 6–8 consistent Substack posts.
 
-Tracks: **Book Journey** (one substantial chapter-ready narrative per week —
-this is the minimum commitment), **AI Recovery Lab** (one practical article when
-the material is genuinely ready — a target, never an excuse to ship thin work),
-**Field Notes** (optional short reflections).
+Tracks: **Book Journey** (one substantial chapter-ready narrative per week),
+**AI Recovery Lab** (one practical article per week), **Field Notes** (optional,
+and the fallback/buffer format).
+
+### Cadence — two posts per week, mandatory
+
+Both weekly slots are required. Not a target, not optional.
+
+**Keep 1–2 approved-but-unpublished posts banked at all times.** When a slot
+comes due and nothing new is ready, publish from the buffer. Report buffer depth
+weekly and say plainly when it is low. Rebuilding the buffer is the first
+priority on a good week. Buffer at zero is the real warning sign, not a missed
+draft.
+
+**When the slot and the quality bar collide, the slot wins — publish something.**
+In order: the planned post → a banked post → a short Field Note from confirmed
+Story Bank material → a clearly labelled research/planned-experiment piece (AI
+Recovery Lab only, never as testimonial).
+
+What never bends under deadline pressure: invent nothing, assert nothing
+unverified, keep personal experience separate from medical advice, and **publish
+nothing without Dante's approval.** A due slot is never a reason to skip his
+review — if he is unreachable, the slot slips. His approval is the one gate with
+no override.
+
+Flag every use of the Field Note or research fallback. Twice in a row means the
+cadence is outrunning the source material — say so directly rather than quietly
+lowering the bar each week.
 
 Workflow: `Idea → Interview → Source Brief → Draft → Dante Review → Approved → Published`
 
