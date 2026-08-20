@@ -26,20 +26,20 @@ const AGENT_ID = agentFlagIndex !== -1 ? process.argv[agentFlagIndex + 1] : 'mai
 process.env.CLAUDECLAW_AGENT_ID = AGENT_ID;
 
 function appendNikkiIdentityContract(systemPrompt: string | undefined): string | undefined {
-  if (!systemPrompt || (!NIKKI_IDENTITY_CONTRACT_PATH && !NIKKI_IDENTITY_CONTRACT_B64)) return systemPrompt;
+  if (!NIKKI_IDENTITY_CONTRACT_PATH && !NIKKI_IDENTITY_CONTRACT_B64) return systemPrompt;
   try {
     const contract = NIKKI_IDENTITY_CONTRACT_B64
       ? Buffer.from(NIKKI_IDENTITY_CONTRACT_B64, 'base64').toString('utf-8').trim()
       : fs.readFileSync(NIKKI_IDENTITY_CONTRACT_PATH, 'utf-8').trim();
     if (!contract) return systemPrompt;
     return [
-      systemPrompt.trimEnd(),
+      systemPrompt?.trimEnd(),
       '',
       '[Canonical Nikki Identity and Operating Contract]',
       contract,
       '[End Canonical Nikki Identity and Operating Contract]',
       '',
-    ].join('\n');
+    ].filter((part) => part !== undefined).join('\n');
   } catch (err: any) {
     logger.warn(
       { path: NIKKI_IDENTITY_CONTRACT_PATH, err: err?.message },
@@ -93,11 +93,22 @@ if (AGENT_ID !== 'main') {
       });
       logger.info({ source: claudeMdSource }, 'Loaded CLAUDE.md from CLAUDECLAW_CONFIG');
     }
-  } else if (!fs.existsSync(path.join(PROJECT_ROOT, 'CLAUDE.md'))) {
-    logger.warn(
-      'No CLAUDE.md found. Copy CLAUDE.md.example to %s/agents/main/CLAUDE.md and customize it.',
-      CLAUDECLAW_CONFIG,
-    );
+  } else {
+    const systemPrompt = appendNikkiIdentityContract(undefined);
+    if (systemPrompt) {
+      setAgentOverrides({
+        agentId: 'main',
+        botToken: activeBotToken,
+        cwd: PROJECT_ROOT,
+        systemPrompt,
+      });
+      logger.info('Loaded canonical Nikki identity contract as system prompt');
+    } else if (!fs.existsSync(path.join(PROJECT_ROOT, 'CLAUDE.md'))) {
+      logger.warn(
+        'No CLAUDE.md found. Copy CLAUDE.md.example to %s/agents/main/CLAUDE.md and customize it.',
+        CLAUDECLAW_CONFIG,
+      );
+    }
   }
 }
 
