@@ -22,6 +22,7 @@ const envConfig = readEnvFile([
   'DASHBOARD_TOKEN',
   'DASHBOARD_URL',
   'CLAUDECLAW_CONFIG',
+  'NIKKI_IDENTITY_CONTRACT_PATH',
   'DB_ENCRYPTION_KEY',
   'GOOGLE_API_KEY',
   'GMAIL_REFRESH_TOKEN',
@@ -156,6 +157,17 @@ const rawConfigDir =
  * Defaults to ~/.claudeclaw. Set CLAUDECLAW_CONFIG in .env or environment to override.
  */
 export const CLAUDECLAW_CONFIG = expandHome(rawConfigDir);
+
+const rawNikkiIdentityContractPath =
+  process.env.NIKKI_IDENTITY_CONTRACT_PATH || envConfig.NIKKI_IDENTITY_CONTRACT_PATH || '';
+
+/**
+ * Optional path to Nikki's canonical identity and operating contract.
+ * When set, the main ClaudeClaw bot appends the file to its system prompt.
+ */
+export const NIKKI_IDENTITY_CONTRACT_PATH = rawNikkiIdentityContractPath
+  ? expandHome(rawNikkiIdentityContractPath)
+  : '';
 
 // Telegram limits
 export const MAX_MESSAGE_LENGTH = 4096;
@@ -321,4 +333,3 @@ export const WARROOM_PORT = parseInt(
   process.env.WARROOM_PORT || envConfig.WARROOM_PORT || '7860',
   10,
 );
-

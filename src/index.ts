@@ -5,7 +5,7 @@ import { loadAgentConfig, listAgentIds, resolveAgentDir, resolveAgentClaudeMd } 
 import { createBot } from './bot.js';
 import { createSignalBot, SignalBot } from './signal-bot.js';
 import { checkPendingMigrations } from './migrations.js';
-import { ALLOWED_CHAT_ID, activeBotToken, STORE_DIR, PROJECT_ROOT, CLAUDECLAW_CONFIG, GOOGLE_API_KEY, setAgentOverrides, SECURITY_PIN_HASH, IDLE_LOCK_MINUTES, EMERGENCY_KILL_PHRASE, WARROOM_ENABLED, WARROOM_PORT, MESSENGER_TYPE, SIGNAL_AUTHORIZED_RECIPIENTS, SIGNAL_PHONE_NUMBER } from './config.js';
+import { ALLOWED_CHAT_ID, activeBotToken, STORE_DIR, PROJECT_ROOT, CLAUDECLAW_CONFIG, GOOGLE_API_KEY, NIKKI_IDENTITY_CONTRACT_PATH, setAgentOverrides, SECURITY_PIN_HASH, IDLE_LOCK_MINUTES, EMERGENCY_KILL_PHRASE, WARROOM_ENABLED, WARROOM_PORT, MESSENGER_TYPE, SIGNAL_AUTHORIZED_RECIPIENTS, SIGNAL_PHONE_NUMBER } from './config.js';
 import { startDashboard } from './dashboard.js';
 import { initDatabase, cleanupOldMissionTasks, insertAuditLog } from './db.js';
 import { initSecurity, setAuditCallback } from './security.js';
@@ -24,6 +24,28 @@ const AGENT_ID = agentFlagIndex !== -1 ? process.argv[agentFlagIndex + 1] : 'mai
 
 // Export AGENT_ID to env so child processes (schedule-cli, etc.) inherit it
 process.env.CLAUDECLAW_AGENT_ID = AGENT_ID;
+
+function appendNikkiIdentityContract(systemPrompt: string | undefined): string | undefined {
+  if (!systemPrompt || !NIKKI_IDENTITY_CONTRACT_PATH) return systemPrompt;
+  try {
+    const contract = fs.readFileSync(NIKKI_IDENTITY_CONTRACT_PATH, 'utf-8').trim();
+    if (!contract) return systemPrompt;
+    return [
+      systemPrompt.trimEnd(),
+      '',
+      '[Canonical Nikki Identity and Operating Contract]',
+      contract,
+      '[End Canonical Nikki Identity and Operating Contract]',
+      '',
+    ].join('\n');
+  } catch (err: any) {
+    logger.warn(
+      { path: NIKKI_IDENTITY_CONTRACT_PATH, err: err?.message },
+      'Nikki identity contract was configured but could not be loaded',
+    );
+    return systemPrompt;
+  }
+}
 
 if (AGENT_ID !== 'main') {
   const agentConfig = loadAgentConfig(AGENT_ID);
@@ -59,6 +81,7 @@ if (AGENT_ID !== 'main') {
     try {
       systemPrompt = fs.readFileSync(claudeMdSource, 'utf-8');
     } catch { /* unreadable */ }
+    systemPrompt = appendNikkiIdentityContract(systemPrompt);
     if (systemPrompt) {
       setAgentOverrides({
         agentId: 'main',
