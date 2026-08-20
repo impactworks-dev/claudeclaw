@@ -23,6 +23,7 @@ const envConfig = readEnvFile([
   'DASHBOARD_URL',
   'CLAUDECLAW_CONFIG',
   'NIKKI_IDENTITY_CONTRACT_PATH',
+  'NIKKI_IDENTITY_CONTRACT_B64',
   'DB_ENCRYPTION_KEY',
   'GOOGLE_API_KEY',
   'GMAIL_REFRESH_TOKEN',
@@ -160,6 +161,8 @@ export const CLAUDECLAW_CONFIG = expandHome(rawConfigDir);
 
 const rawNikkiIdentityContractPath =
   process.env.NIKKI_IDENTITY_CONTRACT_PATH || envConfig.NIKKI_IDENTITY_CONTRACT_PATH || '';
+const rawNikkiIdentityContractB64 =
+  process.env.NIKKI_IDENTITY_CONTRACT_B64 || envConfig.NIKKI_IDENTITY_CONTRACT_B64 || '';
 
 /**
  * Optional path to Nikki's canonical identity and operating contract.
@@ -168,6 +171,12 @@ const rawNikkiIdentityContractPath =
 export const NIKKI_IDENTITY_CONTRACT_PATH = rawNikkiIdentityContractPath
   ? expandHome(rawNikkiIdentityContractPath)
   : '';
+
+/**
+ * Optional base64-encoded Nikki contract. Intended for server deployments where
+ * the private G-Brain workspace path is not present on disk.
+ */
+export const NIKKI_IDENTITY_CONTRACT_B64 = rawNikkiIdentityContractB64;
 
 // Telegram limits
 export const MAX_MESSAGE_LENGTH = 4096;
