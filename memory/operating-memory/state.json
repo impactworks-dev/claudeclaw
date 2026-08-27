@@ -1,0 +1,94 @@
+{
+  "output_path": "memory/operating-memory",
+  "current_phase": "smoke_pass_complete",
+  "completed_phases": [
+    "orientation",
+    "gbrain_read_check",
+    "structure_created",
+    "initial_context_pack_created",
+    "google_drive_smoke_ingest"
+    ,"gbrain_sync_completed"
+    ,"periodic_review_heartbeat_created"
+    ,"unabyss_pointers_stored"
+  ],
+  "sources_discovered": [
+    "source-claudeclaw-repo",
+    "source-memory-summary",
+    "source-gbrain-health",
+    "source-obsidian-path",
+    "gdrive-impactworks-automation-services",
+    "gdrive-impactworks-project-management-services",
+    "gdrive-impactworks-integration-services",
+    "gdrive-ai-consulting-blueprint-2026",
+    "gdrive-fishbat-ai-platform-proposal",
+    "gdrive-conversations-ai-presentation",
+    "gdrive-zagg-revenue-sharing-redline",
+    "gdrive-impactworks-portfolio-pdf"
+  ],
+  "sources_ingested": [
+    "source-claudeclaw-repo",
+    "source-memory-summary",
+    "source-gbrain-health",
+    "source-obsidian-path",
+    "gdrive-impactworks-automation-services",
+    "gdrive-impactworks-project-management-services",
+    "gdrive-impactworks-integration-services",
+    "gdrive-ai-consulting-blueprint-2026",
+    "gdrive-fishbat-ai-platform-proposal",
+    "gdrive-conversations-ai-presentation",
+    "gdrive-zagg-revenue-sharing-redline"
+  ],
+  "connector_status": {
+    "gbrain": {
+      "connected": true,
+      "read_checked": true,
+      "write_checked": true,
+      "notes": "Published selected context-pack/source pages via put_page, logged ingest via log_ingest, and verified retrieval via search."
+    },
+    "clickup": {
+      "connected": false,
+      "notes": "No ClickUp connector exposed in this task."
+    },
+    "obsidian": {
+      "path_known": true,
+      "direct_write_performed": false,
+      "notes": "Private vault content was not copied or mutated."
+    },
+    "unabyss": {
+      "connected_here": true,
+      "write_checked": true,
+      "notes": "Stored high-level durable facts/pointers about operating-memory package, G-Brain sync, role split, and retrieval rules. Full context packs were not duplicated into Unabyss."
+    }
+  },
+  "batches_completed": 2,
+  "canonical_notes_created": [
+    "README.md",
+    "SOURCE-MANIFEST.md",
+    "INGESTION-LOG.md",
+    "VALIDATION-REPORT.md",
+    "COMPLETION-AUDIT.md",
+    "Context Packs/ImpactWorks Rocket Local Agent Brief.md",
+    "Procedures/Build Source-Backed Context Pack.md",
+    "Procedures/G-Brain Sync Procedure.md",
+    "G-BRAIN-HANDOFF.md",
+    "Sources/Google Drive Smoke Ingest 2026-08-27.md",
+    "Context Packs/Google Drive Ingest Brief 2026-08-27.md",
+    "Companies/ImpactWorks.md",
+    "Companies/Rocket Local AI.md",
+    "Companies/Fishbat Media.md",
+    "Projects/ZAGG Phone Repair Platform.md"
+  ],
+  "validation_status": "pass",
+  "next_actions": [
+    "Create project-specific context packs for portfolio, proposals, and active client delivery.",
+    "Run a second Google Drive pass for known client names after Dante approves the broader scope."
+  ],
+  "blockers": [
+    "No ClickUp connector is exposed in this Codex task."
+  ],
+  "automation": {
+    "id": "operating-memory-ingest-and-g-brain-sync-review",
+    "purpose": "Weekly review to decide whether a controlled operating-memory ingest and G-Brain sync makes sense, then store high-level sync pointers in Unabyss when useful."
+  },
+  "updated_at": "2026-08-27T18:24:00Z"
+}
