@@ -40,3 +40,19 @@ Append-only log for compiled context work.
   - Obsidian / Unabyss / G-Brain / ClickUp / Codex role split
   - agent retrieval rule for ImpactWorks/Rocket Local context packs
 - Updated the recurring heartbeat so future successful G-Brain syncs also store concise pointer/status facts in Unabyss.
+
+## 2026-08-27 Google Drive client project pass
+
+- Checked the canonical ImpactWorks `05 Clients` folder.
+- Inspected/listed focused client folders for ZAGG Phone Repair, Data Check Systems, Preventative Diagnostics Group/VascuScreen, Iron Gate Partners, ReeSource Pest, and Fishbat Media.
+- Fetched/read selected high-signal Drive docs/decks for:
+  - ZAGG Phone Repair Platform
+  - Data Check Systems portal and website
+  - VascuScreen medical device website and AI portal
+  - Preventative Diagnostics Group three-site website scope
+  - IG Advisors / IG Biz Advisors tariff recovery and Section 125/FICA optimization website
+  - ReeSource Pest Rocket Local service recommendations
+- Created source trace: [[Google Drive Client Project Ingest 2026-08-27]].
+- Created context pack: [[Client Project Brief 2026-08-27]].
+- Created/updated project notes for [[ZAGG Phone Repair Platform]], [[Data Check Systems Portal and Website]], [[VascuScreen Medical Device Website and AI Portal]], [[IG Advisors Tariff Recovery and Benefits Website]], and [[ReeSource Pest Website and Rocket Local Services]].
+- Avoided broad raw Drive ingestion and kept pricing/payment/legal details out of general context except where needed to explain scope.

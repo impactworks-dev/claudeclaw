@@ -1,6 +1,6 @@
 {
   "output_path": "memory/operating-memory",
-  "current_phase": "smoke_pass_complete",
+  "current_phase": "client_project_pass_complete",
   "completed_phases": [
     "orientation",
     "gbrain_read_check",
@@ -10,6 +10,7 @@
     ,"gbrain_sync_completed"
     ,"periodic_review_heartbeat_created"
     ,"unabyss_pointers_stored"
+    ,"google_drive_client_project_ingest"
   ],
   "sources_discovered": [
     "source-claudeclaw-repo",
@@ -23,7 +24,24 @@
     "gdrive-fishbat-ai-platform-proposal",
     "gdrive-conversations-ai-presentation",
     "gdrive-zagg-revenue-sharing-redline",
-    "gdrive-impactworks-portfolio-pdf"
+    "gdrive-impactworks-portfolio-pdf",
+    "gdrive-clients-folder-05",
+    "gdrive-zagg-folder",
+    "gdrive-zagg-repair-platform-deck",
+    "gdrive-data-check-folder",
+    "gdrive-dcs-customer-portal-proposal",
+    "gdrive-dcs-website-redesign-realignment",
+    "gdrive-dcs-web-engineering-meeting",
+    "gdrive-dcs-website-feedback",
+    "gdrive-pdg-folder",
+    "gdrive-vascuscreen-folder",
+    "gdrive-vascuscreen-health-intelligence-portal",
+    "gdrive-vascuscreen-content-meeting",
+    "gdrive-pdg-three-site-quote",
+    "gdrive-iron-gate-folder",
+    "gdrive-ig-advisors-website-copy",
+    "gdrive-reesource-folder",
+    "gdrive-reesource-recommended-services"
   ],
   "sources_ingested": [
     "source-claudeclaw-repo",
@@ -36,7 +54,17 @@
     "gdrive-ai-consulting-blueprint-2026",
     "gdrive-fishbat-ai-platform-proposal",
     "gdrive-conversations-ai-presentation",
-    "gdrive-zagg-revenue-sharing-redline"
+    "gdrive-zagg-revenue-sharing-redline",
+    "gdrive-zagg-repair-platform-deck",
+    "gdrive-dcs-customer-portal-proposal",
+    "gdrive-dcs-website-redesign-realignment",
+    "gdrive-dcs-web-engineering-meeting",
+    "gdrive-dcs-website-feedback",
+    "gdrive-vascuscreen-health-intelligence-portal",
+    "gdrive-vascuscreen-content-meeting",
+    "gdrive-pdg-three-site-quote",
+    "gdrive-ig-advisors-website-copy",
+    "gdrive-reesource-recommended-services"
   ],
   "connector_status": {
     "gbrain": {
@@ -60,7 +88,7 @@
       "notes": "Stored high-level durable facts/pointers about operating-memory package, G-Brain sync, role split, and retrieval rules. Full context packs were not duplicated into Unabyss."
     }
   },
-  "batches_completed": 2,
+  "batches_completed": 3,
   "canonical_notes_created": [
     "README.md",
     "SOURCE-MANIFEST.md",
@@ -76,12 +104,18 @@
     "Companies/ImpactWorks.md",
     "Companies/Rocket Local AI.md",
     "Companies/Fishbat Media.md",
-    "Projects/ZAGG Phone Repair Platform.md"
+    "Projects/ZAGG Phone Repair Platform.md",
+    "Sources/Google Drive Client Project Ingest 2026-08-27.md",
+    "Context Packs/Client Project Brief 2026-08-27.md",
+    "Projects/Data Check Systems Portal and Website.md",
+    "Projects/VascuScreen Medical Device Website and AI Portal.md",
+    "Projects/IG Advisors Tariff Recovery and Benefits Website.md",
+    "Projects/ReeSource Pest Website and Rocket Local Services.md"
   ],
   "validation_status": "pass",
   "next_actions": [
-    "Create project-specific context packs for portfolio, proposals, and active client delivery.",
-    "Run a second Google Drive pass for known client names after Dante approves the broader scope."
+    "Add any missing portfolio-priority client notes from remaining 05 Clients folders when needed.",
+    "Use the client project brief before drafting Upwork portfolio entries or client case studies."
   ],
   "blockers": [
     "No ClickUp connector is exposed in this Codex task."
@@ -90,5 +124,5 @@
     "id": "operating-memory-ingest-and-g-brain-sync-review",
     "purpose": "Weekly review to decide whether a controlled operating-memory ingest and G-Brain sync makes sense, then store high-level sync pointers in Unabyss when useful."
   },
-  "updated_at": "2026-08-27T18:24:00Z"
+  "updated_at": "2026-08-27T19:06:00Z"
 }
