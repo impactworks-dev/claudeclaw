@@ -103,6 +103,7 @@ RUN mkdir -p /app/.claude && printf '%s\n' \
   '{"mcpServers":{' \
   '  "clickup":{"command":"node","args":["/app/connectors/clickup/server.mjs"],"env":{"CLICKUP_TEAM_ID":"10584109"}},' \
   '  "google_workspace_read":{"command":"node","args":["/app/connectors/google-workspace-read/server.mjs"]},' \
+  '  "google_workspace_actions":{"command":"node","args":["/app/connectors/google-workspace-actions/server.mjs"]},' \
   '  "goldfish":{"type":"sse","url":"https://goldfish-mcp.impactworks.com/sse"}' \
   '}}' \
   > /app/.claude/settings.json
