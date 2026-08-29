@@ -117,6 +117,7 @@ import { getMembersData, addMember, updateMember } from './members-data.js';
 import { getCashData, createLinkToken, exchangePublicToken } from './cash-data.js';
 import { getQbData } from './qb-data.js';
 import { getStocksData, invalidateStocksCache } from './stocks-data.js';
+import { createAgentMailWebhookHandler } from './agentmail.js';
 import { loadTickers, addTicker, removeTicker } from './stocks-tickers.js';
 import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
@@ -335,6 +336,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   }
 
   const app = new Hono();
+  const handleAgentMailWebhook = createAgentMailWebhookHandler();
 
   // CORS headers for cross-origin access (Cloudflare tunnel, mobile browsers).
   // Reflect Origin only when it matches a known-good host (audit fix A4E-3,
@@ -432,6 +434,14 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     await next();
+  });
+
+  // AgentMail cannot present the dashboard bearer token. This endpoint sits
+  // outside /api and authenticates every request with AgentMail's Svix HMAC
+  // signature instead. The handler acknowledges quickly and processes the
+  // email on a per-thread FIFO queue so webhook retries cannot duplicate work.
+  app.post('/webhooks/agentmail', async (c) => {
+    return handleAgentMailWebhook(c.req.raw);
   });
 
   // Serve dashboard.

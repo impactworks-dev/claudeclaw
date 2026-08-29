@@ -7,6 +7,7 @@ import { AGENT_MAX_TURNS, PROJECT_ROOT, agentCwd } from './config.js';
 import { readEnvFile } from './env.js';
 import { classifyError, AgentError } from './errors.js';
 import { logger } from './logger.js';
+import { getScrubbedSdkEnv } from './security.js';
 
 // ── MCP server loading ──────────────────────────────────────────────
 // The Agent SDK's settingSources loads CLAUDE.md and permissions from
@@ -184,6 +185,13 @@ export interface AgentResult {
   aborted?: boolean;
 }
 
+export interface AgentToolPolicy {
+  permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  maxTurns?: number;
+}
+
 /**
  * A minimal AsyncIterable that yields a single user message then closes.
  * This is the format the Claude Agent SDK expects for its `prompt` parameter.
@@ -230,35 +238,14 @@ export async function runAgent(
   onStreamText?: (accumulatedText: string) => void,
   mcpAllowlist?: string[],
   agentSystemPrompt?: string,
+  toolPolicy?: AgentToolPolicy,
 ): Promise<AgentResult> {
   // Read secrets from .env without polluting process.env.
   // CLAUDE_CODE_OAUTH_TOKEN is optional — the subprocess finds auth via ~/.claude/
   // automatically. Only needed if you want to override which account is used.
   const secrets = readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
 
-  const sdkEnv: Record<string, string | undefined> = { ...process.env };
-
-  // Strip env vars set by a wrapping Claude Code session (e.g. when PM2 is
-  // started from inside a `claude` terminal). The nested subprocess inherits
-  // these and immediately exits with code 1 thinking it's a nested instance.
-  for (const key of [
-    'CLAUDECODE',
-    'CLAUDE_CODE_ENTRYPOINT',
-    'CLAUDE_CODE_EXECPATH',
-    'CLAUDE_CODE_SSE_PORT',
-    'CLAUDE_CODE_IPC_PORT',
-    'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
-    'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS',
-  ]) {
-    delete sdkEnv[key];
-  }
-
-  if (secrets.CLAUDE_CODE_OAUTH_TOKEN) {
-    sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = secrets.CLAUDE_CODE_OAUTH_TOKEN;
-  }
-  if (secrets.ANTHROPIC_API_KEY) {
-    sdkEnv.ANTHROPIC_API_KEY = secrets.ANTHROPIC_API_KEY;
-  }
+  const sdkEnv = getScrubbedSdkEnv(secrets);
 
   let newSessionId: string | undefined;
   let resultText: string | null = null;
@@ -305,16 +292,23 @@ export async function runAgent(
         // Resume the previous session for this chat (persistent context)
         resume: sessionId,
 
-        // 'project' loads CLAUDE.md from cwd; 'user' loads ~/.claude/skills/ and user settings
+        // 'project' loads CLAUDE.md from cwd; 'user' loads global skills/settings.
         settingSources: ['project', 'user'],
 
-        // Skip all permission prompts — this is a trusted personal bot on your own machine
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
+        // Telegram keeps its trusted local behavior. Unattended channels such
+        // as AgentMail pass an explicit default-deny policy instead.
+        permissionMode: toolPolicy?.permissionMode ?? 'bypassPermissions',
+        ...(!toolPolicy || toolPolicy.permissionMode === 'bypassPermissions'
+          ? { allowDangerouslySkipPermissions: true }
+          : {}),
+        ...(toolPolicy?.allowedTools ? { allowedTools: toolPolicy.allowedTools } : {}),
+        ...(toolPolicy?.disallowedTools ? { disallowedTools: toolPolicy.disallowedTools } : {}),
 
         // Cap agentic turns to prevent runaway tool-use loops (e.g. retrying
         // stale cookies 40+ times). Configurable via AGENT_MAX_TURNS in .env.
-        ...(AGENT_MAX_TURNS > 0 ? { maxTurns: AGENT_MAX_TURNS } : {}),
+        ...((toolPolicy?.maxTurns ?? AGENT_MAX_TURNS) > 0
+          ? { maxTurns: toolPolicy?.maxTurns ?? AGENT_MAX_TURNS }
+          : {}),
 
         // Pass secrets to the subprocess without polluting our own process.env
         env: sdkEnv,
