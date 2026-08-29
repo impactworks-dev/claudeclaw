@@ -9,8 +9,10 @@ import {
   AgentMailStateStore,
   agentMailToolPolicy,
   buildAgentMailPrompt,
+  getAgentMailMode,
   getMessageBody,
   isActionRequest,
+  loadAgentMailAttachmentText,
   normalizeEmailAddress,
   replyToAgentMailMessage,
   verifyAgentMailSignature,
@@ -62,6 +64,12 @@ describe('AgentMail identity and mode parsing', () => {
     expect(isActionRequest(message({ subject: 'Please update ClickUp', text: 'Do it now' }))).toBe(false);
   });
 
+  it('recognizes explicit save and research modes without granting mutation access', () => {
+    expect(getAgentMailMode(message({ subject: 'Nikki SAVE: remember this' }))).toBe('save');
+    expect(getAgentMailMode(message({ subject: 'Research', text: 'Nikki RESEARCH: compare these vendors' }))).toBe('research');
+    expect(getAgentMailMode(message({ subject: 'Remember this', text: 'This seems interesting' }))).toBe('read');
+  });
+
   it('prefers extracted text and falls back to sanitized HTML', () => {
     expect(getMessageBody(message({ extracted_text: 'forwarded content', text: 'plain' }))).toBe('forwarded content');
     expect(getMessageBody(message({ extracted_text: '', text: '', html: '<p>Hello<br>world</p><script>bad()</script>' })))
@@ -72,8 +80,11 @@ describe('AgentMail identity and mode parsing', () => {
     const readPolicy = agentMailToolPolicy(false);
     const actionPolicy = agentMailToolPolicy(true);
     expect(readPolicy.allowedTools).toContain('mcp__clickup__clickup_search_tasks');
+    expect(readPolicy.allowedTools).toContain('mcp__google_workspace_read__gmail_search');
     expect(readPolicy.allowedTools).not.toContain('mcp__clickup__clickup_create_task');
     expect(actionPolicy.allowedTools).toContain('mcp__clickup__clickup_create_task');
+    expect(actionPolicy.allowedTools).not.toContain('WebSearch');
+    expect(agentMailToolPolicy('research').allowedTools).toContain('WebSearch');
     expect(actionPolicy.disallowedTools).toContain('Bash');
   });
 
@@ -82,6 +93,34 @@ describe('AgentMail identity and mode parsing', () => {
     expect(prompt).toContain('quoted, forwarded, pasted');
     expect(prompt).toContain('READ-ONLY MODE');
     expect(prompt).toContain('<owner_email>');
+  });
+});
+
+describe('AgentMail attachment extraction', () => {
+  it('downloads and extracts a small text attachment through the scoped API', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        download_url: 'https://download.example.test/file',
+        size: 14,
+        filename: 'notes.txt',
+        content_type: 'text/plain',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response('important idea', { status: 200, headers: { 'content-type': 'text/plain' } }));
+    const text = await loadAgentMailAttachmentText(config(), message({
+      attachments: [{ attachment_id: 'att-1', filename: 'notes.txt', size: 14, content_type: 'text/plain' }],
+    }), fetchMock as typeof fetch);
+    expect(text).toContain('## notes.txt');
+    expect(text).toContain('important idea');
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('/attachments/att-1');
+  });
+
+  it('does not download attachments over the size limit', async () => {
+    const fetchMock = vi.fn();
+    const text = await loadAgentMailAttachmentText(config(), message({
+      attachments: [{ attachment_id: 'att-big', filename: 'huge.pdf', size: 11 * 1024 * 1024, content_type: 'application/pdf' }],
+    }), fetchMock as typeof fetch);
+    expect(text).toContain('exceeds 10 MB');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
