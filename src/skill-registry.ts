@@ -196,11 +196,19 @@ function scanDirectory(dir: string): void {
  * Scan skills/ (relative to project root) and ~/.claude/skills/ to
  * populate the registry. Safe to call multiple times; clears previous state.
  */
-export function initSkillRegistry(): void {
+export interface SkillRegistryInitOptions {
+  /** Override the repository root. Used by isolated tests and embedders. */
+  projectRoot?: string;
+  /** Override the home directory used for global Claude skills. */
+  homeDir?: string;
+}
+
+export function initSkillRegistry(opts: SkillRegistryInitOptions = {}): void {
   skills.clear();
 
   // Find project root by walking up from this file looking for CLAUDE.md
-  let projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const projectRoot = opts.projectRoot
+    ?? path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
   // Fallback: look for CLAUDE.md to confirm
   if (!fs.existsSync(path.join(projectRoot, 'CLAUDE.md'))) {
     // Already at a reasonable default, just continue
@@ -208,7 +216,8 @@ export function initSkillRegistry(): void {
   }
 
   const projectSkillsDir = path.join(projectRoot, 'skills');
-  const globalSkillsDir = path.join(os.homedir(), '.claude', 'skills');
+  const homeDir = opts.homeDir ?? process.env.HOME ?? os.homedir();
+  const globalSkillsDir = path.join(homeDir, '.claude', 'skills');
 
   // Scan project skills first (they take priority)
   scanDirectory(projectSkillsDir);

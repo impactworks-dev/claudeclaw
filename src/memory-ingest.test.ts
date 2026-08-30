@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(async function* () {
+    throw new Error('Claude unavailable in memory-ingest unit tests');
+  }),
+}));
+
 vi.mock('./gemini.js', () => ({
   generateContent: vi.fn(),
   parseJsonResponse: vi.fn(),

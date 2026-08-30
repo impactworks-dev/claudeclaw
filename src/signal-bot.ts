@@ -49,6 +49,7 @@ import {
   shouldNudgeMemory,
 } from './memory.js';
 import { classifyMessageComplexity } from './message-classifier.js';
+import { trustedChannelToolPolicy } from './trusted-tool-policy.js';
 import { messageQueue } from './message-queue.js';
 import { delegateToAgent, parseDelegation } from './orchestrator.js';
 import {
@@ -401,6 +402,8 @@ export function createSignalBot(): SignalBot {
         },
         MODEL_FALLBACK_CHAIN.length > 0 ? MODEL_FALLBACK_CHAIN : undefined,
         agentMcpAllowlist,
+        agentSystemPrompt,
+        trustedChannelToolPolicy(),
       );
 
       clearTimeout(timeoutId);
