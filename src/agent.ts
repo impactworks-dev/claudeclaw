@@ -522,6 +522,7 @@ export async function runAgentWithRetry(
   fallbackModels?: string[],
   mcpAllowlist?: string[],
   agentSystemPrompt?: string,
+  toolPolicy?: AgentToolPolicy,
 ): Promise<AgentResult> {
   let lastError: AgentError | undefined;
 
@@ -537,6 +538,7 @@ export async function runAgentWithRetry(
         message, sessionId, onTyping, onProgress,
         currentModel, abortController, onStreamText,
         mcpAllowlist, agentSystemPrompt,
+        toolPolicy,
       );
     } catch (err) {
       if (!(err instanceof AgentError)) throw err;

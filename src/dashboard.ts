@@ -133,6 +133,11 @@ import { getInbox, getThread, invalidateInboxCache } from './email-data.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
+import {
+  authenticateNikkiCore,
+  normalizeNikkiCoreRequest,
+  reasonWithNikkiCore,
+} from './nikki-core.js';
 import { getBrainProposals, invalidateProposalsCache, getMemoriesForTopic, updateMemoryTopics, removeTopicFromMemory, mergeTopics, updateMemorySummary } from './brain-proposals.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
@@ -442,6 +447,23 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // email on a per-thread FIFO queue so webhook retries cannot duplicate work.
   app.post('/webhooks/agentmail', async (c) => {
     return handleAgentMailWebhook(c.req.raw);
+  });
+
+  // Dedicated server-to-server bridge for Her301. It intentionally sits
+  // outside /api so it can use its own credential instead of DASHBOARD_TOKEN.
+  app.post('/internal/nikki-core/reason', async (c) => {
+    if (!authenticateNikkiCore(c.req.header('Authorization'))) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    try {
+      const request = normalizeNikkiCoreRequest(await c.req.json());
+      return c.json(await reasonWithNikkiCore(request));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nikki Core failed';
+      const status = /required|valid|too large/i.test(message) ? 400 : 500;
+      logger.warn({ err: message }, 'Nikki Core request failed');
+      return c.json({ error: message }, status);
+    }
   });
 
   // Serve dashboard.

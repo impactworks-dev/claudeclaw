@@ -36,6 +36,8 @@ export interface AgentConfig {
    *  menu and are dispatchable via /<name>. When absent, the bot sees
    *  every user_invocable skill under ~/.claude/skills/. */
   skillsAllowlist?: string[];
+  /** Explicit SDK tools auto-approved on trusted interactive channels. */
+  trustedTools?: string[];
 }
 
 /**
@@ -119,6 +121,12 @@ export function loadAgentConfig(agentId: string): AgentConfig {
   const warroomTools = Array.isArray(rawWarroom)
     ? (rawWarroom as unknown[]).filter((s): s is string => typeof s === 'string')
     : undefined;
+  const rawTrusted = raw['trusted_tools'];
+  const trustedTools = Array.isArray(rawTrusted)
+    ? (rawTrusted as unknown[])
+      .filter((s): s is string => typeof s === 'string')
+      .map((s) => s.startsWith('mcp:') ? `mcp__${s.slice('mcp:'.length)}` : s)
+    : undefined;
 
   return {
     name,
@@ -132,6 +140,7 @@ export function loadAgentConfig(agentId: string): AgentConfig {
     meetBotName,
     skillsAllowlist,
     warroomTools,
+    trustedTools,
   };
 }
 

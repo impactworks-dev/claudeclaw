@@ -5,6 +5,31 @@ telegram_bot_token_env: TELEGRAM_BOT_TOKEN
 
 model: claude-opus-5
 
+# Explicit main-channel MCP scope. This prevents stale project servers such as
+# removed memory experiments from being inherited by the trusted Nikki runtime.
+mcp_servers:
+  - clickup
+  - vendasta-crm
+
+# Trusted interactive channels run without an SDK permission dialog. This
+# explicit allowlist replaces blanket bypassPermissions while preserving the
+# operational capabilities Dante already uses.
+trusted_tools:
+  - Read
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
+  - TodoWrite
+  - Skill
+  - Bash
+  - Write
+  - Edit
+  - NotebookEdit
+  - Agent
+  - mcp:clickup
+  - mcp:vendasta-crm
+
 obsidian:
   vault: /app/store/obsidian-brain
   folders:
