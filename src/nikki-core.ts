@@ -81,7 +81,6 @@ export async function runNikkiCoreModel(
       {
         model,
         max_tokens: 2_048,
-        temperature: 0.6,
         system: systemPrompt,
         messages: [{ role: 'user', content: prompt }],
       },
