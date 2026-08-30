@@ -85,5 +85,6 @@ describe('Nikki Core bridge', () => {
       }),
       { signal: controller.signal },
     );
+    expect(createMessage.mock.calls[0]?.[0]).not.toHaveProperty('temperature');
   });
 });
