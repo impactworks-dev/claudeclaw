@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import fs from 'fs';
 
+import Anthropic from '@anthropic-ai/sdk';
+
 import { runAgent } from './agent.js';
 import {
   ALLOWED_CHAT_ID,
@@ -20,6 +22,7 @@ import { loadAgentConfig, resolveAgentClaudeMd } from './agent-config.js';
 import { logger } from './logger.js';
 import { buildMemoryContext, saveConversationTurn } from './memory.js';
 import { appendNikkiIdentityContract } from './nikki-identity.js';
+import { readEnvFile } from './env.js';
 
 export type NikkiCoreChannel = 'text' | 'voice' | 'email' | 'other';
 
@@ -41,12 +44,98 @@ export interface NikkiCoreResponse {
     inputTokens: number;
     outputTokens: number;
     cacheReadInputTokens: number;
-    totalCostUsd: number;
+    totalCostUsd: number | null;
   } | null;
 }
 
 const MAX_QUERY_CHARS = 12_000;
 const MAX_CONTEXT_CHARS = 30_000;
+
+interface NikkiCoreModelResult {
+  text: string;
+  newSessionId?: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    totalCostUsd: number | null;
+  } | null;
+}
+
+/**
+ * Use the Messages API directly in production so a read-only reasoning call
+ * does not pay the startup cost of a Claude Code subprocess/session.
+ */
+export async function runNikkiCoreModel(
+  prompt: string,
+  systemPrompt: string,
+  model: string,
+  abortController: AbortController,
+): Promise<NikkiCoreModelResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+    || readEnvFile(['ANTHROPIC_API_KEY']).ANTHROPIC_API_KEY;
+
+  if (apiKey) {
+    const anthropic = new Anthropic({ apiKey });
+    const message = await anthropic.messages.create(
+      {
+        model,
+        max_tokens: 2_048,
+        temperature: 0.6,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      { signal: abortController.signal },
+    );
+    const text = message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+      .trim();
+    return {
+      text,
+      usage: {
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens,
+        cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
+        totalCostUsd: null,
+      },
+    };
+  }
+
+  const result = await runAgent(
+    prompt,
+    undefined,
+    () => {},
+    undefined,
+    model,
+    abortController,
+    undefined,
+    [],
+    systemPrompt,
+    {
+      permissionMode: 'default',
+      allowedTools: [],
+      disallowedTools: [
+        'Bash', 'Write', 'Edit', 'NotebookEdit', 'Agent', 'WebSearch', 'WebFetch',
+        'Skill', 'TodoWrite', 'AskUserQuestion',
+      ],
+      maxTurns: 4,
+    },
+  );
+  return {
+    text: result.text?.trim() || '',
+    newSessionId: result.newSessionId,
+    usage: result.usage
+      ? {
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          cacheReadInputTokens: result.usage.cacheReadInputTokens,
+          totalCostUsd: result.usage.totalCostUsd,
+        }
+      : null,
+  };
+}
 
 /** Configure the standalone local Nikki Core process exactly like main. */
 export function configureStandaloneNikkiCore(): void {
@@ -156,29 +245,15 @@ export async function reasonWithNikkiCore(
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), NIKKI_CORE_TIMEOUT_MS);
   try {
-    const result = await runAgent(
+    const result = await runNikkiCoreModel(
       prompt,
-      undefined,
-      () => {},
-      undefined,
+      bridgeSystemPrompt,
       model,
       abortController,
-      undefined,
-      [],
-      bridgeSystemPrompt,
-      {
-        permissionMode: 'default',
-        allowedTools: [],
-        disallowedTools: [
-          'Bash', 'Write', 'Edit', 'NotebookEdit', 'Agent', 'WebSearch', 'WebFetch',
-          'Skill', 'TodoWrite', 'AskUserQuestion',
-        ],
-        maxTurns: 4,
-      },
     );
 
-    const answer = result.text?.trim();
-    if (!answer) throw new Error(result.aborted ? 'Nikki Core timed out' : 'Nikki Core returned no answer');
+    const answer = result.text.trim();
+    if (!answer) throw new Error('Nikki Core returned no answer');
     saveConversationTurn(memoryChatId, request.query, answer, result.newSessionId, 'main');
 
     const response: NikkiCoreResponse = {
