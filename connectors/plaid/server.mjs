@@ -127,6 +127,7 @@ const TOOLS = [
   { name: 'plaid_get_balances', description: 'Force a fresh balance fetch (calls /accounts/balance/get). Slower and billable. Optional: item_id or item_ids to limit the Items queried.' },
   { name: 'plaid_list_transactions', description: 'List transactions for a date range across all linked items. Required: start_date (YYYY-MM-DD), end_date (YYYY-MM-DD). Optional: count (default 250).' },
   { name: 'plaid_list_items', description: 'List all linked Plaid items (institutions). No args.' },
+  { name: 'plaid_remove_item', description: 'Permanently revoke one Plaid Item and remove its locally stored access token. Required: item_id.' },
   { name: 'plaid_get_holdings', description: 'Investment holdings + securities across all linked items that have the investments product enabled. Returns accounts, securities (ticker, name, type), and holdings (quantity, institution_value, institution_price, cost_basis). Items without investments enabled are skipped quietly. No args.' },
 ];
 
@@ -286,6 +287,18 @@ async function callTool(name, args) {
         };
       }));
       return { items: out };
+    }
+    case 'plaid_remove_item': {
+      if (!args.item_id) throw new Error('item_id required');
+      const items = loadItems();
+      const item = items[args.item_id];
+      if (!item?.access_token) throw new Error(`Unknown Plaid item_id: ${args.item_id}`);
+      // Revoke at Plaid first. Only remove the durable local token after the
+      // upstream deletion succeeds so a transient API failure is recoverable.
+      await api('/item/remove', { access_token: item.access_token });
+      delete items[args.item_id];
+      saveItems(items);
+      return { removed: true, item_id: args.item_id, institution_name: item.institution_name || null };
     }
     case 'plaid_get_holdings': {
       // /investments/holdings/get returns { accounts, securities, holdings }.
