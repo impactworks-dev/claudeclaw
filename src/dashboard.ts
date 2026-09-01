@@ -181,13 +181,18 @@ Reply with JSON: {"agent": "agent_id"}`;
 // Plaid Link bootstrap HTML. Loads Plaid's official Link JS, generates a
 // link_token via /api/cash/link-token, opens the Link modal, and on success
 // posts the public_token to /api/cash/exchange for permanent storage.
-function plaidConnectHtml(): string {
+function plaidConnectHtml(mode: 'banking' | 'investments' = 'banking'): string {
   // Build identifier — bump when this function changes so we can confirm
   // the running process picked up the latest source. Visible in HTML source
   // and as <meta name="build"> for quick diagnostic checks.
-  const BUILD_ID = 'plaidConnect-v3-oauth-2026-05-26';
+  const BUILD_ID = 'plaidConnect-v4-product-split-2026-09-01';
+  const isInvestments = mode === 'investments';
+  const title = isInvestments ? 'Connect an Investment Account' : 'Connect a Bank';
+  const intro = isInvestments
+    ? 'Connect a brokerage for portfolio holdings. This flow activates Investments only, not Transactions.'
+    : 'Connect a bank or credit card for balances and transaction reporting. This flow activates Transactions only.';
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Connect a Bank</title>
+<html><head><meta charset="utf-8"><title>${title}</title>
 <meta name="build" content="${BUILD_ID}">
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; background: #0f1115; color: #e5e7eb; margin: 0; padding: 0; }
@@ -203,8 +208,8 @@ function plaidConnectHtml(): string {
 </style>
 </head><body>
 <div class="wrap">
-  <h1>Connect a Bank</h1>
-  <p>This opens Plaid Link in a modal. Search for <strong>Novo</strong> (or any institution), sign in, and authorize the read-only connection. Your credentials go directly to Plaid — never to this server.</p>
+  <h1>${title}</h1>
+  <p>${intro} Your credentials go directly to Plaid, never to this server.</p>
   <button id="connect" disabled>Initializing…</button>
   <div class="status" id="status"></div>
 </div>
@@ -291,7 +296,7 @@ function plaidConnectHtml(): string {
       const r = await fetch(withTok('/api/cash/link-token'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ redirect_uri: redirectUri }),
+        body: JSON.stringify({ redirect_uri: redirectUri, mode: '${mode}' }),
       });
       if (!r.ok) throw new Error('link-token: ' + r.status + (r.status === 401 ? ' (missing ?token= in URL — open this page via the Cash tab\\'s Connect button)' : ''));
       const { link_token, error } = await r.json();
@@ -1882,7 +1887,8 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   app.get('/api/cash', async (c) => {
     try {
       const force = c.req.query('force') === '1';
-      const data = await getCashData(force);
+      const liveBalances = c.req.query('live') === '1';
+      const data = await getCashData(force, liveBalances);
       return c.json(data);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'cash endpoint failed');
@@ -2390,8 +2396,13 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       // Accept redirect_uri in the JSON body so the connect page can pass
       // its own URL through. Required by OAuth institutions (Novo, Chase).
       let redirectUri: string | undefined;
-      try { const body = await c.req.json(); redirectUri = body?.redirect_uri; } catch { /* no body */ }
-      const r = await createLinkToken('ClaudeClaw Mission Control', redirectUri);
+      let mode: 'banking' | 'investments' = 'banking';
+      try {
+        const body = await c.req.json();
+        redirectUri = body?.redirect_uri;
+        if (body?.mode === 'investments') mode = 'investments';
+      } catch { /* no body */ }
+      const r = await createLinkToken('ClaudeClaw Mission Control', redirectUri, mode);
       return c.json(r);
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
@@ -2460,7 +2471,8 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // user can connect Novo (or any institution). Returns the public_token to
   // /api/cash/exchange for permanent access_token storage.
   app.get('/cash/connect', (c) => {
-    return c.html(plaidConnectHtml());
+    const mode = c.req.query('mode') === 'investments' ? 'investments' : 'banking';
+    return c.html(plaidConnectHtml(mode));
   });
 
   // Founder Dashboard — single read that fans out to all four data layers.
@@ -4930,7 +4942,8 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       }
 
       if (name === 'get_cash') {
-        const cash = await getCashData(true);
+        const refresh = args?.refresh === true;
+        const cash = await getCashData(refresh, refresh);
         if (cash.connectionStatus !== 'ok') return `Bank accounts unavailable: ${cash.connectionMessage || 'no credentials'}`;
         const fmtD = (cents: number) =>
           `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -5047,8 +5060,17 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       },
       {
         name: 'get_cash',
-        description: "Get Dante's bank account balances from Plaid — checking, savings, credit cards, total liquid cash, and cash runway. Use when asked about bank balance, how much cash is in the bank, account balances, or money in checking/savings.",
-        parameters: { type: 'OBJECT', properties: {}, required: [] },
+        description: "Get Dante's cached bank account balances from Plaid. Use refresh=true only when Dante explicitly asks for a live or freshly refreshed balance; routine daily, weekly, and monthly reporting must use the cache.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            refresh: {
+              type: 'BOOLEAN',
+              description: 'Call the billable live Balance endpoint. Set true only for an explicit request for fresh or live balances.',
+            },
+          },
+          required: [],
+        },
       },
       {
         name: 'get_vendasta',

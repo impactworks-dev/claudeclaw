@@ -42,7 +42,7 @@ import {
 } from './db.js';
 import { generateContent } from './gemini.js';
 import { logger } from './logger.js';
-import { getCashData } from './cash-data.js';
+import { getCashData, getCashSnapshot } from './cash-data.js';
 import { getOutreachData } from './outreach-data.js';
 import { getQbData } from './qb-data.js';
 import { getVendastaData } from './vendasta-data.js';
@@ -99,7 +99,7 @@ const DAY = 24 * HR;
 async function checkCashHealth(): Promise<Alert[]> {
   const out: Alert[] = [];
   try {
-    const cash = await getCashData(false);
+    const cash = getCashSnapshot() ?? await getCashData(false);
     if (cash.connectionStatus !== 'ok') return out;
     const cashTotal = cash.totalCashCents / 100;
     if (cashTotal < 5000) {
@@ -431,7 +431,7 @@ export async function runMoneyIdeas(api: Api<RawApi> | null, chatId: string, opt
   const consolidations = getRecentConsolidations(chatId, 8);
   let opContext = '';
   try {
-    const cash = await getCashData(false);
+    const cash = getCashSnapshot() ?? await getCashData(false);
     const v = await getVendastaData({ force: false });
     if (cash.connectionStatus === 'ok') {
       opContext += `Cash: $${Math.round(cash.totalCashCents / 100).toLocaleString()} checking · ${cash.runwayDays != null ? cash.runwayDays + 'd runway' : 'profitable'}\n`;

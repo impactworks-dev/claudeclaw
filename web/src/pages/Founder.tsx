@@ -683,7 +683,7 @@ export function Founder() {
             <div class="text-[11px] text-[var(--color-text-muted)]">
               <div class="mb-2">No investment accounts linked yet.</div>
               <div class="text-[var(--color-text-faint)]">
-                Open <a href="/cash/connect" class="text-[var(--color-accent)] hover:underline">/cash/connect</a> and search for your brokerage (Schwab, Vanguard, Stash, Robinhood, Fidelity, etc.). Plaid Link will request investment-account permissions. The tile auto-populates after you authorize.
+                Open <a href="/cash/connect?mode=investments" class="text-[var(--color-accent)] hover:underline">the investment connection flow</a> and search for your brokerage (Schwab, Vanguard, Stash, Robinhood, Fidelity, etc.). Plaid Link will request investment-account permissions only. The tile auto-populates after you authorize.
               </div>
               {data?.error && (
                 <div class="mt-2 text-[10px] text-[var(--color-text-faint)] line-clamp-2">{data.error}</div>
