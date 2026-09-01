@@ -513,6 +513,21 @@ export async function exchangePublicToken(publicToken: string, institutionName: 
   return { item_id: r.item_id };
 }
 
+export interface PlaidItemStatus {
+  item_id: string;
+  institution_name: string | null;
+  connected_at: string | null;
+  has_token: boolean;
+  status: 'healthy' | 'unhealthy';
+  error_code: string | null;
+  error_message: string | null;
+}
+
+/** List every stored Plaid Item with a live, non-billable health check. */
+export async function listPlaidItems(): Promise<{ items: PlaidItemStatus[] }> {
+  return plaidCall('plaid_list_items', {});
+}
+
 /** Create a link_token for the Plaid Link UI. The redirect_uri must match an
  *  entry in the Plaid dashboard's "Allowed redirect URIs" — required for
  *  OAuth banks like Novo. */
@@ -520,12 +535,17 @@ export async function createLinkToken(
   clientName = 'ClaudeClaw Mission Control',
   redirectUri?: string,
   mode: 'banking' | 'investments' = 'banking',
+  itemId?: string,
 ): Promise<{ link_token: string }> {
   // Keep product subscriptions separate: banks need Transactions, brokerages
   // need Investments. Requesting both billed brokerage Items for Transactions
   // even though Nikki only used their holdings.
-  const products = mode === 'investments' ? ['investments'] : ['transactions'];
-  const args: Record<string, unknown> = { client_name: clientName, products };
+  const args: Record<string, unknown> = { client_name: clientName };
+  if (itemId) {
+    args.item_id = itemId;
+  } else {
+    args.products = mode === 'investments' ? ['investments'] : ['transactions'];
+  }
   if (redirectUri) args.redirect_uri = redirectUri;
   const r = await plaidCall('plaid_create_link_token', args);
   return { link_token: r.link_token };

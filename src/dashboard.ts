@@ -114,7 +114,7 @@ import { getPipelineData, updateCard, updateDealSubStage, createLocalLead, updat
 import { getOutreachData, setOutreachStatus } from './outreach-data.js';
 import { getWebinarsData, setWebinarDisposition } from './webinars-data.js';
 import { getMembersData, addMember, updateMember } from './members-data.js';
-import { getCashData, createLinkToken, exchangePublicToken } from './cash-data.js';
+import { getCashData, createLinkToken, exchangePublicToken, listPlaidItems } from './cash-data.js';
 import { getQbData } from './qb-data.js';
 import { getStocksData, invalidateStocksCache } from './stocks-data.js';
 import { createAgentMailWebhookHandler } from './agentmail.js';
@@ -181,14 +181,17 @@ Reply with JSON: {"agent": "agent_id"}`;
 // Plaid Link bootstrap HTML. Loads Plaid's official Link JS, generates a
 // link_token via /api/cash/link-token, opens the Link modal, and on success
 // posts the public_token to /api/cash/exchange for permanent storage.
-function plaidConnectHtml(mode: 'banking' | 'investments' = 'banking'): string {
+function plaidConnectHtml(mode: 'banking' | 'investments' = 'banking', itemId = ''): string {
   // Build identifier — bump when this function changes so we can confirm
   // the running process picked up the latest source. Visible in HTML source
   // and as <meta name="build"> for quick diagnostic checks.
-  const BUILD_ID = 'plaidConnect-v4-product-split-2026-09-01';
+  const BUILD_ID = 'plaidConnect-v5-update-mode-2026-09-01';
   const isInvestments = mode === 'investments';
-  const title = isInvestments ? 'Connect an Investment Account' : 'Connect a Bank';
-  const intro = isInvestments
+  const isUpdateMode = !!itemId;
+  const title = isUpdateMode ? 'Reconnect Plaid Account' : (isInvestments ? 'Connect an Investment Account' : 'Connect a Bank');
+  const intro = isUpdateMode
+    ? 'Repair this existing Plaid connection without creating a duplicate.'
+    : isInvestments
     ? 'Connect a brokerage for portfolio holdings. This flow activates Investments only, not Transactions.'
     : 'Connect a bank or credit card for balances and transaction reporting. This flow activates Transactions only.';
   return `<!doctype html>
@@ -246,6 +249,12 @@ function plaidConnectHtml(mode: 'banking' | 'investments' = 'banking'): string {
   const url = new URL(window.location.href);
   const oauthStateId = url.searchParams.get('oauth_state_id');
   const isReturningFromOauth = !!oauthStateId;
+  const requestedItemId = ${JSON.stringify(itemId)};
+  let updateItemId = requestedItemId;
+  if (!updateItemId) {
+    try { updateItemId = sessionStorage.getItem('claudeclaw.plaid.updateItemId') || ''; } catch {}
+  }
+  const isUpdateMode = !!updateItemId;
   // Plaid requires the redirect_uri sent in /link/token/create to match an
   // entry in the dashboard's "Allowed redirect URIs" EXACTLY (including
   // query string). We register and send the clean URL with no query string.
@@ -261,6 +270,14 @@ function plaidConnectHtml(mode: 'banking' | 'investments' = 'banking'): string {
       onSuccess: async (public_token, metadata) => {
         setStatus('Authorizing…');
         try {
+          if (isUpdateMode) {
+            try {
+              sessionStorage.removeItem('claudeclaw.plaid.linkToken');
+              sessionStorage.removeItem('claudeclaw.plaid.updateItemId');
+            } catch {}
+            setStatus('Reconnected: ' + (metadata.institution?.name || 'Plaid account') + ' — close this window and refresh the Cash page.', 'ok');
+            return;
+          }
           const er = await fetch(withTok('/api/cash/exchange'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -296,15 +313,18 @@ function plaidConnectHtml(mode: 'banking' | 'investments' = 'banking'): string {
       const r = await fetch(withTok('/api/cash/link-token'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ redirect_uri: redirectUri, mode: '${mode}' }),
+        body: JSON.stringify({ redirect_uri: redirectUri, mode: '${mode}', item_id: updateItemId || undefined }),
       });
       if (!r.ok) throw new Error('link-token: ' + r.status + (r.status === 401 ? ' (missing ?token= in URL — open this page via the Cash tab\\'s Connect button)' : ''));
       const { link_token, error } = await r.json();
       if (error) throw new Error(error);
       try { sessionStorage.setItem('claudeclaw.plaid.linkToken', link_token); } catch {}
+      if (updateItemId) {
+        try { sessionStorage.setItem('claudeclaw.plaid.updateItemId', updateItemId); } catch {}
+      }
       handler = buildHandler(link_token);
       btn.disabled = false;
-      btn.textContent = 'Open Plaid Link';
+      btn.textContent = isUpdateMode ? 'Reconnect in Plaid' : 'Open Plaid Link';
       btn.onclick = () => { setStatus(''); handler.open(); };
     }
   } catch (e) {
@@ -2397,12 +2417,19 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       // its own URL through. Required by OAuth institutions (Novo, Chase).
       let redirectUri: string | undefined;
       let mode: 'banking' | 'investments' = 'banking';
+      let itemId: string | undefined;
       try {
         const body = await c.req.json();
         redirectUri = body?.redirect_uri;
         if (body?.mode === 'investments') mode = 'investments';
+        if (body?.item_id !== undefined) {
+          if (typeof body.item_id !== 'string' || !/^[A-Za-z0-9_-]{10,128}$/.test(body.item_id)) {
+            return c.json({ error: 'Invalid Plaid item_id' }, 400);
+          }
+          itemId = body.item_id;
+        }
       } catch { /* no body */ }
-      const r = await createLinkToken('ClaudeClaw Mission Control', redirectUri, mode);
+      const r = await createLinkToken('ClaudeClaw Mission Control', redirectUri, mode, itemId);
       return c.json(r);
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
@@ -2414,6 +2441,13 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       if (!body.public_token) return c.json({ error: 'public_token required' }, 400);
       const r = await exchangePublicToken(body.public_token, body.institution_name || 'Bank');
       return c.json({ ok: true, ...r });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+  app.get('/api/cash/items', async (c) => {
+    try {
+      return c.json(await listPlaidItems());
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
@@ -2472,7 +2506,9 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // /api/cash/exchange for permanent access_token storage.
   app.get('/cash/connect', (c) => {
     const mode = c.req.query('mode') === 'investments' ? 'investments' : 'banking';
-    return c.html(plaidConnectHtml(mode));
+    const rawItemId = c.req.query('item_id') || '';
+    if (rawItemId && !/^[A-Za-z0-9_-]{10,128}$/.test(rawItemId)) return c.text('Invalid Plaid item_id', 400);
+    return c.html(plaidConnectHtml(mode, rawItemId));
   });
 
   // Founder Dashboard — single read that fans out to all four data layers.
