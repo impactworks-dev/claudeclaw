@@ -270,7 +270,8 @@ export function Cash() {
   const [forcing, setForcing] = useState(false);
 
   // The plain refresh() above just re-hits /api/cash, which respects the
-  // server's 5-minute Plaid cache TTL — so within 5 min of any pull, every
+  // server's 24-hour Plaid cache TTL. This explicit action is the only UI
+  // path that calls Plaid's billable live Balance endpoint.
   // click returns the same data. Force=1 bypasses the cache and pulls
   // fresh balances/transactions from Plaid, then refresh() re-reads the
   // now-current cache through the usual hook.
@@ -278,7 +279,7 @@ export function Cash() {
     if (forcing) return;
     setForcing(true);
     try {
-      await Promise.all([apiGet('/api/cash?force=1'), apiGet('/api/qb?force=1').catch(() => null)]);
+      await Promise.all([apiGet('/api/cash?force=1&live=1'), apiGet('/api/qb?force=1').catch(() => null)]);
     } catch {
       // Swallow — refresh() below will still re-render the stale view.
     } finally {
