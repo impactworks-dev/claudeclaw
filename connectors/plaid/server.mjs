@@ -121,7 +121,7 @@ function allAccessTokens() {
 
 // ---- tools ----
 const TOOLS = [
-  { name: 'plaid_create_link_token', description: 'Create a short-lived link_token that the Plaid Link UI uses to open a connection flow. Required: client_name. Optional: products (default: ["transactions"]), country_codes (default: ["US"]).' },
+  { name: 'plaid_create_link_token', description: 'Create a short-lived link_token that the Plaid Link UI uses to open a connection flow. Required: client_name. Optional: products (default: ["transactions"]), country_codes (default: ["US"]), item_id (launches update mode for an existing Item).' },
   { name: 'plaid_exchange_public_token', description: 'Exchange a public_token from Plaid Link for a permanent access_token. Required: public_token, institution_name.' },
   { name: 'plaid_list_accounts', description: 'List all accounts across all linked items, with cached balances. No args.' },
   { name: 'plaid_get_balances', description: 'Force a fresh balance fetch (calls /accounts/balance/get). Slower and billable. Optional: item_id or item_ids to limit the Items queried.' },
@@ -139,8 +139,17 @@ async function callTool(name, args) {
         language: 'en',
         country_codes: args.country_codes || ['US'],
         user: { client_user_id: 'claudeclaw-' + (envVal('USER') || 'main') },
-        products: args.products || ['transactions'],
       };
+      if (args.item_id) {
+        const item = loadItems()[args.item_id];
+        if (!item?.access_token) throw new Error(`Unknown Plaid item_id: ${args.item_id}`);
+        // Plaid update mode is selected by passing the existing access_token.
+        // Do not send products for a normal repair flow or Plaid may treat it
+        // as a product-addition request instead of a credential/consent repair.
+        body.access_token = item.access_token;
+      } else {
+        body.products = args.products || ['transactions'];
+      }
       // OAuth-only banks (Novo, Chase, etc.) require a redirect_uri that
       // matches an entry in the Plaid dashboard's "Allowed redirect URIs"
       // list. We pass it through so the same connector works for both
@@ -255,11 +264,26 @@ async function callTool(name, args) {
     }
     case 'plaid_list_items': {
       const items = loadItems();
-      const out = Object.values(items).map(v => ({
-        item_id: v.item_id,
-        institution_name: v.institution_name,
-        connected_at: v.connected_at,
-        has_token: !!v.access_token,
+      const out = await Promise.all(Object.values(items).map(async (v) => {
+        let error = null;
+        try {
+          const itemResult = await api('/item/get', { access_token: v.access_token });
+          error = itemResult?.item?.error || null;
+          // Some terminal states (notably NO_ACCOUNTS) are returned by
+          // /accounts/get even when /item/get has no top-level Item error.
+          if (!error) await api('/accounts/get', { access_token: v.access_token });
+        } catch (e) {
+          error = e?.plaid || { error_code: 'PLAID_REQUEST_FAILED', error_message: String(e?.message || e) };
+        }
+        return {
+          item_id: v.item_id,
+          institution_name: v.institution_name,
+          connected_at: v.connected_at,
+          has_token: !!v.access_token,
+          status: error ? 'unhealthy' : 'healthy',
+          error_code: error?.error_code || null,
+          error_message: error?.error_message || null,
+        };
       }));
       return { items: out };
     }

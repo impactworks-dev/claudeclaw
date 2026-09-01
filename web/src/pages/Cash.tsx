@@ -9,6 +9,11 @@ import { dashboardToken, apiGet, apiPost } from '@/lib/api';
 // dashboard token to call /api/cash/link-token and /api/cash/exchange.
 // We pass the token via ?token= so the page can pick it up.
 const connectUrl = () => '/cash/connect' + (dashboardToken ? '?token=' + encodeURIComponent(dashboardToken) : '');
+const reconnectUrl = (itemId: string) => {
+  const params = new URLSearchParams({ item_id: itemId });
+  if (dashboardToken) params.set('token', dashboardToken);
+  return '/cash/connect?' + params.toString();
+};
 
 interface CashAccount {
   account_id: string; item_id: string; institution: string | null;
@@ -30,6 +35,15 @@ interface CashSummary {
   runwayDays: number | null;
   configured: boolean; connectionStatus: 'ok' | 'no-credentials' | 'no-items' | 'error'; connectionMessage: string | null;
 }
+interface PlaidItemStatus {
+  item_id: string;
+  institution_name: string | null;
+  connected_at: string | null;
+  status: 'healthy' | 'unhealthy';
+  error_code: string | null;
+  error_message: string | null;
+}
+interface PlaidItemsResponse { items: PlaidItemStatus[]; }
 
 // QuickBooks P&L data — replaces the Plaid heuristic numbers in the top
 // stats band when QBO is connected. The Plaid numbers (Vendasta-aware
@@ -266,6 +280,7 @@ function UploadStatementModal({ onClose, onImported }: { onClose: () => void; on
 export function Cash() {
   const { data, loading, error, refresh } = useFetch<CashSummary>('/api/cash');
   const { data: qbData, refresh: refreshQb } = useFetch<QbSummary>('/api/qb');
+  const { data: plaidItems, refresh: refreshPlaidItems } = useFetch<PlaidItemsResponse>('/api/cash/items');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [forcing, setForcing] = useState(false);
 
@@ -285,6 +300,7 @@ export function Cash() {
     } finally {
       refresh();
       refreshQb();
+      refreshPlaidItems();
       setForcing(false);
     }
   }
@@ -354,6 +370,40 @@ export function Cash() {
       />
 
       <StatusCallout s={data} />
+
+      {plaidItems && plaidItems.items.length > 0 && (
+        <div class="mx-4 mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+          <div class="mb-2 flex items-center justify-between">
+            <div>
+              <div class="text-[12px] font-semibold">Plaid connections</div>
+              <div class="text-[10px] text-[var(--color-text-faint)]">Reconnect repairs the existing Item. It does not create a duplicate.</div>
+            </div>
+            <button type="button" onClick={refreshPlaidItems}
+              class="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text)]">Check status</button>
+          </div>
+          <div class="grid gap-1.5">
+            {plaidItems.items.map(item => (
+              <div key={item.item_id} class="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)]/60 px-2.5 py-2">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[12px] font-medium">{item.institution_name || 'Unknown institution'}</span>
+                    <span class="text-[9px] uppercase tracking-wide" style={{ color: item.status === 'healthy' ? TONE.good : TONE.bad }}>
+                      {item.status}
+                    </span>
+                  </div>
+                  {item.error_code && <div class="truncate text-[10px] text-[var(--color-text-faint)]">{item.error_code}: {item.error_message}</div>}
+                </div>
+                {item.status === 'unhealthy' && (
+                  <a href={reconnectUrl(item.item_id)} target="_blank" rel="noreferrer"
+                    class="shrink-0 inline-flex items-center gap-1 rounded-md bg-[var(--color-text)] text-[var(--color-bg)] px-2.5 py-1 text-[10px] font-semibold">
+                    <Link2 size={10} />Reconnect
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {data.connectionStatus === 'ok' && (
         <>
