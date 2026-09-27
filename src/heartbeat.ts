@@ -39,6 +39,7 @@ import {
 import {
   shouldFireSignal, insertProactiveAlert, markAlertSent,
   getRecentHighImportanceMemories, getRecentConsolidations,
+  getRecentDailyBriefs,
 } from './db.js';
 import { generateContent } from './gemini.js';
 import { logger } from './logger.js';
@@ -191,8 +192,7 @@ function checkUnactedBriefs(): Alert[] {
   const out: Alert[] = [];
   try {
     // Look for sent briefs from 3+ days ago with NO user mark.
-    const stale = (require('./db.js') as typeof import('./db.js'))
-      .getRecentDailyBriefs(30)
+    const stale = getRecentDailyBriefs(30)
       .filter(b => b.send_status === 'sent' && !b.user_marked && Date.now() - b.generated_at > 3 * DAY);
     if (stale.length >= 3) {
       out.push({
