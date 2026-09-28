@@ -27,6 +27,7 @@ import { formatForTelegram, splitMessage } from './bot.js';
 import { buildMemoryContext } from './memory.js';
 import { ingestConversationTurn } from './memory-ingest.js';
 import { emitChatEvent } from './state.js';
+import { trustedChannelToolPolicy } from './trusted-tool-policy.js';
 
 type Sender = (text: string) => Promise<void>;
 
@@ -132,7 +133,18 @@ async function runDueTasks(): Promise<void> {
         // Run as a fresh agent call (no session — scheduled tasks are autonomous).
         // Pass agentDefaultModel so the scheduler honours per-agent model overrides
         // from agent.yaml (osrepo PR #57).
-        const result = await runAgent(task.prompt, undefined, () => {}, undefined, agentDefaultModel, abortController, undefined, agentMcpAllowlist);
+        const result = await runAgent(
+          task.prompt,
+          undefined,
+          () => {},
+          undefined,
+          agentDefaultModel,
+          abortController,
+          undefined,
+          agentMcpAllowlist,
+          agentSystemPrompt,
+          trustedChannelToolPolicy(),
+        );
         clearTimeout(timeout);
 
         if (result.aborted) {
@@ -240,6 +252,8 @@ async function runDueMissionTasks(): Promise<boolean> {
         abortController,
         undefined,
         agentMcpAllowlist,
+        agentSystemPrompt,
+        trustedChannelToolPolicy(),
       );
       clearTimeout(timeout);
 

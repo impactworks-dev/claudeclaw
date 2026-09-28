@@ -39,7 +39,7 @@ import path from 'path';
 
 import { AGENT_TIMEOUT_MS, PROJECT_ROOT, setAgentOverrides, activeBotToken } from './config.js';
 import { initDatabase, getSession, setSession } from './db.js';
-import { resolveAgentDir, resolveAgentClaudeMd } from './agent-config.js';
+import { loadAgentConfig, resolveAgentDir, resolveAgentClaudeMd, type AgentConfig } from './agent-config.js';
 import { runAgent } from './agent.js';
 
 // ── Debug: log PATH and execPath so we can diagnose spawn failures ────────────
@@ -72,8 +72,10 @@ async function main() {
   // Resolve agent working directory and CLAUDE.md
   let cwd = PROJECT_ROOT;
   let systemPrompt: string | undefined;
+  let agentConfig: AgentConfig | undefined;
 
   try {
+    agentConfig = loadAgentConfig(agentId);
     cwd = resolveAgentDir(agentId);
     // CRITICAL: spawn() throws ENOENT if cwd doesn't exist, which the SDK
     // misreports as "Claude Code native binary not found". Always fall back
@@ -96,6 +98,10 @@ async function main() {
     botToken: activeBotToken,
     cwd,
     systemPrompt,
+    model: agentConfig?.model,
+    mcpServers: agentConfig?.mcpServers,
+    skillsAllowlist: agentConfig?.skillsAllowlist,
+    trustedTools: agentConfig?.trustedTools,
   });
 
   // Retrieve persisted session ID (enables conversation continuity across voice turns)
@@ -116,10 +122,14 @@ async function main() {
     sessionId,
     () => {},
     undefined,
-    undefined,
+    agentConfig?.model,
     abortController,
     undefined,
-    undefined,
+    agentConfig?.mcpServers,
+    systemPrompt,
+    agentConfig?.trustedTools?.length
+      ? { permissionMode: 'default', allowedTools: agentConfig.trustedTools, maxTurns: 30 }
+      : undefined,
   );
 
   // Persist new session ID

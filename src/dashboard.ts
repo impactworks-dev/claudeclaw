@@ -114,9 +114,10 @@ import { getPipelineData, updateCard, updateDealSubStage, createLocalLead, updat
 import { getOutreachData, setOutreachStatus } from './outreach-data.js';
 import { getWebinarsData, setWebinarDisposition } from './webinars-data.js';
 import { getMembersData, addMember, updateMember } from './members-data.js';
-import { getCashData, createLinkToken, exchangePublicToken } from './cash-data.js';
+import { getCashData, createLinkToken, exchangePublicToken, listPlaidItems } from './cash-data.js';
 import { getQbData } from './qb-data.js';
 import { getStocksData, invalidateStocksCache } from './stocks-data.js';
+import { createAgentMailWebhookHandler } from './agentmail.js';
 import { loadTickers, addTicker, removeTicker } from './stocks-tickers.js';
 import { getStockHistory, type Period } from './stocks-history.js';
 import { getNewsData } from './news-data.js';
@@ -132,6 +133,11 @@ import { getInbox, getThread, invalidateInboxCache } from './email-data.js';
 import { synthesizeSpeech } from './voice.js';
 import { getElevenLabsVoiceId, setElevenLabsVoiceId } from './voice-config.js';
 import { getBrainStats, listNotes, getNote, searchNotes, getGraph, invalidateBrainCache } from './brain-data.js';
+import {
+  authenticateNikkiCore,
+  normalizeNikkiCoreRequest,
+  reasonWithNikkiCore,
+} from './nikki-core.js';
 import { getBrainProposals, invalidateProposalsCache, getMemoriesForTopic, updateMemoryTopics, removeTopicFromMemory, mergeTopics, updateMemorySummary } from './brain-proposals.js';
 import { importCsv, deleteManualAccount, loadManualAccounts } from './manual-cash-data.js';
 import { getFounderDashboard } from './founder-data.js';
@@ -175,13 +181,21 @@ Reply with JSON: {"agent": "agent_id"}`;
 // Plaid Link bootstrap HTML. Loads Plaid's official Link JS, generates a
 // link_token via /api/cash/link-token, opens the Link modal, and on success
 // posts the public_token to /api/cash/exchange for permanent storage.
-function plaidConnectHtml(): string {
+function plaidConnectHtml(mode: 'banking' | 'investments' = 'banking', itemId = ''): string {
   // Build identifier — bump when this function changes so we can confirm
   // the running process picked up the latest source. Visible in HTML source
   // and as <meta name="build"> for quick diagnostic checks.
-  const BUILD_ID = 'plaidConnect-v3-oauth-2026-05-26';
+  const BUILD_ID = 'plaidConnect-v5-update-mode-2026-09-01';
+  const isInvestments = mode === 'investments';
+  const isUpdateMode = !!itemId;
+  const title = isUpdateMode ? 'Reconnect Plaid Account' : (isInvestments ? 'Connect an Investment Account' : 'Connect a Bank');
+  const intro = isUpdateMode
+    ? 'Repair this existing Plaid connection without creating a duplicate.'
+    : isInvestments
+    ? 'Connect a brokerage for portfolio holdings. This flow activates Investments only, not Transactions.'
+    : 'Connect a bank or credit card for balances and transaction reporting. This flow activates Transactions only.';
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Connect a Bank</title>
+<html><head><meta charset="utf-8"><title>${title}</title>
 <meta name="build" content="${BUILD_ID}">
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; background: #0f1115; color: #e5e7eb; margin: 0; padding: 0; }
@@ -197,8 +211,8 @@ function plaidConnectHtml(): string {
 </style>
 </head><body>
 <div class="wrap">
-  <h1>Connect a Bank</h1>
-  <p>This opens Plaid Link in a modal. Search for <strong>Novo</strong> (or any institution), sign in, and authorize the read-only connection. Your credentials go directly to Plaid — never to this server.</p>
+  <h1>${title}</h1>
+  <p>${intro} Your credentials go directly to Plaid, never to this server.</p>
   <button id="connect" disabled>Initializing…</button>
   <div class="status" id="status"></div>
 </div>
@@ -235,6 +249,12 @@ function plaidConnectHtml(): string {
   const url = new URL(window.location.href);
   const oauthStateId = url.searchParams.get('oauth_state_id');
   const isReturningFromOauth = !!oauthStateId;
+  const requestedItemId = ${JSON.stringify(itemId)};
+  let updateItemId = requestedItemId;
+  if (!updateItemId) {
+    try { updateItemId = sessionStorage.getItem('claudeclaw.plaid.updateItemId') || ''; } catch {}
+  }
+  const isUpdateMode = !!updateItemId;
   // Plaid requires the redirect_uri sent in /link/token/create to match an
   // entry in the dashboard's "Allowed redirect URIs" EXACTLY (including
   // query string). We register and send the clean URL with no query string.
@@ -250,6 +270,14 @@ function plaidConnectHtml(): string {
       onSuccess: async (public_token, metadata) => {
         setStatus('Authorizing…');
         try {
+          if (isUpdateMode) {
+            try {
+              sessionStorage.removeItem('claudeclaw.plaid.linkToken');
+              sessionStorage.removeItem('claudeclaw.plaid.updateItemId');
+            } catch {}
+            setStatus('Reconnected: ' + (metadata.institution?.name || 'Plaid account') + ' — close this window and refresh the Cash page.', 'ok');
+            return;
+          }
           const er = await fetch(withTok('/api/cash/exchange'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -285,15 +313,18 @@ function plaidConnectHtml(): string {
       const r = await fetch(withTok('/api/cash/link-token'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ redirect_uri: redirectUri }),
+        body: JSON.stringify({ redirect_uri: redirectUri, mode: '${mode}', item_id: updateItemId || undefined }),
       });
       if (!r.ok) throw new Error('link-token: ' + r.status + (r.status === 401 ? ' (missing ?token= in URL — open this page via the Cash tab\\'s Connect button)' : ''));
       const { link_token, error } = await r.json();
       if (error) throw new Error(error);
       try { sessionStorage.setItem('claudeclaw.plaid.linkToken', link_token); } catch {}
+      if (updateItemId) {
+        try { sessionStorage.setItem('claudeclaw.plaid.updateItemId', updateItemId); } catch {}
+      }
       handler = buildHandler(link_token);
       btn.disabled = false;
-      btn.textContent = 'Open Plaid Link';
+      btn.textContent = isUpdateMode ? 'Reconnect in Plaid' : 'Open Plaid Link';
       btn.onclick = () => { setStatus(''); handler.open(); };
     }
   } catch (e) {
@@ -335,6 +366,7 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   }
 
   const app = new Hono();
+  const handleAgentMailWebhook = createAgentMailWebhookHandler();
 
   // CORS headers for cross-origin access (Cloudflare tunnel, mobile browsers).
   // Reflect Origin only when it matches a known-good host (audit fix A4E-3,
@@ -432,6 +464,31 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     await next();
+  });
+
+  // AgentMail cannot present the dashboard bearer token. This endpoint sits
+  // outside /api and authenticates every request with AgentMail's Svix HMAC
+  // signature instead. The handler acknowledges quickly and processes the
+  // email on a per-thread FIFO queue so webhook retries cannot duplicate work.
+  app.post('/webhooks/agentmail', async (c) => {
+    return handleAgentMailWebhook(c.req.raw);
+  });
+
+  // Dedicated server-to-server bridge for Her301. It intentionally sits
+  // outside /api so it can use its own credential instead of DASHBOARD_TOKEN.
+  app.post('/internal/nikki-core/reason', async (c) => {
+    if (!authenticateNikkiCore(c.req.header('Authorization'))) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    try {
+      const request = normalizeNikkiCoreRequest(await c.req.json());
+      return c.json(await reasonWithNikkiCore(request));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nikki Core failed';
+      const status = /required|valid|too large/i.test(message) ? 400 : 500;
+      logger.warn({ err: message }, 'Nikki Core request failed');
+      return c.json({ error: message }, status);
+    }
   });
 
   // Serve dashboard.
@@ -1850,7 +1907,8 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   app.get('/api/cash', async (c) => {
     try {
       const force = c.req.query('force') === '1';
-      const data = await getCashData(force);
+      const liveBalances = c.req.query('live') === '1';
+      const data = await getCashData(force, liveBalances);
       return c.json(data);
     } catch (e) {
       logger.error({ err: String((e as Error)?.message || e) }, 'cash endpoint failed');
@@ -2358,8 +2416,20 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       // Accept redirect_uri in the JSON body so the connect page can pass
       // its own URL through. Required by OAuth institutions (Novo, Chase).
       let redirectUri: string | undefined;
-      try { const body = await c.req.json(); redirectUri = body?.redirect_uri; } catch { /* no body */ }
-      const r = await createLinkToken('ClaudeClaw Mission Control', redirectUri);
+      let mode: 'banking' | 'investments' = 'banking';
+      let itemId: string | undefined;
+      try {
+        const body = await c.req.json();
+        redirectUri = body?.redirect_uri;
+        if (body?.mode === 'investments') mode = 'investments';
+        if (body?.item_id !== undefined) {
+          if (typeof body.item_id !== 'string' || !/^[A-Za-z0-9_-]{10,128}$/.test(body.item_id)) {
+            return c.json({ error: 'Invalid Plaid item_id' }, 400);
+          }
+          itemId = body.item_id;
+        }
+      } catch { /* no body */ }
+      const r = await createLinkToken('ClaudeClaw Mission Control', redirectUri, mode, itemId);
       return c.json(r);
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
@@ -2371,6 +2441,13 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       if (!body.public_token) return c.json({ error: 'public_token required' }, 400);
       const r = await exchangePublicToken(body.public_token, body.institution_name || 'Bank');
       return c.json({ ok: true, ...r });
+    } catch (e) {
+      return c.json({ error: String((e as Error)?.message || e) }, 500);
+    }
+  });
+  app.get('/api/cash/items', async (c) => {
+    try {
+      return c.json(await listPlaidItems());
     } catch (e) {
       return c.json({ error: String((e as Error)?.message || e) }, 500);
     }
@@ -2428,7 +2505,10 @@ export function startDashboard(botApi?: Api<RawApi>): void {
   // user can connect Novo (or any institution). Returns the public_token to
   // /api/cash/exchange for permanent access_token storage.
   app.get('/cash/connect', (c) => {
-    return c.html(plaidConnectHtml());
+    const mode = c.req.query('mode') === 'investments' ? 'investments' : 'banking';
+    const rawItemId = c.req.query('item_id') || '';
+    if (rawItemId && !/^[A-Za-z0-9_-]{10,128}$/.test(rawItemId)) return c.text('Invalid Plaid item_id', 400);
+    return c.html(plaidConnectHtml(mode, rawItemId));
   });
 
   // Founder Dashboard — single read that fans out to all four data layers.
@@ -4898,7 +4978,8 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       }
 
       if (name === 'get_cash') {
-        const cash = await getCashData(true);
+        const refresh = args?.refresh === true;
+        const cash = await getCashData(refresh, refresh);
         if (cash.connectionStatus !== 'ok') return `Bank accounts unavailable: ${cash.connectionMessage || 'no credentials'}`;
         const fmtD = (cents: number) =>
           `$${(Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -5015,8 +5096,17 @@ export function startDashboard(botApi?: Api<RawApi>): void {
       },
       {
         name: 'get_cash',
-        description: "Get Dante's bank account balances from Plaid — checking, savings, credit cards, total liquid cash, and cash runway. Use when asked about bank balance, how much cash is in the bank, account balances, or money in checking/savings.",
-        parameters: { type: 'OBJECT', properties: {}, required: [] },
+        description: "Get Dante's cached bank account balances from Plaid. Use refresh=true only when Dante explicitly asks for a live or freshly refreshed balance; routine daily, weekly, and monthly reporting must use the cache.",
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            refresh: {
+              type: 'BOOLEAN',
+              description: 'Call the billable live Balance endpoint. Set true only for an explicit request for fresh or live balances.',
+            },
+          },
+          required: [],
+        },
       },
       {
         name: 'get_vendasta',

@@ -224,6 +224,10 @@ export async function delegateToAgent(
         abortCtrl,
         undefined, // no streaming for delegation
         agentConfig.mcpServers,
+        systemPrompt || undefined,
+        agentConfig.trustedTools?.length
+          ? { permissionMode: 'default', allowedTools: agentConfig.trustedTools, maxTurns: 30 }
+          : undefined,
       );
 
       clearTimeout(timer);

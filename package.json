@@ -6,6 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:nikki-core": "tsx src/nikki-core-server.ts",
     "dev:web": "vite",
     "build": "vite build && tsc",
     "build:web": "vite build",

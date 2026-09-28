@@ -1,6 +1,7 @@
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
 
 import { readEnvFile } from './env.js';
 
@@ -21,6 +22,9 @@ const envConfig = readEnvFile([
   'DASHBOARD_PORT',
   'DASHBOARD_TOKEN',
   'DASHBOARD_URL',
+  'NIKKI_CORE_TOKEN',
+  'NIKKI_CORE_MODEL',
+  'NIKKI_CORE_TIMEOUT_MS',
   'CLAUDECLAW_CONFIG',
   'NIKKI_IDENTITY_CONTRACT_PATH',
   'NIKKI_IDENTITY_CONTRACT_B64',
@@ -62,6 +66,7 @@ export let agentObsidianConfig: { vault: string; folders: string[]; readOnly?: s
 export let agentSystemPrompt: string | undefined; // loaded from agents/{id}/CLAUDE.md
 export let agentMcpAllowlist: string[] | undefined; // from agent.yaml mcp_servers
 export let agentSkillsAllowlist: string[] | undefined; // from agent.yaml skills_allowlist
+export let agentTrustedTools: string[] | undefined; // explicit tools auto-approved on trusted interactive channels
 
 export function setAgentOverrides(opts: {
   agentId: string;
@@ -72,6 +77,7 @@ export function setAgentOverrides(opts: {
   systemPrompt?: string;
   mcpServers?: string[];
   skillsAllowlist?: string[];
+  trustedTools?: string[];
 }): void {
   AGENT_ID = opts.agentId;
   activeBotToken = opts.botToken;
@@ -81,6 +87,7 @@ export function setAgentOverrides(opts: {
   agentSystemPrompt = opts.systemPrompt;
   agentMcpAllowlist = opts.mcpServers;
   agentSkillsAllowlist = opts.skillsAllowlist;
+  agentTrustedTools = opts.trustedTools;
 }
 
 export const TELEGRAM_BOT_TOKEN =
@@ -230,6 +237,30 @@ export const DASHBOARD_TOKEN =
   process.env.DASHBOARD_TOKEN || envConfig.DASHBOARD_TOKEN || '';
 export const DASHBOARD_URL =
   process.env.DASHBOARD_URL || envConfig.DASHBOARD_URL || '';
+
+function readMacKeychain(service: string): string {
+  if (process.platform !== 'darwin' || process.env.NODE_ENV === 'test') return '';
+  try {
+    return execFileSync(
+      '/usr/bin/security',
+      ['find-generic-password', '-a', process.env.USER || os.userInfo().username, '-s', service, '-w'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+  } catch {
+    return '';
+  }
+}
+
+// Read-only deep-reasoning bridge used by Nikki's local text and voice app.
+// This has a dedicated credential and never shares the dashboard token.
+export const NIKKI_CORE_TOKEN =
+  process.env.NIKKI_CORE_TOKEN || envConfig.NIKKI_CORE_TOKEN || readMacKeychain('nikki-core-bridge');
+export const NIKKI_CORE_MODEL =
+  process.env.NIKKI_CORE_MODEL || envConfig.NIKKI_CORE_MODEL || '';
+export const NIKKI_CORE_TIMEOUT_MS = Math.max(
+  5_000,
+  parseInt(process.env.NIKKI_CORE_TIMEOUT_MS || envConfig.NIKKI_CORE_TIMEOUT_MS || '90000', 10),
+);
 
 // Database encryption key (SQLCipher). Required for encrypted database access.
 export const DB_ENCRYPTION_KEY =

@@ -17,6 +17,7 @@ import { initOAuthHealthCheck } from './oauth-health.js';
 import { initOrchestrator } from './orchestrator.js';
 import { initScheduler } from './scheduler.js';
 import { setTelegramConnected, setBotInfo } from './state.js';
+import { appendNikkiIdentityContract as appendCanonicalNikkiIdentity } from './nikki-identity.js';
 
 // Parse --agent flag
 const agentFlagIndex = process.argv.indexOf('--agent');
@@ -28,18 +29,17 @@ process.env.CLAUDECLAW_AGENT_ID = AGENT_ID;
 function appendNikkiIdentityContract(systemPrompt: string | undefined): string | undefined {
   if (!NIKKI_IDENTITY_CONTRACT_PATH && !NIKKI_IDENTITY_CONTRACT_B64) return systemPrompt;
   try {
-    const contract = NIKKI_IDENTITY_CONTRACT_B64
-      ? Buffer.from(NIKKI_IDENTITY_CONTRACT_B64, 'base64').toString('utf-8').trim()
-      : fs.readFileSync(NIKKI_IDENTITY_CONTRACT_PATH, 'utf-8').trim();
-    if (!contract) return systemPrompt;
-    return [
-      systemPrompt?.trimEnd(),
-      '',
-      '[Canonical Nikki Identity and Operating Contract]',
-      contract,
-      '[End Canonical Nikki Identity and Operating Contract]',
-      '',
-    ].filter((part) => part !== undefined).join('\n');
+    const result = appendCanonicalNikkiIdentity(systemPrompt, {
+      path: NIKKI_IDENTITY_CONTRACT_PATH,
+      base64: NIKKI_IDENTITY_CONTRACT_B64,
+    });
+    if (result.identity) {
+      logger.info(
+        { sha256: result.identity.sha256, source: result.identity.source },
+        'Verified complete canonical Nikki identity contract',
+      );
+    }
+    return result.systemPrompt;
   } catch (err: any) {
     logger.warn(
       { path: NIKKI_IDENTITY_CONTRACT_PATH, err: err?.message },
@@ -68,9 +68,30 @@ if (AGENT_ID !== 'main') {
     systemPrompt,
     mcpServers: agentConfig.mcpServers,
     skillsAllowlist: agentConfig.skillsAllowlist,
+    trustedTools: agentConfig.trustedTools,
   });
   logger.info({ agentId: AGENT_ID, name: agentConfig.name }, 'Running as agent');
 } else {
+  let mainConfig: ReturnType<typeof loadAgentConfig> | undefined;
+  try {
+    mainConfig = loadAgentConfig('main');
+  } catch (err) {
+    logger.warn({ err }, 'Could not load main agent.yaml; using environment defaults');
+  }
+  const applyMainOverrides = (systemPrompt: string) => {
+    setAgentOverrides({
+      agentId: 'main',
+      botToken: mainConfig?.botToken || activeBotToken,
+      cwd: PROJECT_ROOT,
+      model: mainConfig?.model,
+      obsidian: mainConfig?.obsidian,
+      systemPrompt,
+      mcpServers: mainConfig?.mcpServers,
+      skillsAllowlist: mainConfig?.skillsAllowlist,
+      trustedTools: mainConfig?.trustedTools,
+    });
+  };
+
   // For main bot: load CLAUDE.md from CLAUDECLAW_CONFIG/agents/main/ (same
   // pattern as sub-agents). Falls back to CLAUDECLAW_CONFIG/CLAUDE.md for
   // backward compatibility with setups that only have a root-level file.
@@ -85,23 +106,13 @@ if (AGENT_ID !== 'main') {
     } catch { /* unreadable */ }
     systemPrompt = appendNikkiIdentityContract(systemPrompt);
     if (systemPrompt) {
-      setAgentOverrides({
-        agentId: 'main',
-        botToken: activeBotToken,
-        cwd: PROJECT_ROOT,
-        systemPrompt,
-      });
+      applyMainOverrides(systemPrompt);
       logger.info({ source: claudeMdSource }, 'Loaded CLAUDE.md from CLAUDECLAW_CONFIG');
     }
   } else {
     const systemPrompt = appendNikkiIdentityContract(undefined);
     if (systemPrompt) {
-      setAgentOverrides({
-        agentId: 'main',
-        botToken: activeBotToken,
-        cwd: PROJECT_ROOT,
-        systemPrompt,
-      });
+      applyMainOverrides(systemPrompt);
       logger.info('Loaded canonical Nikki identity contract as system prompt');
     } else if (!fs.existsSync(path.join(PROJECT_ROOT, 'CLAUDE.md'))) {
       logger.warn(

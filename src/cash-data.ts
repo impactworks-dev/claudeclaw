@@ -27,7 +27,10 @@ import { loadManualAccounts, loadManualTransactions } from './manual-cash-data.j
 const execFileAsync = promisify(execFile);
 const PLAID_SERVER = path.join(PROJECT_ROOT, 'connectors', 'plaid', 'server.mjs');
 const CACHE_FILE = path.join(PROJECT_ROOT, 'store', 'cash-cache.json');
-const TTL_MS = 5 * 60 * 1000; // 5 min cache to avoid hammering Plaid rate limits
+// Automated reports and heartbeats do not need bank-fresh balances. Keep one
+// daily Plaid snapshot and reserve the paid Balance endpoint for explicit
+// user-requested refreshes.
+const TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface CashAccount {
   account_id: string;
@@ -216,7 +219,7 @@ function writeCache(data: CashSummary): void {
 }
 
 // ---- Public API ----
-export async function getCashData(force = false): Promise<CashSummary> {
+export async function getCashData(force = false, liveBalances = false): Promise<CashSummary> {
   if (!force) {
     const c = readCache();
     if (c) return c.data;
@@ -235,28 +238,33 @@ export async function getCashData(force = false): Promise<CashSummary> {
 
   let accountsRaw: any, transactionsRaw: any;
   try {
-    // Pull account metadata (institution, type, subtype, official_name) from
-    // /accounts/get, then overlay LIVE balances from /accounts/balance/get.
-    // Plaid's /accounts/get is internally cached and can lag by hours when
-    // there's no transaction activity — we saw Novo stuck at $4.44 for ~30min
-    // on 2026-06-01 while the real balance was $1,763.35 available. Using
-    // /accounts/balance/get for the headline number guarantees the dashboard
-    // never shows Plaid's stale snapshot.
+    // Pull account metadata and cached balances from /accounts/get. The paid
+    // /accounts/balance/get endpoint is used only for an explicit live refresh.
     accountsRaw = await plaidCall('plaid_list_accounts', {});
-    try {
-      const liveBalances = await plaidCall('plaid_get_balances', {});
-      const balByAccountId = new Map<string, any>();
-      for (const a of (liveBalances.accounts || [])) {
-        if (a.account_id && a.balances) balByAccountId.set(a.account_id, a.balances);
+    if (liveBalances) {
+      try {
+        // Do not pay to refresh investment-only Items. Mixed Items such as
+        // Stash are included because they expose a depository account.
+        const balanceTypes = new Set(['depository', 'cash', 'credit', 'loan']);
+        const itemIds = [...new Set(
+          (accountsRaw.accounts || [])
+            .filter((a: any) => !a.error && a.item_id && balanceTypes.has(String(a.type || '').toLowerCase()))
+            .map((a: any) => a.item_id as string),
+        )];
+        if (itemIds.length > 0) {
+          const freshBalances = await plaidCall('plaid_get_balances', { item_ids: itemIds });
+          const balByAccountId = new Map<string, any>();
+          for (const a of (freshBalances.accounts || [])) {
+            if (a.account_id && a.balances) balByAccountId.set(a.account_id, a.balances);
+          }
+          for (const a of (accountsRaw.accounts || [])) {
+            const fresh = balByAccountId.get(a.account_id);
+            if (fresh) a.balances = fresh;
+          }
+        }
+      } catch (balErr) {
+        logger.warn({ err: String((balErr as Error)?.message || balErr) }, 'cash: live balance refresh failed, using cached');
       }
-      for (const a of (accountsRaw.accounts || [])) {
-        const fresh = balByAccountId.get(a.account_id);
-        if (fresh) a.balances = fresh; // overlay
-      }
-    } catch (balErr) {
-      // Balance refresh is slow and best-effort — if it fails we fall back to
-      // the /accounts/get snapshot rather than showing nothing.
-      logger.warn({ err: String((balErr as Error)?.message || balErr) }, 'cash: live balance refresh failed, using cached');
     }
   } catch (e) {
     // If Plaid fails but we have manual data, continue with manual only.
@@ -505,18 +513,39 @@ export async function exchangePublicToken(publicToken: string, institutionName: 
   return { item_id: r.item_id };
 }
 
+export interface PlaidItemStatus {
+  item_id: string;
+  institution_name: string | null;
+  connected_at: string | null;
+  has_token: boolean;
+  status: 'healthy' | 'unhealthy';
+  error_code: string | null;
+  error_message: string | null;
+}
+
+/** List every stored Plaid Item with a live, non-billable health check. */
+export async function listPlaidItems(): Promise<{ items: PlaidItemStatus[] }> {
+  return plaidCall('plaid_list_items', {});
+}
+
 /** Create a link_token for the Plaid Link UI. The redirect_uri must match an
  *  entry in the Plaid dashboard's "Allowed redirect URIs" — required for
  *  OAuth banks like Novo. */
 export async function createLinkToken(
   clientName = 'ClaudeClaw Mission Control',
   redirectUri?: string,
+  mode: 'banking' | 'investments' = 'banking',
+  itemId?: string,
 ): Promise<{ link_token: string }> {
-  // Request both transactions (banking) AND investments (Schwab / Vanguard /
-  // Stash / brokerage portfolios). Plaid surfaces only the products each
-  // chosen institution actually supports, so adding 'investments' here is
-  // harmless for banks like Novo.
-  const args: Record<string, unknown> = { client_name: clientName, products: ['transactions', 'investments'] };
+  // Keep product subscriptions separate: banks need Transactions, brokerages
+  // need Investments. Requesting both billed brokerage Items for Transactions
+  // even though Nikki only used their holdings.
+  const args: Record<string, unknown> = { client_name: clientName };
+  if (itemId) {
+    args.item_id = itemId;
+  } else {
+    args.products = mode === 'investments' ? ['investments'] : ['transactions'];
+  }
   if (redirectUri) args.redirect_uri = redirectUri;
   const r = await plaidCall('plaid_create_link_token', args);
   return { link_token: r.link_token };

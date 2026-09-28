@@ -68,7 +68,7 @@ ENV NODE_ENV=production \
 #   - ca-certs, tini, git, rsync, sqlite3 → already needed
 #   - syncthing → bidirectional Obsidian vault sync with Mac
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates tini git rsync sqlite3 curl \
+      ca-certificates tini git rsync sqlite3 curl unzip poppler-utils \
       python3.11 python3.11-venv \
       libsndfile1 libportaudio2 \
       syncthing \
@@ -102,6 +102,8 @@ COPY relay/people-map.json relay/contacts.json ./relay/
 RUN mkdir -p /app/.claude && printf '%s\n' \
   '{"mcpServers":{' \
   '  "clickup":{"command":"node","args":["/app/connectors/clickup/server.mjs"],"env":{"CLICKUP_TEAM_ID":"10584109"}},' \
+  '  "google_workspace_read":{"command":"node","args":["/app/connectors/google-workspace-read/server.mjs"]},' \
+  '  "google_workspace_actions":{"command":"node","args":["/app/connectors/google-workspace-actions/server.mjs"]},' \
   '  "goldfish":{"type":"sse","url":"https://goldfish-mcp.impactworks.com/sse"}' \
   '}}' \
   > /app/.claude/settings.json

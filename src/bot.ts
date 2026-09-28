@@ -46,6 +46,7 @@ import { setHighImportanceCallback } from './memory-ingest.js';
 import { messageQueue } from './message-queue.js';
 import { parseDelegation, delegateToAgent, getAvailableAgents } from './orchestrator.js';
 import { emitChatEvent, setProcessing, setActiveAbort, abortActiveQuery } from './state.js';
+import { trustedChannelToolPolicy } from './trusted-tool-policy.js';
 import {
   isLocked,
   lock,
@@ -632,6 +633,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
       MODEL_FALLBACK_CHAIN.length > 0 ? MODEL_FALLBACK_CHAIN : undefined,
       agentMcpAllowlist,
       agentSystemPrompt,
+      trustedChannelToolPolicy(),
     );
 
     clearTimeout(timeoutId);
@@ -1898,6 +1900,7 @@ async function processDashboardMessage(
       undefined, // no streaming for dashboard
       agentMcpAllowlist,
       agentSystemPrompt,
+      trustedChannelToolPolicy(),
     );
 
     clearTimeout(dashTimeout);
