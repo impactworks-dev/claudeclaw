@@ -1890,18 +1890,43 @@ async function processDashboardMessage(
       abortCtrl.abort();
     }, AGENT_TIMEOUT_MS);
 
-    const result = await runAgent(
-      fullMessage,
-      sessionId,
-      () => {}, // no typing action for dashboard
-      onProgress,
-      agentDefaultModel,
-      abortCtrl,
-      undefined, // no streaming for dashboard
-      agentMcpAllowlist,
-      agentSystemPrompt,
-      trustedChannelToolPolicy(),
-    );
+    let result;
+    try {
+      result = await runAgent(
+        fullMessage,
+        sessionId,
+        () => {}, // no typing action for dashboard
+        onProgress,
+        agentDefaultModel,
+        abortCtrl,
+        undefined, // no streaming for dashboard
+        agentMcpAllowlist,
+        agentSystemPrompt,
+        trustedChannelToolPolicy(),
+      );
+    } catch (err) {
+      const msg = String((err as Error)?.message || err);
+      const originalMsg = err instanceof AgentError
+        ? String(err.originalError?.message || '')
+        : '';
+      const staleSession = /No conversation found with session ID/i.test(msg)
+        || /No conversation found with session ID/i.test(originalMsg);
+      if (!sessionId || !staleSession || abortCtrl.signal.aborted) throw err;
+
+      logger.warn({ chatId: chatIdStr, sessionId }, 'Dashboard chat session was stale; retrying with a fresh Claude session');
+      result = await runAgent(
+        fullMessage,
+        undefined,
+        () => {},
+        onProgress,
+        agentDefaultModel,
+        abortCtrl,
+        undefined,
+        agentMcpAllowlist,
+        agentSystemPrompt,
+        trustedChannelToolPolicy(),
+      );
+    }
 
     clearTimeout(dashTimeout);
     setActiveAbort(chatIdStr, null);
