@@ -34,6 +34,21 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy
-        run: flyctl deploy --remote-only --strategy immediate --app claudeclaw-impactworks
+        run: |
+          set -euo pipefail
+
+          for attempt in 1 2 3; do
+            if flyctl deploy --remote-only --strategy immediate --app claudeclaw-impactworks --deploy-retries 2; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Deploy failed after $attempt attempts."
+              exit 1
+            fi
+
+            echo "Deploy attempt $attempt failed. Waiting for any Fly machine lease to clear before retrying..."
+            sleep 45
+          done
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
