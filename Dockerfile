@@ -101,7 +101,7 @@ COPY relay/people-map.json relay/contacts.json ./relay/
 # No secrets here: clickup team ID is non-sensitive.
 RUN mkdir -p /app/.claude && printf '%s\n' \
   '{"mcpServers":{' \
-  '  "clickup":{"command":"node","args":["/app/connectors/clickup/server.mjs"],"env":{"CLICKUP_TEAM_ID":"10584109"}},' \
+  '  "clickup":{"command":"node","args":["/app/connectors/clickup/server.mjs"],"env":{"CLICKUP_TEAM_ID":"10584109","CLAUDECLAW_AGENTMAIL_GUARD":"true"}},' \
   '  "google_workspace_read":{"command":"node","args":["/app/connectors/google-workspace-read/server.mjs"]},' \
   '  "google_workspace_actions":{"command":"node","args":["/app/connectors/google-workspace-actions/server.mjs"]}' \
   '}}' \

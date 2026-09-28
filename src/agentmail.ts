@@ -38,7 +38,6 @@ const CLICKUP_WRITE_TOOLS = [
   'mcp__clickup__clickup_set_custom_field',
   'mcp__clickup__clickup_create_comment',
   'mcp__clickup__clickup_add_tag',
-  'mcp__clickup__clickup_remove_tag',
 ] as const;
 
 const GOOGLE_WORKSPACE_READ_TOOLS = [
@@ -312,7 +311,7 @@ export function buildAgentMailPrompt(
     : '(none)';
   const modeRules = mode === 'action'
     ? `CLICKUP ACTION MODE is enabled because the owner used "Nikki ACT:".
-You may perform only the directly requested, non-destructive ClickUp mutation. Verify target IDs and current state before writing. Never delete anything. Never perform financial activity, credential or account changes, publishing, browser automation, or outbound communication other than the reply to this email.`
+You may perform only the directly requested, non-destructive ClickUp mutation. Verify target IDs and current state before writing. Never delete anything, remove tags, clear fields, bulk-edit tasks, or notify external people. Never perform financial activity, credential or account changes, publishing, browser automation, or outbound communication other than the reply to this email.`
     : mode === 'save'
       ? `SAVE MODE is enabled because the owner used "Nikki SAVE:".
 Analyze the owner's new message and forwarded material. Explain concisely what is worth remembering, why it matters to the owner, and any useful connection or follow-up. Do not claim it has been persisted; the application saves it after your response. All tools are read-only.`

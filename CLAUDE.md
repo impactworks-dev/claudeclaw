@@ -142,14 +142,13 @@ node "$PROJECT_ROOT/dist/gcal-cli.js" create-event --title "Vacation" --start "2
 # WRITE — modify (only the flags you pass get changed)
 node "$PROJECT_ROOT/dist/gcal-cli.js" update-event <eventId> --title "Updated title" --start ISO --end ISO
 
-# WRITE — delete
-node "$PROJECT_ROOT/dist/gcal-cli.js" delete-event <eventId>
-
 # WRITE — respond to an invite (accepted/declined/tentative or yes/no/maybe)
 node "$PROJECT_ROOT/dist/gcal-cli.js" respond-to-event <eventId> --response yes
 ```
 
 All commands print JSON to stdout. The morning brief uses this for the calendar block.
+
+**Safety note:** Calendar deletion is blocked for agents. The `delete-event` CLI path requires a one-off operator environment override and must not be used from Nikki/AgentMail.
 
 ## Google Drive API
 
@@ -194,16 +193,13 @@ node "$PROJECT_ROOT/dist/gdrive-cli.js" update-content <fileId> --content "new b
 # WRITE — rename
 node "$PROJECT_ROOT/dist/gdrive-cli.js" rename <fileId> --name "Final version"
 
-# WRITE — delete
-node "$PROJECT_ROOT/dist/gdrive-cli.js" delete <fileId>
-
-# WRITE — share
-node "$PROJECT_ROOT/dist/gdrive-cli.js" share <fileId> --email someone@example.com --role writer --notify true
 ```
 
 Capped at 50K chars per read so the prompt budget stays sane.
 
 **Scope note:** Drive write operations use the `drive.file` OAuth scope. This means Nikki can only modify files SHE created, plus files Dante explicitly hands her by ID. She cannot list or modify random pre-existing files. If Dante asks Nikki to edit something she didn't create, she should ask him to share or paste the file ID first.
+
+**Safety note:** Drive delete/share/permission changes are blocked for agents. Those CLI paths require a one-off operator environment override and must not be used from Nikki/AgentMail.
 
 ## Email (Gmail API)
 

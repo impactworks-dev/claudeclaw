@@ -111,6 +111,13 @@ function fail(message: string, code = 1): never {
   process.exit(code);
 }
 
+function requireDestructiveGoogleCliOverride(action: string): void {
+  if (process.env.CLAUDECLAW_ALLOW_DESTRUCTIVE_GOOGLE_CLI === 'true') return;
+  fail(
+    `${action} is blocked for agent safety. Use the guarded AgentMail/Workspace action path, or set CLAUDECLAW_ALLOW_DESTRUCTIVE_GOOGLE_CLI=true for a one-off operator-run command.`,
+  );
+}
+
 // Format a Google Calendar event into a Nikki-friendly compact shape.
 function fmtEvent(e: calendar_v3.Schema$Event): Record<string, unknown> {
   const start = e.start?.dateTime || e.start?.date || null;
@@ -312,6 +319,7 @@ async function cmdUpdateEvent(eventId: string): Promise<void> {
 }
 
 async function cmdDeleteEvent(eventId: string): Promise<void> {
+  requireDestructiveGoogleCliOverride('delete-event');
   if (!eventId) fail('event id required');
   const calendarId = getFlag('calendar') || 'primary';
   const cal = getCalendarApi();
@@ -394,8 +402,10 @@ READ:
 WRITE:
   node dist/gcal-cli.js create-event --title T --start ISO --end ISO [--description D] [--location L] [--attendees a@b,c@d] [--all-day true] [--timezone TZ]
   node dist/gcal-cli.js update-event EVENT_ID [--title T] [--start ISO] [--end ISO] [--description D] [--location L] [--all-day true]
-  node dist/gcal-cli.js delete-event EVENT_ID
   node dist/gcal-cli.js respond-to-event EVENT_ID --response (accepted|declined|tentative | yes|no|maybe)
+
+DESTRUCTIVE OPERATOR-ONLY:
+  delete-event is blocked unless CLAUDECLAW_ALLOW_DESTRUCTIVE_GOOGLE_CLI=true is set for that one command.
 
 Flags:
   --calendar ID   non-primary calendar (default: primary)

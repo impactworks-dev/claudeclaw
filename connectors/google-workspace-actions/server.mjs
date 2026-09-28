@@ -34,6 +34,18 @@ function addFlag(args, name, value) {
   args.push(`--${name}`, String(value));
 }
 
+function compactText(value, max, label) {
+  const text = String(value ?? '').trim();
+  if (!text) throw new Error(`${label} is required`);
+  if (text.length > max) throw new Error(`${label} is too long (max ${max} characters)`);
+  return text;
+}
+
+function optionalCompactText(value, max, label) {
+  if (value === undefined || value === null || value === '') return undefined;
+  return compactText(value, max, label);
+}
+
 function assertRecipientCount(a) {
   const recipients = [a.to, a.cc, a.bcc]
     .filter(Boolean)
@@ -58,44 +70,48 @@ async function callTool(name, a = {}) {
   switch (name) {
     case 'gmail_create_draft': {
       assertRecipientCount(a);
-      const args = ['draft', '--to', String(a.to), '--subject', String(a.subject), '--body-text', String(a.body)];
+      const args = ['draft', '--to', String(a.to), '--subject', compactText(a.subject, 300, 'subject'), '--body-text', compactText(a.body, 12000, 'body')];
       addFlag(args, 'cc', a.cc); addFlag(args, 'bcc', a.bcc); return runCli('gmail-cli.js', args);
     }
     case 'gmail_send': {
       assertRecipientCount(a);
-      const args = ['send', '--to', String(a.to), '--subject', String(a.subject), '--body-text', String(a.body)];
+      const args = ['send', '--to', String(a.to), '--subject', compactText(a.subject, 300, 'subject'), '--body-text', compactText(a.body, 12000, 'body')];
       addFlag(args, 'cc', a.cc); addFlag(args, 'bcc', a.bcc); return runCli('gmail-cli.js', args);
     }
     case 'gmail_reply': {
-      const args = ['reply', '--id', String(a.message_id), '--thread', String(a.thread_id), '--body-text', String(a.body)];
+      const args = ['reply', '--id', String(a.message_id), '--thread', String(a.thread_id), '--body-text', compactText(a.body, 12000, 'body')];
       if (a.to || a.cc) assertRecipientCount(a);
       addFlag(args, 'to', a.to); addFlag(args, 'cc', a.cc); return runCli('gmail-cli.js', args);
     }
     case 'calendar_create_event': {
-      const args = ['create-event', '--title', String(a.title), '--start', String(a.start), '--end', String(a.end)];
-      addFlag(args, 'description', a.description); addFlag(args, 'location', a.location); addFlag(args, 'attendees', a.attendees); addFlag(args, 'all-day', a.all_day); addFlag(args, 'timezone', a.timezone || 'America/Toronto'); return runCli('gcal-cli.js', args);
+      const args = ['create-event', '--title', compactText(a.title, 300, 'title'), '--start', String(a.start), '--end', String(a.end)];
+      compactText(a.start, 80, 'start'); compactText(a.end, 80, 'end');
+      addFlag(args, 'description', optionalCompactText(a.description, 4000, 'description')); addFlag(args, 'location', optionalCompactText(a.location, 500, 'location')); addFlag(args, 'attendees', optionalCompactText(a.attendees, 1000, 'attendees')); addFlag(args, 'all-day', a.all_day); addFlag(args, 'timezone', optionalCompactText(a.timezone, 80, 'timezone') || 'America/Toronto'); return runCli('gcal-cli.js', args);
     }
     case 'calendar_update_event': {
+      compactText(a.event_id, 300, 'event_id');
+      const changed = ['title', 'start', 'end', 'description', 'location', 'all_day', 'timezone'].some((key) => a[key] !== undefined && a[key] !== null && a[key] !== '');
+      if (!changed) throw new Error('calendar_update_event requires at least one field to update');
       const args = ['update-event', String(a.event_id)];
-      addFlag(args, 'title', a.title); addFlag(args, 'start', a.start); addFlag(args, 'end', a.end); addFlag(args, 'description', a.description); addFlag(args, 'location', a.location); addFlag(args, 'all-day', a.all_day); addFlag(args, 'timezone', a.timezone || 'America/Toronto'); return runCli('gcal-cli.js', args);
+      addFlag(args, 'title', optionalCompactText(a.title, 300, 'title')); addFlag(args, 'start', optionalCompactText(a.start, 80, 'start')); addFlag(args, 'end', optionalCompactText(a.end, 80, 'end')); addFlag(args, 'description', optionalCompactText(a.description, 4000, 'description')); addFlag(args, 'location', optionalCompactText(a.location, 500, 'location')); addFlag(args, 'all-day', a.all_day); addFlag(args, 'timezone', optionalCompactText(a.timezone, 80, 'timezone') || 'America/Toronto'); return runCli('gcal-cli.js', args);
     }
-    case 'calendar_respond': return runCli('gcal-cli.js', ['respond-to-event', String(a.event_id), '--response', String(a.response)]);
+    case 'calendar_respond': return runCli('gcal-cli.js', ['respond-to-event', compactText(a.event_id, 300, 'event_id'), '--response', compactText(a.response, 20, 'response')]);
     case 'drive_create_doc': {
-      const args = ['create-doc', '--name', String(a.name)]; addFlag(args, 'content', a.content); addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
+      const args = ['create-doc', '--name', compactText(a.name, 180, 'name')]; addFlag(args, 'content', a.content ? compactText(a.content, 50000, 'content') : a.content); addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
     }
     case 'drive_create_sheet': {
-      const args = ['create-sheet', '--name', String(a.name)]; addFlag(args, 'csv', a.csv); addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
+      const args = ['create-sheet', '--name', compactText(a.name, 180, 'name')]; addFlag(args, 'csv', optionalCompactText(a.csv, 50000, 'csv')); addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
     }
     case 'drive_create_folder': {
-      const args = ['create-folder', '--name', String(a.name)]; addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
+      const args = ['create-folder', '--name', compactText(a.name, 180, 'name')]; addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
     }
     case 'drive_upload_text': {
-      const args = ['upload', '--name', String(a.name), '--content', String(a.content), '--mime', String(a.mime || 'text/plain')]; addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
+      const args = ['upload', '--name', compactText(a.name, 180, 'name'), '--content', compactText(a.content, 50000, 'content'), '--mime', optionalCompactText(a.mime, 120, 'mime') || 'text/plain']; addFlag(args, 'parent', a.parent); return runCli('gdrive-cli.js', args);
     }
     case 'drive_update_content': {
-      const args = ['update-content', String(a.file_id), '--content', String(a.content), '--mime', String(a.mime || 'text/plain')]; return runCli('gdrive-cli.js', args);
+      const args = ['update-content', compactText(a.file_id, 300, 'file_id'), '--content', compactText(a.content, 50000, 'content'), '--mime', optionalCompactText(a.mime, 120, 'mime') || 'text/plain']; return runCli('gdrive-cli.js', args);
     }
-    case 'drive_rename': return runCli('gdrive-cli.js', ['rename', String(a.file_id), '--name', String(a.name)]);
+    case 'drive_rename': return runCli('gdrive-cli.js', ['rename', compactText(a.file_id, 300, 'file_id'), '--name', compactText(a.name, 180, 'name')]);
     default: throw new Error(`Unknown tool: ${name}`);
   }
 }

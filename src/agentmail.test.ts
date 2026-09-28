@@ -96,6 +96,7 @@ describe('AgentMail identity and mode parsing', () => {
     expect(readPolicy.allowedTools).toContain('mcp__google_workspace_read__gmail_search');
     expect(readPolicy.allowedTools).not.toContain('mcp__clickup__clickup_create_task');
     expect(actionPolicy.allowedTools).toContain('mcp__clickup__clickup_create_task');
+    expect(actionPolicy.allowedTools).not.toContain('mcp__clickup__clickup_remove_tag');
     expect(actionPolicy.allowedTools).not.toContain('WebSearch');
     expect(agentMailToolPolicy('research').allowedTools).toContain('WebSearch');
     expect(actionPolicy.disallowedTools).toContain('Bash');

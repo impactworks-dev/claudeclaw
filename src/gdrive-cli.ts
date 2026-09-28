@@ -89,6 +89,13 @@ function fail(message: string, code = 1): never {
   process.exit(code);
 }
 
+function requireDestructiveGoogleCliOverride(action: string): void {
+  if (process.env.CLAUDECLAW_ALLOW_DESTRUCTIVE_GOOGLE_CLI === 'true') return;
+  fail(
+    `${action} is blocked for agent safety. Use the guarded AgentMail/Workspace action path, or set CLAUDECLAW_ALLOW_DESTRUCTIVE_GOOGLE_CLI=true for a one-off operator-run command.`,
+  );
+}
+
 function fmtFile(f: drive_v3.Schema$File): Record<string, unknown> {
   return {
     id: f.id,
@@ -362,6 +369,7 @@ async function cmdRename(fileId: string): Promise<void> {
 }
 
 async function cmdDelete(fileId: string): Promise<void> {
+  requireDestructiveGoogleCliOverride('delete');
   if (!fileId) fail('file id required');
   const drive = getDriveApi();
   try {
@@ -373,6 +381,7 @@ async function cmdDelete(fileId: string): Promise<void> {
 }
 
 async function cmdShare(fileId: string): Promise<void> {
+  requireDestructiveGoogleCliOverride('share');
   if (!fileId) fail('file id required');
   const email = getFlag('email');
   const role = getFlag('role') || 'reader'; // reader | commenter | writer
@@ -429,8 +438,9 @@ WRITE (drive.file scope — limited to files Nikki creates):
   node dist/gdrive-cli.js create-folder --name N [--parent FOLDER_ID]
   node dist/gdrive-cli.js update-content FILE_ID (--file PATH | --content STR) [--mime T]
   node dist/gdrive-cli.js rename FILE_ID --name N
-  node dist/gdrive-cli.js delete FILE_ID
-  node dist/gdrive-cli.js share FILE_ID --email a@b.com [--role reader|commenter|writer] [--notify true]
+
+DESTRUCTIVE / PERMISSION OPERATOR-ONLY:
+  delete and share are blocked unless CLAUDECLAW_ALLOW_DESTRUCTIVE_GOOGLE_CLI=true is set for that one command.
 
 Flags:
   --max N         max results (default: 20)

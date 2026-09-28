@@ -82,6 +82,45 @@ function team(args) {
 }
 const enc = encodeURIComponent;
 
+function compactText(value, max, label) {
+  const text = String(value ?? '').trim();
+  if (!text) throw new Error(`${label} is required`);
+  if (text.length > max) throw new Error(`${label} is too long (max ${max} characters)`);
+  return text;
+}
+
+function optionalCompactText(value, max, label) {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  if (text.length > max) throw new Error(`${label} is too long (max ${max} characters)`);
+  return text;
+}
+
+function assertAgentmailClickupWriteAllowed(name, args) {
+  if (process.env.CLAUDECLAW_AGENTMAIL_GUARD !== 'true') return;
+  if (name === 'clickup_remove_tag') {
+    throw new Error('clickup_remove_tag is blocked in the AgentMail owner command channel');
+  }
+  if (name === 'clickup_create_comment' && args.notify_all === true) {
+    throw new Error('notify_all is blocked in the AgentMail owner command channel');
+  }
+  if (name === 'clickup_create_task') {
+    compactText(args.name, 180, 'task name');
+    optionalCompactText(args.description, 4000, 'task description');
+    if (Array.isArray(args.tags) && args.tags.length > 5) throw new Error('at most 5 tags are allowed');
+  }
+  if (name === 'clickup_update_task') {
+    optionalCompactText(args.name, 180, 'task name');
+    optionalCompactText(args.description, 4000, 'task description');
+    if (Object.keys(args).filter((key) => key !== 'task_id').length === 0) {
+      throw new Error('clickup_update_task requires at least one field to update');
+    }
+  }
+  if (name === 'clickup_create_comment') {
+    compactText(args.comment_text, 4000, 'comment text');
+  }
+}
+
 const tools = [
   {
     name: 'clickup_get_workspaces',
@@ -215,6 +254,7 @@ const tools = [
 
 async function callTool(name, args) {
   args = args || {};
+  assertAgentmailClickupWriteAllowed(name, args);
   switch (name) {
     case 'clickup_get_workspaces':
       return api('GET', '/team');
