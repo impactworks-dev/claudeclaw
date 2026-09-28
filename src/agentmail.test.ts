@@ -72,7 +72,8 @@ describe('AgentMail identity and mode parsing', () => {
 
   it('recognizes each explicitly guarded Google Workspace prefix', () => {
     expect(getAgentMailMode(message({ subject: 'Nikki DRAFT: write this email' }))).toBe('draft');
-    expect(getAgentMailMode(message({ subject: 'Send this', text: 'Nikki SEND: email alex@example.com' }))).toBe('send');
+    expect(getAgentMailMode(message({ subject: 'Send this', text: 'Nikki SEND: email alex@example.com' }))).toBe('send_prepare');
+    expect(getAgentMailMode(message({ subject: 'Nikki SEND NOW: email alex@example.com' }))).toBe('send');
     expect(getAgentMailMode(message({ subject: 'Nikki CAL: move the meeting' }))).toBe('calendar');
     expect(getAgentMailMode(message({ subject: 'Nikki DRIVE: rename the file' }))).toBe('drive');
   });
@@ -105,6 +106,7 @@ describe('AgentMail identity and mode parsing', () => {
     const save = agentMailToolPolicy('save').allowedTools || [];
     const research = agentMailToolPolicy('research').allowedTools || [];
     const draft = agentMailToolPolicy('draft').allowedTools || [];
+    const sendPrepare = agentMailToolPolicy('send_prepare').allowedTools || [];
     const send = agentMailToolPolicy('send').allowedTools || [];
     const calendar = agentMailToolPolicy('calendar').allowedTools || [];
     const drive = agentMailToolPolicy('drive').allowedTools || [];
@@ -114,6 +116,8 @@ describe('AgentMail identity and mode parsing', () => {
     }
     expect(draft).toContain('mcp__google_workspace_actions__gmail_create_draft');
     expect(draft).not.toContain('mcp__google_workspace_actions__gmail_send');
+    expect(sendPrepare).toContain('mcp__google_workspace_actions__gmail_create_draft');
+    expect(sendPrepare).not.toContain('mcp__google_workspace_actions__gmail_send');
     expect(send).toContain('mcp__google_workspace_actions__gmail_send');
     expect(send).toContain('mcp__google_workspace_actions__gmail_reply');
     expect(send).not.toContain('mcp__google_workspace_actions__gmail_create_draft');
