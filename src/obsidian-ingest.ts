@@ -77,8 +77,10 @@ function resolveVaultPath(): string {
   const env = process.env.OBSIDIAN_VAULT_PATH;
   if (env?.trim()) return env.trim();
   if (fs.existsSync('/app/store/obsidian-brain')) return '/app/store/obsidian-brain';
-  const mac = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
-  if (fs.existsSync(mac)) return mac;
+  const macICloud = '/Users/dantecrescenzi/Library/Mobile Documents/com~apple~CloudDocs/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macICloud)) return macICloud;
+  const macLocal = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macLocal)) return macLocal;
   throw new Error('Obsidian vault not found. Set OBSIDIAN_VAULT_PATH env var.');
 }
 

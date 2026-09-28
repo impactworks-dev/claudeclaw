@@ -84,9 +84,11 @@ function resolveVaultPath(): string {
   // Fly: Syncthing-synced copy
   const flyDefault = '/app/store/obsidian-brain';
   if (fs.existsSync(flyDefault)) return flyDefault;
-  // Dev/Mac fallback
-  const macDefault = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
-  if (fs.existsSync(macDefault)) return macDefault;
+  // Dev/Mac fallbacks
+  const macICloud = '/Users/dantecrescenzi/Library/Mobile Documents/com~apple~CloudDocs/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macICloud)) return macICloud;
+  const macLocal = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macLocal)) return macLocal;
   return flyDefault;
 }
 

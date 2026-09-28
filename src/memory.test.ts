@@ -33,6 +33,10 @@ vi.mock('./gemini.js', () => ({
   parseJsonResponse: vi.fn(() => []),
 }));
 
+vi.mock('./brain-data.js', () => ({
+  buildWikiContext: vi.fn(() => ({ contextText: '', surfacedPaths: [] })),
+}));
+
 import {
   buildMemoryContext,
   shouldRequireMemoryContext,

@@ -67,6 +67,11 @@ interface IngestIndex {
   [fileId: string]: IndexEntry;
 }
 
+type DriveReadResult =
+  | { ok: true; content: string }
+  | { ok: false; reason: 'empty' | 'not_exportable' | 'unsupported' | 'error'; details?: string };
+type DriveReadFailure = Extract<DriveReadResult, { ok: false }>;
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const READABLE_MIMES: Record<string, string> = {
@@ -102,16 +107,21 @@ function resolveVaultPath(): string {
   const env = process.env.OBSIDIAN_VAULT_PATH;
   if (env?.trim()) return env.trim();
   if (fs.existsSync('/app/store/obsidian-brain')) return '/app/store/obsidian-brain';
-  const mac = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
-  if (fs.existsSync(mac)) return mac;
+  const macICloud = '/Users/dantecrescenzi/Library/Mobile Documents/com~apple~CloudDocs/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macICloud)) return macICloud;
+  const macLocal = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macLocal)) return macLocal;
   return '/app/store/obsidian-brain';
 }
 
 function getProjectRoot(): string {
   try {
-    return execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
+    return execSync('git rev-parse --show-toplevel', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch {
-    return process.cwd();
+    return process.env.PROJECT_ROOT || process.cwd();
   }
 }
 
@@ -157,7 +167,23 @@ async function listDriveFiles(mimeType: string, maxFiles: number): Promise<Drive
   }
 }
 
-async function readDriveFile(fileId: string): Promise<string | null> {
+function classifyDriveReadFailure(err: unknown): DriveReadFailure {
+  const stderr = typeof (err as { stderr?: unknown })?.stderr === 'string'
+    ? String((err as { stderr?: unknown }).stderr)
+    : '';
+  const message = err instanceof Error ? err.message : String(err);
+  const text = `${stderr}\n${message}`;
+
+  if (text.includes('cannotExportFile') || text.includes('This file cannot be exported')) {
+    return { ok: false, reason: 'not_exportable', details: 'Google Drive says this file cannot be exported by this account' };
+  }
+  if (text.includes('unsupported mimeType') || text.includes('Unsupported mimeType')) {
+    return { ok: false, reason: 'unsupported', details: 'unsupported Drive file type' };
+  }
+  return { ok: false, reason: 'error', details: message.slice(0, 300) };
+}
+
+async function readDriveFile(fileId: string): Promise<DriveReadResult> {
   const cli = getCliPath();
   try {
     const { stdout } = await execFileAsync(
@@ -168,18 +194,23 @@ async function readDriveFile(fileId: string): Promise<string | null> {
     // gdrive-cli wraps content in JSON: { ok, content } or just returns text
     try {
       const parsed = JSON.parse(stdout);
-      if (parsed.content) return parsed.content;
-      if (parsed.text) return parsed.text;
+      if (parsed.content) return { ok: true, content: parsed.content };
+      if (parsed.text) return { ok: true, content: parsed.text };
       // If it parsed but no content field, maybe error
-      if (!parsed.ok) return null;
+      if (!parsed.ok) return { ok: false, reason: 'empty' };
     } catch {
       // Not JSON — raw text content returned directly
-      return stdout;
+      return { ok: true, content: stdout };
     }
-    return stdout;
+    return { ok: true, content: stdout };
   } catch (err) {
-    logger.warn({ err, fileId }, 'Failed to read Drive file');
-    return null;
+    const result = classifyDriveReadFailure(err);
+    if (result.reason === 'not_exportable' || result.reason === 'unsupported') {
+      logger.info({ fileId, reason: result.reason, details: result.details }, 'Skipping unreadable Drive file');
+    } else {
+      logger.warn({ err, fileId }, 'Failed to read Drive file');
+    }
+    return result;
   }
 }
 
@@ -366,9 +397,32 @@ export async function runDriveIngest(opts: {
     process.stdout.write(`${label}... `);
 
     // Read content
-    const content = await readDriveFile(file.id);
-    if (!content || content.trim().length < 50) {
+    const readResult = await readDriveFile(file.id);
+    if (!readResult.ok) {
+      process.stdout.write(`(${readResult.reason}, skip)\n`);
+      if (readResult.reason === 'not_exportable' || readResult.reason === 'unsupported') {
+        index[file.id] = {
+          modifiedTime: file.modifiedTime,
+          memoryId: -1,
+          ingestedAt: new Date().toISOString(),
+          name: file.name,
+        };
+        if (!dryRun) saveIndex(storePath, index);
+      }
+      failed++;
+      continue;
+    }
+
+    const content = readResult.content;
+    if (content.trim().length < 50) {
       process.stdout.write('(no content, skip)\n');
+      index[file.id] = {
+        modifiedTime: file.modifiedTime,
+        memoryId: -1,
+        ingestedAt: new Date().toISOString(),
+        name: file.name,
+      };
+      if (!dryRun) saveIndex(storePath, index);
       failed++;
       continue;
     }

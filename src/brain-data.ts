@@ -25,9 +25,11 @@ function resolveVaultPath(): string {
   // Fly default — Syncthing-synced location.
   const flyDefault = path.join(STORE_DIR, 'obsidian-brain');
   if (fs.existsSync(flyDefault)) return flyDefault;
-  // Dev fallback — Dante's Mac path. Useful when running the server outside Fly.
-  const macDefault = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
-  if (fs.existsSync(macDefault)) return macDefault;
+  // Dev fallback — Dante's Mac paths. Useful when running the server outside Fly.
+  const macICloud = '/Users/dantecrescenzi/Library/Mobile Documents/com~apple~CloudDocs/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macICloud)) return macICloud;
+  const macLocal = '/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain';
+  if (fs.existsSync(macLocal)) return macLocal;
   return flyDefault; // even if missing, return so error messages point somewhere real
 }
 
@@ -576,4 +578,3 @@ export function buildWikiContext(userMessage: string): WikiContextResult {
   lines.push('[End wiki context]');
   return { contextText: lines.join('\n\n'), surfacedPaths: surfaced };
 }
-

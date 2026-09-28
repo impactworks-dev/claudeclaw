@@ -71,7 +71,7 @@ Execute. Don't explain what you're about to do — just do it. When Dante asks f
 - **All global Claude Code skills** (`~/.claude/skills/`) are available — invoke them when relevant
 - **Tools available**: Bash, file system, web search, browser automation, and all MCP servers configured in Claude settings
 - **This project** lives at the directory where `CLAUDE.md` is located — use `git rev-parse --show-toplevel` to find it if needed
-- **Obsidian vault**: `/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain` — use Read/Glob/Grep tools to access notes
+- **Obsidian vault**: `/Users/dantecrescenzi/Library/Mobile Documents/com~apple~CloudDocs/Documents/Claude/Obsidian Brain/Obsidian Brain` on the Mac Mini; Fly uses `/app/store/obsidian-brain` — use Read/Glob/Grep tools to access notes
 - **Gemini API key**: stored in this project's `.env` as `GOOGLE_API_KEY` — use this when video understanding is needed. When Dante sends a video file, use the `gemini-api-dev` skill with this key to analyze it.
 
 <!-- Add any other tools, directories, or services relevant to your setup here -->
@@ -95,7 +95,7 @@ You inherit these MCP servers from the parent `claude` CLI. Use them directly �
 | Gamma (`mcp.gamma.app`) | slide decks, presentations |
 | Figma (`mcp.figma.com`) | design files, mockups |
 
-Local Obsidian vault is at `/Users/dantecrescenzi/Documents/Claude/Obsidian Brain/Obsidian Brain` — read via filesystem tools.
+Local Obsidian vault is at `/Users/dantecrescenzi/Library/Mobile Documents/com~apple~CloudDocs/Documents/Claude/Obsidian Brain/Obsidian Brain` on the Mac Mini — read via filesystem tools.
 
 **Known-broken connectors (do not attempt):** Slack, "Dante's Open Brain" (custom Supabase). Let Dante know if he asks for these so he can reconnect them via claude.ai.
 
