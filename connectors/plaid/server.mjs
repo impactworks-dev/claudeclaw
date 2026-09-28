@@ -268,11 +268,11 @@ async function callTool(name, args) {
       const out = await Promise.all(Object.values(items).map(async (v) => {
         let error = null;
         try {
-          const itemResult = await api('/item/get', { access_token: v.access_token });
+          const itemResult = await api('/item/get', { access_token: v.access_token }, 6_000);
           error = itemResult?.item?.error || null;
           // Some terminal states (notably NO_ACCOUNTS) are returned by
           // /accounts/get even when /item/get has no top-level Item error.
-          if (!error) await api('/accounts/get', { access_token: v.access_token });
+          if (!error) await api('/accounts/get', { access_token: v.access_token }, 6_000);
         } catch (e) {
           error = e?.plaid || { error_code: 'PLAID_REQUEST_FAILED', error_message: String(e?.message || e) };
         }

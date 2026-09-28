@@ -95,13 +95,13 @@ export interface CashSummary {
 }
 
 // ---- Plaid CLI bridge ----
-async function plaidCall(tool: string, args: Record<string, unknown> = {}): Promise<any> {
+async function plaidCall(tool: string, args: Record<string, unknown> = {}, timeoutMs = 10_000): Promise<any> {
   const { stdout } = await execFileAsync('node', [PLAID_SERVER, '--call', tool, JSON.stringify(args)], {
     env: { ...process.env },
     maxBuffer: 64 * 1024 * 1024,
     // Fail fast — Plaid auth errors can block for 60-150s without this.
     // 10s is plenty for a healthy Plaid call; expired credentials surface immediately.
-    timeout: 10_000,
+    timeout: timeoutMs,
   });
   return JSON.parse(stdout);
 }
@@ -525,7 +525,7 @@ export interface PlaidItemStatus {
 
 /** List every stored Plaid Item with a live, non-billable health check. */
 export async function listPlaidItems(): Promise<{ items: PlaidItemStatus[] }> {
-  return plaidCall('plaid_list_items', {});
+  return plaidCall('plaid_list_items', {}, 20_000);
 }
 
 /** Create a link_token for the Plaid Link UI. The redirect_uri must match an

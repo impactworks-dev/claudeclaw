@@ -2449,7 +2449,11 @@ export function startDashboard(botApi?: Api<RawApi>): void {
     try {
       return c.json(await listPlaidItems());
     } catch (e) {
-      return c.json({ error: String((e as Error)?.message || e) }, 500);
+      return c.json({
+        items: [],
+        degraded: true,
+        error: String((e as Error)?.message || e),
+      });
     }
   });
 
