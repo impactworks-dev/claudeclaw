@@ -1,9 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500;1,600&display=swap');
 @import "tailwindcss";
 
 /* Handwritten + serif typefaces for the Five-Minute Journal feature.
    Caveat = the looping cursive in the source journal (lines + numerals).
    Cormorant Garamond = the italic display serif for quotes + headers. */
-@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500;1,600&display=swap');
 
 /* ── Theme tokens ────────────────────────────────────────────────────
    Two independent axes:
