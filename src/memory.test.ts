@@ -15,6 +15,7 @@ vi.mock('./db.js', () => ({
   pruneSlackMessages: vi.fn(() => 0),
   pruneWarRoomMeetings: vi.fn(() => 0),
   searchConsolidations: vi.fn(),
+  searchConversationHistory: vi.fn(() => []),
   getRecentConsolidations: vi.fn(),
 }));
 
@@ -34,6 +35,7 @@ vi.mock('./gemini.js', () => ({
 
 import {
   buildMemoryContext,
+  shouldRequireMemoryContext,
   saveConversationTurn,
   runDecaySweep,
 } from './memory.js';
@@ -110,6 +112,28 @@ describe('buildMemoryContext', () => {
     expect(contextText).toContain('[End memory context]');
   });
 
+  it('adds context-use instructions for AI stack and setup questions', async () => {
+    mockSearchMemories.mockReturnValue([
+      makeMemory({ summary: 'Nikki uses GBrain and Unabyss context', topics: '["AI Stack"]', importance: 0.9 }),
+    ]);
+    mockGetRecentHighImportance.mockReturnValue([]);
+
+    const { contextText } = await buildMemoryContext('chat1', 'What do you know about my AI stack and GBrain setup?');
+    expect(contextText).toContain('[Context use requirement]');
+    expect(contextText).toContain('Use the retrieved memory');
+    expect(contextText).toContain('Nikki uses GBrain and Unabyss context');
+  });
+
+  it('warns the agent not to guess when a context-needed question has no retrieved context', async () => {
+    mockSearchMemories.mockReturnValue([]);
+    mockGetRecentHighImportance.mockReturnValue([]);
+
+    const { contextText } = await buildMemoryContext('chat1', 'What is left in the ClaudeClaw setup?');
+    expect(contextText).toContain('[Context use requirement]');
+    expect(contextText).toContain('No relevant local memory or Brain/wiki context was retrieved');
+    expect(contextText).toContain('avoid guessing');
+  });
+
   it('deduplicates between FTS and recent results', async () => {
     const mem = makeMemory({ summary: 'shared memory' });
     mockSearchMemories.mockReturnValue([mem]);
@@ -133,6 +157,19 @@ describe('buildMemoryContext', () => {
     expect(surfacedMemoryIds).toContain(10);
     expect(surfacedMemoryIds).toContain(20);
     expect(surfacedMemorySummaries.get(10)).toBe('A test memory');
+  });
+});
+
+describe('shouldRequireMemoryContext', () => {
+  it('flags identity, architecture, and recall style questions', () => {
+    expect(shouldRequireMemoryContext('What do you know about Nikki and ClaudeClaw?')).toBe(true);
+    expect(shouldRequireMemoryContext('How is GBrain wired into my AI stack?')).toBe(true);
+    expect(shouldRequireMemoryContext('Do you remember the setup plan?')).toBe(true);
+  });
+
+  it('does not flag low-context replies', () => {
+    expect(shouldRequireMemoryContext('ok')).toBe(false);
+    expect(shouldRequireMemoryContext('go ahead')).toBe(false);
   });
 });
 
